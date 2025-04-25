@@ -39,8 +39,9 @@ struct PinDef {
 };
 
 #define DEV_11 0
+#define DEV_LM 1
 
-static uint32_t volatile *devs[1];
+static uint32_t volatile *devs[2];
 
 static PinDef const pindefs[] = {
 
@@ -124,6 +125,10 @@ static PinDef const pindefs[] = {
     { "d_in_h",          DEV_11, Z_RG, g_d_in_h,      0, false },
     { "d_out_h",         DEV_11, Z_RG, g_d_out_h,     0, false },
 
+    { "lm_addr",         DEV_LM, 1,    07777,         0, true  },
+    { "lm_data",         DEV_LM, 2,    0177777,       0, true  },
+    { "lm_enab",         DEV_LM, 3,    0x80000000,    0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 
@@ -149,6 +154,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         // access the zynq io page and find devices thereon
         z11page = new Z11Page ();
         devs[DEV_11] = z11page->findev ("11", NULL, NULL, false);
+        devs[DEV_LM] = z11page->findev ("LM", NULL, NULL, false);
 #if 000
         // get pointer to the 32K-word ram
         // maps each 12-bit word into low 12 bits of 32-bit word

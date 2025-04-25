@@ -108,7 +108,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314001;
+    localparam VERSION = 32'h31314003;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -124,29 +124,58 @@ module Zynq (
     //  internal bus signals  //
     ////////////////////////////
 
-    reg dev_bbsy_out_h, dev_init_out_h, dev_intr_out_h, dev_bbsy_in_h, dev_hltgr_in_l, dev_npg_in_l, dev_ac_lo_in_h;
-    reg dev_msyn_out_h, dev_npg_out_h, dev_npr_out_h, dev_hltrq_in_h, dev_init_in_h, dev_sack_in_h, dev_bbsy_in_h, dev_hltrq_out_h;
-    reg dev_pa_out_h, dev_pb_out_h, dev_sack_out_h, dev_ssyn_out_h, dev_ac_lo_in_h, dev_dc_lo_in_h, dev_intr_in_h, dev_ssyn_in_h, dev_dc_lo_in_h;
-    reg[15:00] dev_d_out_h;
-    reg[7:4] dev_bg_out_l, dev_br_out_h, dev_bg_in_l;
+    // _in_ signals: FM_OFF,FM_MAN: zeroes; FM_SIM: from simulator; FM_REAL: from unibus
+    // _out_ signals: FM_OFF,FM_MAN: ignored; FM_SIM: to simulator; FM_REAL: to unibus
+
+    reg dev_ac_lo_in_h;
+    reg dev_bbsy_in_h;
+    reg dev_dc_lo_in_h;
+    reg dev_hltgr_in_l;
+    reg dev_hltrq_in_h;
+    reg dev_hltrq_out_h;
+    reg dev_intr_in_h;
+    reg dev_init_in_h;
+    reg dev_init_out_h;
+    reg dev_msyn_out_h;
+    reg dev_npg_in_l;
+    reg dev_npg_out_l;
+    reg dev_npr_out_h;
+    reg dev_sack_in_h;
+    reg dev_ssyn_in_h;
+
+    reg[1:0] dev_c_in_h;
     reg[1:0] dev_c_out_h;
+    reg[7:4] dev_bg_in_l;
+    reg[15:00] dev_d_in_h;
+    reg[17:00] dev_a_in_h;
     reg[17:00] dev_a_out_h;
 
-    reg dev_npg_out_l, dev_pb_in_h;
-    reg[1:0] dev_c_in_h;
-    reg[17:00] dev_a_in_h;
-    reg[15:00] dev_d_in_h;
+    wire dev_bbsy_out_h;
+    wire dev_intr_out_h;
+    wire dev_sack_out_h;
+    wire dev_ssyn_out_h;
+    wire[7:4] dev_bg_out_l;
+    wire[7:4] dev_br_out_h;
+    wire[15:00] dev_d_out_h;
 
     /////////////////////////////////////////////////////////////
     //  signals coming out of simulator going to internal bus  //
     /////////////////////////////////////////////////////////////
 
-    reg sim_msyn_in_h, sim_intr_in_h, sim_sack_in_h;
-    reg sim_ac_lo_in_h, sim_bbsy_in_h, sim_dc_lo_in_h, sim_hltgr_in_l, sim_init_in_h, sim_npg_in_l, sim_ssyn_in_h;
+    reg sim_ac_lo_in_h;
+    reg sim_bbsy_in_h;
+    reg sim_dc_lo_in_h;
+    reg sim_hltgr_in_l;
+    reg sim_init_in_h;
+    reg sim_intr_in_h;
+    reg sim_msyn_in_h;
+    reg sim_npg_in_l;
+    reg sim_sack_in_h;
+    reg sim_ssyn_in_h;
     reg[1:0] sim_c_in_h;
     reg[7:4] sim_bg_in_l;
-    reg[17:00] sim_a_in_h;
     reg[15:00] sim_d_in_h;
+    reg[17:00] sim_a_in_h;
 
     ///////////////////////////////////////
     //  demultiplex signals from unibus  //
@@ -222,6 +251,7 @@ module Zynq (
     //   arm registers forwarded to unibus if MAN mode
 
     reg[31:00] regctla, regctlb;
+    reg[4:0] muxcount;
 
     localparam FM_OFF  = 0;
     localparam FM_SIM  = 1;
@@ -272,8 +302,8 @@ module Zynq (
                 msyn_out_h  <= dev_msyn_out_h;
                 npg_out_l   <= dev_npg_out_l;
                 npr_out_h   <= dev_npr_out_h;
-                pa_out_h    <= dev_pa_out_h;
-                pb_out_h    <= dev_pb_out_h;
+                pa_out_h    <= 0;
+                pb_out_h    <= 0;
                 sack_out_h  <= dev_sack_out_h;
                 ssyn_out_h  <= dev_ssyn_out_h;
 
@@ -317,11 +347,30 @@ module Zynq (
     //   from simulator if SIM
     //   from real unibus if REAL
 
-    wire syn_msyn_in_h;
-    synk synkmsyn (CLOCK, syn_msyn_in_h, msyn_in_h);
+    wire syn_ac_lo_in_h, syn_bbsy_in_h, syn_dc_lo_in_h, syn_hltgr_in_l, syn_init_in_h;
+    wire syn_intr_in_h, syn_msyn_in_h, syn_npg_in_l, syn_sack_in_h, syn_ssyn_in_h;
+    wire[7:4] syn_bg_in_l;
+    synk synkac_lo (CLOCK, syn_ac_lo_in_h, ac_lo_in_h);
+    synk synkbbsy  (CLOCK, syn_bbsy_in_h,  bbsy_in_h);
+    synk synkdc_lo (CLOCK, syn_dc_lo_in_h, dc_lo_in_h);
+    synk synkhltgr (CLOCK, syn_hltgr_in_l, hltgr_in_l);
+    synk synkinit  (CLOCK, syn_init_in_h,  init_in_h);
+    synk synkintr  (CLOCK, syn_intr_in_h,  intr_in_h);
+    synk synkmsyn  (CLOCK, syn_msyn_in_h,  msyn_in_h);
+    synk synknpg   (CLOCK, syn_npg_in_l,   npg_in_l);
+    synk synksack  (CLOCK, syn_sack_in_h,  sack_in_h);
+    synk synkssyn  (CLOCK, syn_ssyn_in_h,  ssyn_in_h);
+    synk synkbg_4  (CLOCK, syn_bg_in_l[4], bg_in_l[4]);
+    synk synkbg_5  (CLOCK, syn_bg_in_l[5], bg_in_l[5]);
+    synk synkbg_6  (CLOCK, syn_bg_in_l[6], bg_in_l[6]);
+    synk synkbg_7  (CLOCK, syn_bg_in_l[7], bg_in_l[7]);
+
+    // multiplexed signals:
+    //  FM_OFF,FM_MAN: send zeroes to internal bus
+    //  FM_SIM: use signals from simulated cpu as is
+    //  FM_REAL: latch signals from continually cycled multiplexors
 
     reg dev_msyn_in_h, last_msyn_in_h;
-    reg[4:0] muxcount;
     reg[4:3] muxsyncd;
 
     always @(posedge CLOCK) begin
@@ -393,6 +442,7 @@ module Zynq (
     end
 
     // continuously forward non-multiplxed signals to internal bus
+
     always @(*) begin
         case (regctla[31:30])
 
@@ -403,9 +453,8 @@ module Zynq (
                 dev_bg_in_l    <= 15;
                 dev_dc_lo_in_h <= 0;
                 dev_hltgr_in_l <= 0;
-                dev_init_in_h  <= 0;
+                dev_init_in_h  <= ~ RESET_N;
                 dev_intr_in_h  <= 0;
-                dev_msyn_in_h  <= 0;
                 dev_npg_in_l   <= 1;
                 dev_sack_in_h  <= 0;
                 dev_ssyn_in_h  <= 0;
@@ -418,9 +467,8 @@ module Zynq (
                 dev_bg_in_l    <= sim_bg_in_l;
                 dev_dc_lo_in_h <= sim_dc_lo_in_h;
                 dev_hltgr_in_l <= sim_hltgr_in_l;
-                dev_init_in_h  <= sim_init_in_h;
+                dev_init_in_h  <= sim_init_in_h | ~ RESET_N;
                 dev_intr_in_h  <= sim_intr_in_h;
-                dev_msyn_in_h  <= sim_msyn_in_h;
                 dev_npg_in_l   <= sim_npg_in_l;
                 dev_sack_in_h  <= sim_sack_in_h;
                 dev_ssyn_in_h  <= sim_ssyn_in_h;
@@ -428,24 +476,23 @@ module Zynq (
 
             // FM_REAL - forward inputs from unibus to internal bus
             FM_REAL: begin
-                dev_ac_lo_in_h <= ac_lo_in_h;
-                dev_bbsy_in_h  <= bbsy_in_h;
-                dev_bg_in_l    <= bg_in_l;
-                dev_dc_lo_in_h <= dc_lo_in_h;
-                dev_hltgr_in_l <= hltgr_in_l;
-                dev_init_in_h  <= init_in_h;
-                dev_intr_in_h  <= intr_in_h;
-                dev_msyn_in_h  <= msyn_in_h;
-                dev_npg_in_l   <= npg_in_l;
-                dev_sack_in_h  <= sack_in_h;
-                dev_ssyn_in_h  <= ssyn_in_h;
+                dev_ac_lo_in_h <= syn_ac_lo_in_h;
+                dev_bbsy_in_h  <= syn_bbsy_in_h;
+                dev_bg_in_l    <= syn_bg_in_l;
+                dev_dc_lo_in_h <= syn_dc_lo_in_h;
+                dev_hltgr_in_l <= syn_hltgr_in_l;
+                dev_init_in_h  <= syn_init_in_h | ~ RESET_N;
+                dev_intr_in_h  <= syn_intr_in_h;
+                dev_npg_in_l   <= syn_npg_in_l;
+                dev_sack_in_h  <= syn_sack_in_h;
+                dev_ssyn_in_h  <= syn_ssyn_in_h;
             end
         endcase
     end
 
-    //////////////////////////////////////////////////////
-    //  give arm direct read-only access to input pins  //
-    //////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////
+    //  give arm direct read-only access to unibus pins  //
+    ///////////////////////////////////////////////////////
 
     wire[31:00] regctlc = {
         muxa,           // multiplexed inputs
@@ -528,18 +575,30 @@ module Zynq (
         d_out_h         // data bus outputs
     };
 
+    /////////////////////////////////////
+    //  arm reading/writing registers  //
+    /////////////////////////////////////
+
+    wire[31:00] lmarmrdata;
+    wire[31:00] tt0armrdata;
+
     assign saxi_RDATA =
-        (readaddr        == 10'b0000000000) ? VERSION    :  // 00000xxxxx00
-        (readaddr        == 10'b0000000001) ? regctla    :
-        (readaddr        == 10'b0000000010) ? regctlb    :
-        (readaddr        == 10'b0000000011) ? regctlc    :
-        (readaddr        == 10'b0000000100) ? regctld    :
-        (readaddr        == 10'b0000000101) ? regctle    :
-        (readaddr        == 10'b0000000110) ? regctlf    :
-        (readaddr        == 10'b0000000111) ? regctlg    :
+        (readaddr        == 10'b0000000000) ? VERSION     :
+        (readaddr        == 10'b0000000001) ? regctla     :
+        (readaddr        == 10'b0000000010) ? regctlb     :
+        (readaddr        == 10'b0000000011) ? regctlc     :
+        (readaddr        == 10'b0000000100) ? regctld     :
+        (readaddr        == 10'b0000000101) ? regctle     :
+        (readaddr        == 10'b0000000110) ? regctlf     :
+        (readaddr        == 10'b0000000111) ? regctlg     :
+        (readaddr[11:04] ==  8'b00001000)   ? lmarmrdata  :
+        (readaddr[11:04] ==  8'b00001001)   ? tt0armrdata :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
+
+    wire lmarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001000);
+    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001001);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -604,29 +663,161 @@ module Zynq (
         end
     end
 
-    /////////////////////////////////////////////
-    //  synchronize signals output by the PDP  //
-    /////////////////////////////////////////////
-/***
-    synk synkaa (CLOCK, q_ADDR_ACCEPT, o_ADDR_ACCEPT);
-    synk synkbr (CLOCK, qB_RUN,        oB_RUN);
-    synk synkbi (CLOCK, qBUSINIT,      oBUSINIT);
-    synk synkkc (CLOCK, q_KEY_CLEAR,   o_KEY_CLEAR);
-    synk synkkl (CLOCK, q_KEY_LOAD,    o_KEY_LOAD);
-    synk synkls (CLOCK, q_LOAD_SF,     o_LOAD_SF);
-    synk synkp1 (CLOCK, qBIOP1,        oBIOP1);
-    synk synkp2 (CLOCK, qBIOP2,        oBIOP2);
-    synk synkp4 (CLOCK, qBIOP4,        oBIOP4);
-    synk synkt2 (CLOCK, qBTP2,         oBTP2);
-    synk synkp3 (CLOCK, qBTP3,         oBTP3);
-    synk synkt1 (CLOCK, qBTS_1,        oBTS_1);
-    synk synkt3 (CLOCK, qBTS_3,        oBTS_3);
-    synk synkd3 (CLOCK, qD35B2,        oD35B2);
-    synk synkef (CLOCK, qE_SET_F_SET,  oE_SET_F_SET);
-    synk synkll (CLOCK, qLINE_LOW,     oLINE_LOW);
-    synk synkms (CLOCK, qMEMSTART,     oMEMSTART);
-***/
-    // integrated logic analyzer
+    ///////////////
+    //  devices  //
+    ///////////////
+
+    // little memory
+    wire lm_ssyn_out_h;
+    wire[15:00] lm_d_out_h;
+
+    lilmem lilmem0 (
+        .CLOCK (CLOCK),
+        .RESET (~ RESET_N),
+
+        .armraddr (readaddr[3:2]),
+        .armrdata (lmarmrdata),
+        .armwaddr (writeaddr[3:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (lmarmwrite),
+
+        .a_in_h (dev_a_in_h),
+        .c_in_h (dev_c_in_h),
+        .d_in_h (dev_d_in_h),
+        .init_in_h (dev_init_in_h),
+        .msyn_in_h (dev_msyn_in_h),
+
+        .d_out_h (lm_d_out_h),
+        .ssyn_out_h (lm_ssyn_out_h));
+
+    // console tty
+    wire tt0intreq, tt0_ssyn_out_h;
+    wire[7:0] tt0intvec;
+    wire[15:00] tt0_d_out_h;
+
+    dl11 tt0dev (
+        .CLOCK (CLOCK),
+        .RESET (~ RESET_N),
+
+        .armraddr (readaddr[3:2]),
+        .armrdata (tt0armrdata),
+        .armwaddr (writeaddr[3:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (tt0armwrite),
+
+        .intreq (tt0intreq),
+        .intvec (tt0intvec),
+
+        .a_in_h (dev_a_in_h),
+        .c_in_h (dev_c_in_h),
+        .d_in_h (dev_d_in_h),
+        .init_in_h (dev_init_in_h),
+        .msyn_in_h (dev_msyn_in_h),
+
+        .d_out_h (tt0_d_out_h),
+        .ssyn_out_h (tt0_ssyn_out_h));
+
+    /////////////////////////////
+    //  interrupt controllers  //
+    /////////////////////////////
+
+    wire[7:0] intvec4 = tt0intreq ? tt0intvec : 1;
+    wire[7:0] intvec5 = 1;
+    wire[7:0] intvec6 = 1;
+    wire[7:0] intvec7 = 1;
+
+    wire irq4_bbsy_out_h, irq4_intr_out_h, irq4_sack_out_h;
+    wire irq5_bbsy_out_h, irq5_intr_out_h, irq5_sack_out_h;
+    wire irq6_bbsy_out_h, irq6_intr_out_h, irq6_sack_out_h;
+    wire irq7_bbsy_out_h, irq7_intr_out_h, irq7_sack_out_h;
+    wire[15:00] irq4_d_out_h, irq5_d_out_h, irq6_d_out_h, irq7_d_out_h;
+
+    intctl irq4 (
+        .CLOCK (CLOCK),
+        .RESET (dev_init_in_h),
+
+        .intvec (intvec4),
+
+        .bbsy_in_h (dev_bbsy_in_h),
+        .bg_in_l   (dev_bg_in_l[4]),
+        .sack_in_h (dev_sack_in_h),
+        .ssyn_in_h (dev_ssyn_in_h),
+
+        .bbsy_out_h (irq4_bbsy_out_h),
+        .bg_out_l   (dev_bg_out_l[4]),
+        .br_out_h   (dev_br_out_h[4]),
+        .d_out_h    (irq4_d_out_h),
+        .intr_out_h (irq4_intr_out_h),
+        .sack_out_h (irq4_sack_out_h));
+
+    intctl irq5 (
+        .CLOCK (CLOCK),
+        .RESET (dev_init_in_h),
+
+        .intvec (intvec5),
+
+        .bbsy_in_h (dev_bbsy_in_h),
+        .bg_in_l   (dev_bg_in_l[5]),
+        .sack_in_h (dev_sack_in_h),
+        .ssyn_in_h (dev_ssyn_in_h),
+
+        .bbsy_out_h (irq5_bbsy_out_h),
+        .bg_out_l   (dev_bg_out_l[5]),
+        .br_out_h   (dev_br_out_h[5]),
+        .d_out_h    (irq5_d_out_h),
+        .intr_out_h (irq5_intr_out_h),
+        .sack_out_h (irq5_sack_out_h));
+
+    intctl irq6 (
+        .CLOCK (CLOCK),
+        .RESET (dev_init_in_h),
+
+        .intvec (intvec6),
+
+        .bbsy_in_h (dev_bbsy_in_h),
+        .bg_in_l   (dev_bg_in_l[6]),
+        .sack_in_h (dev_sack_in_h),
+        .ssyn_in_h (dev_ssyn_in_h),
+
+        .bbsy_out_h (irq6_bbsy_out_h),
+        .bg_out_l   (dev_bg_out_l[6]),
+        .br_out_h   (dev_br_out_h[6]),
+        .d_out_h    (irq6_d_out_h),
+        .intr_out_h (irq6_intr_out_h),
+        .sack_out_h (irq6_sack_out_h));
+
+    intctl irq7 (
+        .CLOCK (CLOCK),
+        .RESET (dev_init_in_h),
+
+        .intvec (intvec7),
+
+        .bbsy_in_h (dev_bbsy_in_h),
+        .bg_in_l   (dev_bg_in_l[7]),
+        .sack_in_h (dev_sack_in_h),
+        .ssyn_in_h (dev_ssyn_in_h),
+
+        .bbsy_out_h (irq7_bbsy_out_h),
+        .bg_out_l   (dev_bg_out_l[7]),
+        .br_out_h   (dev_br_out_h[7]),
+        .d_out_h    (irq7_d_out_h),
+        .intr_out_h (irq7_intr_out_h),
+        .sack_out_h (irq7_sack_out_h));
+
+    ////////////////////////////////////////
+    //  aggregate all bus output signals  //
+    ////////////////////////////////////////
+
+    assign dev_bbsy_out_h = irq4_bbsy_out_h | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h;
+    assign dev_d_out_h    = irq4_d_out_h    | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | tt0_d_out_h;
+    assign dev_intr_out_h = irq4_intr_out_h | irq5_intr_out_h | irq6_intr_out_h | irq7_intr_out_h;
+    assign dev_sack_out_h = irq4_sack_out_h | irq5_sack_out_h | irq6_sack_out_h | irq7_sack_out_h;
+    assign dev_ssyn_out_h = lm_ssyn_out_h | tt0_ssyn_out_h;
+
+    /////////////////////////////////
+    //  integrated logic analyzer  //
+    /////////////////////////////////
+
     //  ilaarmed = 0: trigger condition satisfied
     //             1: waiting for trigger condition
     //  ilaafter = number of cycles to record after trigger condition satisfied
