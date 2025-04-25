@@ -1,0 +1,666 @@
+//    Copyright (C) Mike Rieker, Beverly, MA USA
+//    www.outerworldapps.com
+//
+//    This program is free software; you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation; version 2 of the License.
+//
+//    This program is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with this program; if not, write to the Free Software
+//    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+//
+//    http://www.gnu.org/licenses/gpl-2.0.html
+
+module synk (input CLOCK, output reg q, input o);
+    reg eo, p;
+    always @(posedge CLOCK) begin
+        if (eo) p <= o;
+           else q <= p;
+        eo <= ~ eo;
+    end
+endmodule
+
+// main program for the zynq implementation
+
+module Zynq (
+    input  CLOCK,               // 100MHz clock
+    input  RESET_N,             // power-on reset
+
+    output LEDoutR,             // IO_B34_LN6 R14
+    output LEDoutG,             // IO_B34_LP7 Y16
+    output LEDoutB,             // IO_B34_LN7 Y17
+
+    input muxa,                 // multiplexed inputs
+    input muxb,
+    input muxc,
+    input muxd,
+    input muxe,
+    input muxf,
+    input muxh,
+    input muxj,
+    input muxk,
+    input muxl,
+    input muxm,
+    input muxn,
+    input muxp,
+    input muxr,
+    input muxs,
+
+    output reg rsel1_h,         // multiplexor selectors
+    output reg rsel2_h,
+    output reg rsel3_h,
+
+    input ac_lo_in_h,           // control inputs
+    input bbsy_in_h,
+    input dc_lo_in_h,
+    input hltgr_in_l,
+    input init_in_h,
+    input intr_in_h,
+    input msyn_in_h,
+    input npg_in_l,
+    input sack_in_h,
+    input ssyn_in_h,
+
+    input[7:4] bg_in_l,         // bus grant inputs
+
+    output reg bbsy_out_h,      // control outputs
+    output reg hltrq_out_h,
+    output reg init_out_h,
+    output reg intr_out_h,
+    output reg msyn_out_h,
+    output reg npg_out_l,
+    output reg npr_out_h,
+    output reg pa_out_h,
+    output reg pb_out_h,
+    output reg sack_out_h,
+    output reg ssyn_out_h,
+
+    output reg[17:00] a_out_h,  // address bus outputs
+    output reg[7:4]   bg_out_l, // bus grant outputs
+    output reg[7:4]   br_out_h, // bus request outputs
+    output reg[1:0]   c_out_h,  // control bus outputs
+    output reg[15:00] d_out_h,  // data bus outputs
+
+    // arm processor memory bus interface (AXI)
+    // we are a slave for accessing the control registers (read and write)
+    input[11:00]  saxi_ARADDR,
+    output reg    saxi_ARREADY,
+    input         saxi_ARVALID,
+    input[11:00]  saxi_AWADDR,
+    output reg    saxi_AWREADY,
+    input         saxi_AWVALID,
+    input         saxi_BREADY,
+    output[1:0]   saxi_BRESP,
+    output reg    saxi_BVALID,
+    output[31:00] saxi_RDATA,
+    input         saxi_RREADY,
+    output[1:0]   saxi_RRESP,
+    output reg    saxi_RVALID,
+    input[31:00]  saxi_WDATA,
+    output reg    saxi_WREADY,
+    input         saxi_WVALID);
+
+    // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
+    localparam VERSION = 32'h31314001;
+
+    // bus values that are constants
+    assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
+    assign saxi_RRESP = 0;  // A3.4.4/A10.3 transfer OK
+
+    reg[11:02] readaddr, writeaddr;
+
+    reg[03:00] ilaarray[4095:0], ilardata;
+    reg[11:00] ilaafter, ilaindex;
+    reg ilaarmed;
+
+    ////////////////////////////
+    //  internal bus signals  //
+    ////////////////////////////
+
+    reg dev_bbsy_out_h, dev_init_out_h, dev_intr_out_h, dev_bbsy_in_h, dev_hltgr_in_l, dev_npg_in_l, dev_ac_lo_in_h;
+    reg dev_msyn_out_h, dev_npg_out_h, dev_npr_out_h, dev_hltrq_in_h, dev_init_in_h, dev_sack_in_h, dev_bbsy_in_h, dev_hltrq_out_h;
+    reg dev_pa_out_h, dev_pb_out_h, dev_sack_out_h, dev_ssyn_out_h, dev_ac_lo_in_h, dev_dc_lo_in_h, dev_intr_in_h, dev_ssyn_in_h, dev_dc_lo_in_h;
+    reg[15:00] dev_d_out_h;
+    reg[7:4] dev_bg_out_l, dev_br_out_h, dev_bg_in_l;
+    reg[1:0] dev_c_out_h;
+    reg[17:00] dev_a_out_h;
+
+    reg dev_npg_out_l, dev_pb_in_h;
+    reg[1:0] dev_c_in_h;
+    reg[17:00] dev_a_in_h;
+    reg[15:00] dev_d_in_h;
+
+    /////////////////////////////////////////////////////////////
+    //  signals coming out of simulator going to internal bus  //
+    /////////////////////////////////////////////////////////////
+
+    reg sim_msyn_in_h, sim_intr_in_h, sim_sack_in_h;
+    reg sim_ac_lo_in_h, sim_bbsy_in_h, sim_dc_lo_in_h, sim_hltgr_in_l, sim_init_in_h, sim_npg_in_l, sim_ssyn_in_h;
+    reg[1:0] sim_c_in_h;
+    reg[7:4] sim_bg_in_l;
+    reg[17:00] sim_a_in_h;
+    reg[15:00] sim_d_in_h;
+
+    ///////////////////////////////////////
+    //  demultiplex signals from unibus  //
+    ///////////////////////////////////////
+
+    // input mux signal latches
+    // - loaded from mux pins whenever corresponding select is asserted
+    reg hltrq_in_h, npr_in_h, pa_in_h, pb_in_h;
+    reg[1:0] c_in_h;
+    reg[7:4] br_in_h;
+    reg[17:00] a_in_h;
+    reg[15:00] d_in_h;
+
+    always @(posedge CLOCK) begin
+        if (rsel1_h) begin
+            pa_in_h    <= muxa;
+            d_in_h[11] <= muxb;
+            hltrq_in_h <= muxc;
+            pb_in_h    <= muxd;
+            d_in_h[15] <= muxe;
+            d_in_h[14] <= muxf;
+            d_in_h[13] <= muxh;
+            d_in_h[12] <= muxj;
+            d_in_h[10] <= muxk;
+            d_in_h[09] <= muxl;
+            d_in_h[08] <= muxm;
+            d_in_h[07] <= muxn;
+            d_in_h[04] <= muxp;
+            d_in_h[05] <= muxr;
+            d_in_h[01] <= muxs;
+        end
+        if (rsel2_h) begin
+            a_in_h[12] <= muxa;
+            a_in_h[17] <= muxb;
+            a_in_h[02] <= muxc;
+            d_in_h[00] <= muxd;
+            d_in_h[03] <= muxe;
+            d_in_h[02] <= muxf;
+            d_in_h[06] <= muxh;
+            br_in_h[7] <= muxj;
+            br_in_h[6] <= muxk;
+            br_in_h[5] <= muxl;
+            br_in_h[4] <= muxm;
+            a_in_h[15] <= muxn;
+            a_in_h[16] <= muxp;
+            c_in_h[1]  <= muxr;
+        end
+        if (rsel3_h) begin
+            a_in_h[01] <= muxa;
+            a_in_h[14] <= muxb;
+            a_in_h[11] <= muxc;
+            a_in_h[10] <= muxd;
+            a_in_h[09] <= muxe;
+            a_in_h[06] <= muxf;
+            a_in_h[05] <= muxh;
+            npr_in_h   <= muxj;
+            a_in_h[00] <= muxk;
+            c_in_h[0]  <= muxl;
+            a_in_h[13] <= muxm;
+            a_in_h[08] <= muxn;
+            a_in_h[07] <= muxp;
+            a_in_h[04] <= muxr;
+            a_in_h[03] <= muxs;
+        end
+    end
+
+    //////////////////////////////////
+    //  send signals out to unibus  //
+    //////////////////////////////////
+
+    // - hi-Z if OFF or SIM mode
+    //   internal bus forwarded to unibus if REAL mode
+    //   arm registers forwarded to unibus if MAN mode
+
+    reg[31:00] regctla, regctlb;
+
+    localparam FM_OFF  = 0;
+    localparam FM_SIM  = 1;
+    localparam FM_REAL = 2;
+    localparam FM_MAN  = 3;
+
+    always @(*) begin
+        case (regctla[31:30])
+
+            // FM_OFF, FM_SIM
+            // - hi-Z all outputs to unibus except forward grant signals on
+            // - input muxes shut off
+            FM_OFF, FM_SIM: begin
+                a_out_h     <= 0;           // sending 0V to gates opens the transistors
+                bbsy_out_h  <= 0;
+                bg_out_l    <= bg_in_l;     // act as grant jumper card when shut off
+                br_out_h    <= 0;
+                c_out_h     <= 0;
+                d_out_h     <= 0;
+                hltrq_out_h <= 0;
+                init_out_h  <= 0;
+                intr_out_h  <= 0;
+                msyn_out_h  <= 0;
+                npg_out_l   <= npg_in_l;
+                npr_out_h   <= 0;
+                pa_out_h    <= 0;
+                pb_out_h    <= 0;
+                sack_out_h  <= 0;
+                ssyn_out_h  <= 0;
+
+                rsel1_h     <= 0;           // no need to demux anything
+                rsel2_h     <= 0;
+                rsel3_h     <= 0;
+            end
+
+            // FM_REAL - forward internal signals out onto unibus
+            // - input muxes operated continuously in rotation
+            FM_REAL: begin
+                a_out_h     <= dev_a_out_h;
+                bbsy_out_h  <= dev_bbsy_out_h;
+                bg_out_l    <= dev_bg_out_l;
+                br_out_h    <= dev_br_out_h;
+                c_out_h     <= dev_c_out_h;
+                d_out_h     <= dev_d_out_h;
+                hltrq_out_h <= dev_hltrq_out_h;
+                init_out_h  <= dev_init_out_h;
+                intr_out_h  <= dev_intr_out_h;
+                msyn_out_h  <= dev_msyn_out_h;
+                npg_out_l   <= dev_npg_out_l;
+                npr_out_h   <= dev_npr_out_h;
+                pa_out_h    <= dev_pa_out_h;
+                pb_out_h    <= dev_pb_out_h;
+                sack_out_h  <= dev_sack_out_h;
+                ssyn_out_h  <= dev_ssyn_out_h;
+
+                rsel1_h     <= muxcount[4:3] == 1;
+                rsel2_h     <= muxcount[4:3] == 2;
+                rsel3_h     <= muxcount[4:3] == 3;
+            end
+
+            // FM_MAN - signals come from arm registers
+            // - input muxes operated by arm
+            FM_MAN: begin
+                a_out_h     <= regctlb[17:00];
+                bbsy_out_h  <= regctla[26];
+                bg_out_l    <= regctlb[27:24];
+                br_out_h    <= regctlb[23:20];
+                c_out_h     <= regctlb[19:18];
+                d_out_h     <= regctla[15:00];
+                hltrq_out_h <= regctla[25];
+                init_out_h  <= regctla[24];
+                intr_out_h  <= regctla[23];
+                msyn_out_h  <= regctla[22];
+                npg_out_l   <= regctla[21];
+                npr_out_h   <= regctla[20];
+                pa_out_h    <= regctla[19];
+                pb_out_h    <= regctla[18];
+                sack_out_h  <= regctla[17];
+                ssyn_out_h  <= regctla[16];
+
+                rsel3_h     <= regctlb[30];
+                rsel2_h     <= regctlb[29];
+                rsel1_h     <= regctlb[28];
+            end
+        endcase
+    end
+
+    //////////////////////////////////////////
+    //  get input signals for internal bus  //
+    //////////////////////////////////////////
+
+    // - zeroes if OFF or MAN
+    //   from simulator if SIM
+    //   from real unibus if REAL
+
+    wire syn_msyn_in_h;
+    synk synkmsyn (CLOCK, syn_msyn_in_h, msyn_in_h);
+
+    reg dev_msyn_in_h, last_msyn_in_h;
+    reg[4:0] muxcount;
+    reg[4:3] muxsyncd;
+
+    always @(posedge CLOCK) begin
+        case (regctla[31:30])
+
+            // FM_OFF, FM_MAN - zeroes on internal bus
+            FM_OFF, FM_MAN: begin
+                muxcount[4:3] <= 1;     // make sure this has valid value
+                muxcount[2:0] <= 0;     // ...in case put in FP_REAL next cycle
+
+                dev_a_in_h    <= 0;
+                dev_c_in_h    <= 0;
+                dev_d_in_h    <= 0;
+                dev_msyn_in_h <= 0;
+            end
+
+            // FM_SIM - forward simulator input signals to internal bus
+            FM_SIM: begin
+                dev_a_in_h    <= sim_a_in_h;
+                dev_c_in_h    <= sim_c_in_h;
+                dev_d_in_h    <= sim_d_in_h;
+                dev_msyn_in_h <= sim_msyn_in_h;
+            end
+
+            // FM_REAL - forward unibus input signals to internal bus
+            FM_REAL: begin
+
+                // continuously demux input signals
+
+                if (muxcount[2:0] == 0) begin
+
+                    // signals have had 50nS to soak through transistors and into fpga
+                    // all input latches should be stable at this point (assuming bus signals are stable)
+                    // kerchunk them into internal signals
+                    dev_a_in_h   <= a_in_h;
+                    dev_c_in_h   <= c_in_h;
+                    dev_d_in_h   <= d_in_h;
+
+                    // if msyn transition waiting for all three, maybe signal it's done
+                    if (muxcount[4:3] == muxsyncd) begin
+                        muxsyncd <= 0;
+                    end
+                end
+
+                // give transistors 50nS to switch and soak
+                if (muxcount[2:0] != 4) begin
+                    muxcount[2:0] <= muxcount[2:0] + 1;
+                end else begin
+                    // increment on to next multiplexor selection
+                    muxcount[4:3] <= (muxcount[4:3] == 3) ? 1 : (muxcount[4:3] + 1);
+                    muxcount[2:0] <= 0;
+                end
+
+                // delay msyn_in_h a full demux cycle so we know multiplexed signals are all updated
+                // master has given it some delay but give it more to be sure
+                if (~ syn_msyn_in_h) begin
+                    dev_msyn_in_h  <= 0;                // drop internal msyn as soon as external drops
+                    last_msyn_in_h <= 0;                // set up to detect transition
+                end else if (~ last_msyn_in_h) begin    // check for transition
+                    if (muxcount[2:0] == 0) begin       // wait for beginning of mux cycle so we get all new signals
+                        last_msyn_in_h <= 1;            // remember we handled transition
+                        muxsyncd <= muxcount[4:3];      // remember mux selector at transition (1, 2 or 3)
+                    end
+                end else if (muxsyncd == 0) begin       // see if all 3 clocked in since transition
+                    dev_msyn_in_h <= 1;                 // ok to assert internal msyn now
+                end
+            end
+        endcase
+    end
+
+    // continuously forward non-multiplxed signals to internal bus
+    always @(*) begin
+        case (regctla[31:30])
+
+            // FM_OFF, FM_MAN - zeroes on internal bus
+            FM_OFF, FM_MAN: begin
+                dev_ac_lo_in_h <= 0;
+                dev_bbsy_in_h  <= 0;
+                dev_bg_in_l    <= 15;
+                dev_dc_lo_in_h <= 0;
+                dev_hltgr_in_l <= 0;
+                dev_init_in_h  <= 0;
+                dev_intr_in_h  <= 0;
+                dev_msyn_in_h  <= 0;
+                dev_npg_in_l   <= 1;
+                dev_sack_in_h  <= 0;
+                dev_ssyn_in_h  <= 0;
+            end
+
+            // FM_SIM - forward inputs from simulator to internal bus
+            FM_SIM: begin
+                dev_ac_lo_in_h <= sim_ac_lo_in_h;
+                dev_bbsy_in_h  <= sim_bbsy_in_h;
+                dev_bg_in_l    <= sim_bg_in_l;
+                dev_dc_lo_in_h <= sim_dc_lo_in_h;
+                dev_hltgr_in_l <= sim_hltgr_in_l;
+                dev_init_in_h  <= sim_init_in_h;
+                dev_intr_in_h  <= sim_intr_in_h;
+                dev_msyn_in_h  <= sim_msyn_in_h;
+                dev_npg_in_l   <= sim_npg_in_l;
+                dev_sack_in_h  <= sim_sack_in_h;
+                dev_ssyn_in_h  <= sim_ssyn_in_h;
+            end
+
+            // FM_REAL - forward inputs from unibus to internal bus
+            FM_REAL: begin
+                dev_ac_lo_in_h <= ac_lo_in_h;
+                dev_bbsy_in_h  <= bbsy_in_h;
+                dev_bg_in_l    <= bg_in_l;
+                dev_dc_lo_in_h <= dc_lo_in_h;
+                dev_hltgr_in_l <= hltgr_in_l;
+                dev_init_in_h  <= init_in_h;
+                dev_intr_in_h  <= intr_in_h;
+                dev_msyn_in_h  <= msyn_in_h;
+                dev_npg_in_l   <= npg_in_l;
+                dev_sack_in_h  <= sack_in_h;
+                dev_ssyn_in_h  <= ssyn_in_h;
+            end
+        endcase
+    end
+
+    //////////////////////////////////////////////////////
+    //  give arm direct read-only access to input pins  //
+    //////////////////////////////////////////////////////
+
+    wire[31:00] regctlc = {
+        muxa,           // multiplexed inputs
+        muxb,
+        muxc,
+        muxd,
+        muxe,
+        muxf,
+        muxh,
+        muxj,
+        muxk,
+        muxl,
+        muxm,
+        muxn,
+        muxp,
+        muxr,
+        muxs,
+
+        rsel1_h,        // multiplexor selectors
+        rsel2_h,
+        rsel3_h,
+
+        ac_lo_in_h,     // control inputs
+        bbsy_in_h,
+        dc_lo_in_h,
+        hltgr_in_l,
+        init_in_h,
+        intr_in_h,
+        msyn_in_h,
+        npg_in_l,
+        sack_in_h,
+        ssyn_in_h,
+
+        bg_in_l         // bus grant inputs
+    };
+
+    wire[31:00] regctld = {
+        3'b0,
+
+        bbsy_out_h,     // control outputs
+        hltrq_out_h,
+        init_out_h,
+        intr_out_h,
+        msyn_out_h,
+        npg_out_l,
+        npr_out_h,
+        pa_out_h,
+        pb_out_h,
+        sack_out_h,
+        ssyn_out_h,
+
+        a_out_h         // address bus outputs
+    };
+
+    wire[31:00] regctle = {
+        7'b0,
+
+        muxcount,
+
+        npr_in_h,
+        pa_in_h,
+        pb_in_h,
+        hltrq_in_h,
+
+        c_in_h,
+        c_out_h,        // control bus outputs
+
+        br_in_h,
+        br_out_h,       // bus request outputs
+        bg_out_l        // bus grant outputs
+    };
+
+    wire[31:00] regctlf = {
+        14'b0,
+        a_in_h
+    };
+
+    wire[31:00] regctlg = {
+        d_in_h,         // data bus inputs (multiplexed)
+        d_out_h         // data bus outputs
+    };
+
+    assign saxi_RDATA =
+        (readaddr        == 10'b0000000000) ? VERSION    :  // 00000xxxxx00
+        (readaddr        == 10'b0000000001) ? regctla    :
+        (readaddr        == 10'b0000000010) ? regctlb    :
+        (readaddr        == 10'b0000000011) ? regctlc    :
+        (readaddr        == 10'b0000000100) ? regctld    :
+        (readaddr        == 10'b0000000101) ? regctle    :
+        (readaddr        == 10'b0000000110) ? regctlf    :
+        (readaddr        == 10'b0000000111) ? regctlg    :
+        32'hDEADBEEF;
+
+    wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
+
+    always @(posedge CLOCK) begin
+        if (~ RESET_N) begin
+            saxi_ARREADY <= 1;                              // we are ready to accept read address
+            saxi_RVALID  <= 0;                              // we are not sending out read data
+
+            saxi_AWREADY <= 1;                              // we are ready to accept write address
+            saxi_WREADY  <= 0;                              // we are not ready to accept write data
+            saxi_BVALID  <= 0;                              // we are not acknowledging any write
+
+            regctla[31:0] <= FM_OFF;                        // FM_OFF disconnect from bus
+
+        end else begin
+
+            /////////////////////
+            //  register read  //
+            /////////////////////
+
+            // check for PS sending us a read address
+            if (saxi_ARREADY & saxi_ARVALID) begin
+                readaddr <= saxi_ARADDR[11:02];             // save address bits we care about
+                saxi_ARREADY <= 0;                          // we are no longer accepting a read address
+                saxi_RVALID <= 1;                           // we are sending out the corresponding data
+
+            // check for PS acknowledging receipt of data
+            end else if (saxi_RVALID & saxi_RREADY) begin
+                saxi_ARREADY <= 1;                          // we are ready to accept an address again
+                saxi_RVALID <= 0;                           // we are no longer sending out data
+            end
+
+            //////////////////////
+            //  register write  //
+            //////////////////////
+
+            // check for PS sending us write data
+            if (armwrite) begin
+                case (writeaddr)                            // write data to register
+                     10'b0000000001: begin
+                        regctla <= saxi_WDATA;
+                    end
+                    10'b0000000010: begin
+                        regctlb <= saxi_WDATA;
+                    end
+                endcase
+                saxi_AWREADY <= 1;                          // we are ready to accept an address again
+                saxi_WREADY  <= 0;                          // we are no longer accepting write data
+                saxi_BVALID  <= 1;                          // we have accepted the data
+
+            end else begin
+                // check for PS sending us a write address
+                if (saxi_AWREADY & saxi_AWVALID) begin
+                    writeaddr <= saxi_AWADDR[11:02];        // save address bits we care about
+                    saxi_AWREADY <= 0;                      // we are no longer accepting a write address
+                    saxi_WREADY  <= 1;                      // we are ready to accept write data
+                end
+
+                // check for PS acknowledging write acceptance
+                if (saxi_BVALID & saxi_BREADY) begin
+                    saxi_BVALID <= 0;
+                end
+            end
+        end
+    end
+
+    /////////////////////////////////////////////
+    //  synchronize signals output by the PDP  //
+    /////////////////////////////////////////////
+/***
+    synk synkaa (CLOCK, q_ADDR_ACCEPT, o_ADDR_ACCEPT);
+    synk synkbr (CLOCK, qB_RUN,        oB_RUN);
+    synk synkbi (CLOCK, qBUSINIT,      oBUSINIT);
+    synk synkkc (CLOCK, q_KEY_CLEAR,   o_KEY_CLEAR);
+    synk synkkl (CLOCK, q_KEY_LOAD,    o_KEY_LOAD);
+    synk synkls (CLOCK, q_LOAD_SF,     o_LOAD_SF);
+    synk synkp1 (CLOCK, qBIOP1,        oBIOP1);
+    synk synkp2 (CLOCK, qBIOP2,        oBIOP2);
+    synk synkp4 (CLOCK, qBIOP4,        oBIOP4);
+    synk synkt2 (CLOCK, qBTP2,         oBTP2);
+    synk synkp3 (CLOCK, qBTP3,         oBTP3);
+    synk synkt1 (CLOCK, qBTS_1,        oBTS_1);
+    synk synkt3 (CLOCK, qBTS_3,        oBTS_3);
+    synk synkd3 (CLOCK, qD35B2,        oD35B2);
+    synk synkef (CLOCK, qE_SET_F_SET,  oE_SET_F_SET);
+    synk synkll (CLOCK, qLINE_LOW,     oLINE_LOW);
+    synk synkms (CLOCK, qMEMSTART,     oMEMSTART);
+***/
+    // integrated logic analyzer
+    //  ilaarmed = 0: trigger condition satisfied
+    //             1: waiting for trigger condition
+    //  ilaafter = number of cycles to record after trigger condition satisfied
+    //  ilaindex = next entry in ilaarray to write
+
+    always @(posedge CLOCK) begin
+        if (~ RESET_N) begin
+            ilaarmed <= 0;
+            ilaafter <= 0;
+        end else begin
+
+            if (armwrite & (writeaddr == 10'b0000010001)) begin
+
+                // arm processor is writing control register
+                ilaarmed <= saxi_WDATA[31];
+                ilaafter <= saxi_WDATA[27:16];
+                ilaindex <= saxi_WDATA[11:00];
+                ilardata <= ilaarray[saxi_WDATA[11:00]];
+            end else begin
+
+                // capture signals while before trigger and for ilaafter cycles thereafter
+                if (ilaarmed | (ilaafter != 0)) begin
+                    ilaarray[ilaindex] <= { 4'b0 };
+
+                    ilaindex <= ilaindex + 1;
+                    if (~ ilaarmed) ilaafter <= ilaafter - 1;
+                end
+
+                // check trigger condition
+                // - disk controller requesting dma cycle
+                if (msyn_in_h) begin
+                    ilaarmed <= 0;
+                end
+            end
+        end
+    end
+endmodule
