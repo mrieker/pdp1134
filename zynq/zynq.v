@@ -53,9 +53,9 @@ module Zynq (
     input muxr,
     input muxs,
 
-    output reg rsel1_h,         // multiplexor selectors
-    output reg rsel2_h,
-    output reg rsel3_h,
+    output rsel1_h,             // multiplexor selectors
+    output rsel2_h,
+    output rsel3_h,
 
     input ac_lo_in_h,           // control inputs
     input bbsy_in_h,
@@ -108,7 +108,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314003;
+    localparam VERSION = 32'h31314004;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -116,7 +116,7 @@ module Zynq (
 
     reg[11:02] readaddr, writeaddr;
 
-    reg[03:00] ilaarray[4095:0], ilardata;
+    reg[55:00] ilaarray[4095:0], ilardata;
     reg[11:00] ilaafter, ilaindex;
     reg ilaarmed;
 
@@ -132,16 +132,18 @@ module Zynq (
     reg dev_dc_lo_in_h;
     reg dev_hltgr_in_l;
     reg dev_hltrq_in_h;
-    reg dev_hltrq_out_h;
     reg dev_intr_in_h;
     reg dev_init_in_h;
-    reg dev_init_out_h;
+    reg dev_msyn_in_h;
     reg dev_msyn_out_h;
     reg dev_npg_in_l;
     reg dev_npg_out_l;
     reg dev_npr_out_h;
     reg dev_sack_in_h;
     reg dev_ssyn_in_h;
+
+    wire dev_hltrq_out_h;
+    wire dev_init_out_h;
 
     reg[1:0] dev_c_in_h;
     reg[1:0] dev_c_out_h;
@@ -181,64 +183,127 @@ module Zynq (
     //  demultiplex signals from unibus  //
     ///////////////////////////////////////
 
-    // input mux signal latches
-    // - loaded from mux pins whenever corresponding select is asserted
-    reg hltrq_in_h, npr_in_h, pa_in_h, pb_in_h;
-    reg[1:0] c_in_h;
-    reg[7:4] br_in_h;
-    reg[17:00] a_in_h;
-    reg[15:00] d_in_h;
+    // synchronize non-multiplexed signals to fpga clock
+    // - worst-case delay of 20nS
+    wire syn_ac_lo_in_h, syn_bbsy_in_h, syn_dc_lo_in_h, syn_hltgr_in_l, syn_init_in_h;
+    wire syn_intr_in_h, syn_msyn_in_h, syn_npg_in_l, syn_sack_in_h, syn_ssyn_in_h;
+    wire[7:4] syn_bg_in_l;
+    synk synkac_lo (CLOCK, syn_ac_lo_in_h, ac_lo_in_h);
+    synk synkbbsy  (CLOCK, syn_bbsy_in_h,  bbsy_in_h);
+    synk synkdc_lo (CLOCK, syn_dc_lo_in_h, dc_lo_in_h);
+    synk synkhltgr (CLOCK, syn_hltgr_in_l, hltgr_in_l);
+    synk synkinit  (CLOCK, syn_init_in_h,  init_in_h);
+    synk synkintr  (CLOCK, syn_intr_in_h,  intr_in_h);
+    synk synkmsyn  (CLOCK, syn_msyn_in_h,  msyn_in_h);
+    synk synknpg   (CLOCK, syn_npg_in_l,   npg_in_l);
+    synk synksack  (CLOCK, syn_sack_in_h,  sack_in_h);
+    synk synkssyn  (CLOCK, syn_ssyn_in_h,  ssyn_in_h);
+    synk synkbg_4  (CLOCK, syn_bg_in_l[4], bg_in_l[4]);
+    synk synkbg_5  (CLOCK, syn_bg_in_l[5], bg_in_l[5]);
+    synk synkbg_6  (CLOCK, syn_bg_in_l[6], bg_in_l[6]);
+    synk synkbg_7  (CLOCK, syn_bg_in_l[7], bg_in_l[7]);
+
+    // input demux signal latches
+    // - loaded from mux pins every 150nS
+    reg dmx_hltrq_in_h, dmx_npr_in_h, dmx_pa_in_h, dmx_pb_in_h;
+    reg[1:0] dmx_c_in_h;
+    reg[7:4] dmx_br_in_h;
+    reg[17:00] dmx_a_in_h;
+    reg[15:00] dmx_d_in_h;
+
+    // del_msyn_in_h - delayed 150nS so all demuxed signals up-to-date
+    // - specifically we care about dmx_a_in_h, dmx_c_in_h, dmx_d_in_h
+    //   the other dmx_ signals are just passed to arm for debugging
+    localparam MUXDELAY = 5;
+    reg del_msyn_in_h;
+
+    reg[4:0] muxcount, muxdelay;
+    assign rsel1_h  = muxcount[4:3] == 1;
+    assign rsel2_h  = muxcount[4:3] == 2;
+    assign rsel3_h  = muxcount[4:3] == 3;
 
     always @(posedge CLOCK) begin
-        if (rsel1_h) begin
-            pa_in_h    <= muxa;
-            d_in_h[11] <= muxb;
-            hltrq_in_h <= muxc;
-            pb_in_h    <= muxd;
-            d_in_h[15] <= muxe;
-            d_in_h[14] <= muxf;
-            d_in_h[13] <= muxh;
-            d_in_h[12] <= muxj;
-            d_in_h[10] <= muxk;
-            d_in_h[09] <= muxl;
-            d_in_h[08] <= muxm;
-            d_in_h[07] <= muxn;
-            d_in_h[04] <= muxp;
-            d_in_h[05] <= muxr;
-            d_in_h[01] <= muxs;
-        end
-        if (rsel2_h) begin
-            a_in_h[12] <= muxa;
-            a_in_h[17] <= muxb;
-            a_in_h[02] <= muxc;
-            d_in_h[00] <= muxd;
-            d_in_h[03] <= muxe;
-            d_in_h[02] <= muxf;
-            d_in_h[06] <= muxh;
-            br_in_h[7] <= muxj;
-            br_in_h[6] <= muxk;
-            br_in_h[5] <= muxl;
-            br_in_h[4] <= muxm;
-            a_in_h[15] <= muxn;
-            a_in_h[16] <= muxp;
-            c_in_h[1]  <= muxr;
-        end
-        if (rsel3_h) begin
-            a_in_h[01] <= muxa;
-            a_in_h[14] <= muxb;
-            a_in_h[11] <= muxc;
-            a_in_h[10] <= muxd;
-            a_in_h[09] <= muxe;
-            a_in_h[06] <= muxf;
-            a_in_h[05] <= muxh;
-            npr_in_h   <= muxj;
-            a_in_h[00] <= muxk;
-            c_in_h[0]  <= muxl;
-            a_in_h[13] <= muxm;
-            a_in_h[08] <= muxn;
-            a_in_h[07] <= muxp;
-            a_in_h[04] <= muxr;
-            a_in_h[03] <= muxs;
+        if (~ RESET_N) begin
+            muxcount <= 8;
+        end else begin
+
+            // give transistors 50nS to switch and soak
+            if (muxcount[2:0] != MUXDELAY-1) begin
+                muxcount[2:0] <= muxcount[2:0] + 1;
+            end else begin
+
+                // all soaked in, clock into corresponding flipflops
+                if (rsel1_h) begin
+                    dmx_pa_in_h    <= muxa;
+                    dmx_d_in_h[11] <= muxb;
+                    dmx_hltrq_in_h <= muxc;
+                    dmx_pb_in_h    <= muxd;
+                    dmx_d_in_h[15] <= muxe;
+                    dmx_d_in_h[14] <= muxf;
+                    dmx_d_in_h[13] <= muxh;
+                    dmx_d_in_h[12] <= muxj;
+                    dmx_d_in_h[10] <= muxk;
+                    dmx_d_in_h[09] <= muxl;
+                    dmx_d_in_h[08] <= muxm;
+                    dmx_d_in_h[07] <= muxn;
+                    dmx_d_in_h[04] <= muxp;
+                    dmx_d_in_h[05] <= muxr;
+                    dmx_d_in_h[01] <= muxs;
+                end
+                if (rsel2_h) begin
+                    dmx_a_in_h[12] <= muxa;
+                    dmx_a_in_h[17] <= muxb;
+                    dmx_a_in_h[02] <= muxc;
+                    dmx_d_in_h[00] <= muxd;
+                    dmx_d_in_h[03] <= muxe;
+                    dmx_d_in_h[02] <= muxf;
+                    dmx_d_in_h[06] <= muxh;
+                    dmx_br_in_h[7] <= muxj;
+                    dmx_br_in_h[6] <= muxk;
+                    dmx_br_in_h[5] <= muxl;
+                    dmx_br_in_h[4] <= muxm;
+                    dmx_a_in_h[15] <= muxn;
+                    dmx_a_in_h[16] <= muxp;
+                    dmx_c_in_h[1]  <= muxr;
+                end
+                if (rsel3_h) begin
+                    dmx_a_in_h[01] <= muxa;
+                    dmx_a_in_h[14] <= muxb;
+                    dmx_a_in_h[11] <= muxc;
+                    dmx_a_in_h[10] <= muxd;
+                    dmx_a_in_h[09] <= muxe;
+                    dmx_a_in_h[06] <= muxf;
+                    dmx_a_in_h[05] <= muxh;
+                    dmx_npr_in_h   <= muxj;
+                    dmx_a_in_h[00] <= muxk;
+                    dmx_c_in_h[0]  <= muxl;
+                    dmx_a_in_h[13] <= muxm;
+                    dmx_a_in_h[08] <= muxn;
+                    dmx_a_in_h[07] <= muxp;
+                    dmx_a_in_h[04] <= muxr;
+                    dmx_a_in_h[03] <= muxs;
+                end
+
+                // increment on to next multiplexor selection
+                muxcount[2:0] <= 0;
+
+                // - if FM_MAN mode and non-zero b_rsel_h, use that one
+                //   otherwise, cycle on through one to the next
+                muxcount[4:3] <=
+                    ((regctla[31:30] == FM_MAN) & (regctlb[29:28] != 0)) ? regctlb[29:28] :
+                                            (muxcount[4:3] == 3) ? 1 : (muxcount[4:3] + 1);
+            end
+
+            // delay msyn_in_h a full demux cycle so we know multiplexed signals are all updated
+            // master has given it some delay but give it more to be sure
+            if (~ syn_msyn_in_h) begin
+                del_msyn_in_h <= 0;                 // drop delayed msyn as soon as external drops
+                muxdelay      <= 0;                 // init delay counter for next time
+            end else if (muxdelay != MUXDELAY*3-1) begin
+                muxdelay      <= muxdelay + 1;
+            end else begin                          // see if all 3 clocked in since transition
+                del_msyn_in_h <= 1;                 // ok to assert delayed msyn now
+            end
         end
     end
 
@@ -251,7 +316,6 @@ module Zynq (
     //   arm registers forwarded to unibus if MAN mode
 
     reg[31:00] regctla, regctlb;
-    reg[4:0] muxcount;
 
     localparam FM_OFF  = 0;
     localparam FM_SIM  = 1;
@@ -281,14 +345,9 @@ module Zynq (
                 pb_out_h    <= 0;
                 sack_out_h  <= 0;
                 ssyn_out_h  <= 0;
-
-                rsel1_h     <= 0;           // no need to demux anything
-                rsel2_h     <= 0;
-                rsel3_h     <= 0;
             end
 
             // FM_REAL - forward internal signals out onto unibus
-            // - input muxes operated continuously in rotation
             FM_REAL: begin
                 a_out_h     <= dev_a_out_h;
                 bbsy_out_h  <= dev_bbsy_out_h;
@@ -306,14 +365,9 @@ module Zynq (
                 pb_out_h    <= 0;
                 sack_out_h  <= dev_sack_out_h;
                 ssyn_out_h  <= dev_ssyn_out_h;
-
-                rsel1_h     <= muxcount[4:3] == 1;
-                rsel2_h     <= muxcount[4:3] == 2;
-                rsel3_h     <= muxcount[4:3] == 3;
             end
 
             // FM_MAN - signals come from arm registers
-            // - input muxes operated by arm
             FM_MAN: begin
                 a_out_h     <= regctlb[17:00];
                 bbsy_out_h  <= regctla[26];
@@ -331,10 +385,6 @@ module Zynq (
                 pb_out_h    <= regctla[18];
                 sack_out_h  <= regctla[17];
                 ssyn_out_h  <= regctla[16];
-
-                rsel3_h     <= regctlb[30];
-                rsel2_h     <= regctlb[29];
-                rsel1_h     <= regctlb[28];
             end
         endcase
     end
@@ -347,114 +397,22 @@ module Zynq (
     //   from simulator if SIM
     //   from real unibus if REAL
 
-    wire syn_ac_lo_in_h, syn_bbsy_in_h, syn_dc_lo_in_h, syn_hltgr_in_l, syn_init_in_h;
-    wire syn_intr_in_h, syn_msyn_in_h, syn_npg_in_l, syn_sack_in_h, syn_ssyn_in_h;
-    wire[7:4] syn_bg_in_l;
-    synk synkac_lo (CLOCK, syn_ac_lo_in_h, ac_lo_in_h);
-    synk synkbbsy  (CLOCK, syn_bbsy_in_h,  bbsy_in_h);
-    synk synkdc_lo (CLOCK, syn_dc_lo_in_h, dc_lo_in_h);
-    synk synkhltgr (CLOCK, syn_hltgr_in_l, hltgr_in_l);
-    synk synkinit  (CLOCK, syn_init_in_h,  init_in_h);
-    synk synkintr  (CLOCK, syn_intr_in_h,  intr_in_h);
-    synk synkmsyn  (CLOCK, syn_msyn_in_h,  msyn_in_h);
-    synk synknpg   (CLOCK, syn_npg_in_l,   npg_in_l);
-    synk synksack  (CLOCK, syn_sack_in_h,  sack_in_h);
-    synk synkssyn  (CLOCK, syn_ssyn_in_h,  ssyn_in_h);
-    synk synkbg_4  (CLOCK, syn_bg_in_l[4], bg_in_l[4]);
-    synk synkbg_5  (CLOCK, syn_bg_in_l[5], bg_in_l[5]);
-    synk synkbg_6  (CLOCK, syn_bg_in_l[6], bg_in_l[6]);
-    synk synkbg_7  (CLOCK, syn_bg_in_l[7], bg_in_l[7]);
-
-    // multiplexed signals:
-    //  FM_OFF,FM_MAN: send zeroes to internal bus
-    //  FM_SIM: use signals from simulated cpu as is
-    //  FM_REAL: latch signals from continually cycled multiplexors
-
-    reg dev_msyn_in_h, last_msyn_in_h;
-    reg[4:3] muxsyncd;
-
-    always @(posedge CLOCK) begin
-        case (regctla[31:30])
-
-            // FM_OFF, FM_MAN - zeroes on internal bus
-            FM_OFF, FM_MAN: begin
-                muxcount[4:3] <= 1;     // make sure this has valid value
-                muxcount[2:0] <= 0;     // ...in case put in FP_REAL next cycle
-
-                dev_a_in_h    <= 0;
-                dev_c_in_h    <= 0;
-                dev_d_in_h    <= 0;
-                dev_msyn_in_h <= 0;
-            end
-
-            // FM_SIM - forward simulator input signals to internal bus
-            FM_SIM: begin
-                dev_a_in_h    <= sim_a_in_h;
-                dev_c_in_h    <= sim_c_in_h;
-                dev_d_in_h    <= sim_d_in_h;
-                dev_msyn_in_h <= sim_msyn_in_h;
-            end
-
-            // FM_REAL - forward unibus input signals to internal bus
-            FM_REAL: begin
-
-                // continuously demux input signals
-
-                if (muxcount[2:0] == 0) begin
-
-                    // signals have had 50nS to soak through transistors and into fpga
-                    // all input latches should be stable at this point (assuming bus signals are stable)
-                    // kerchunk them into internal signals
-                    dev_a_in_h   <= a_in_h;
-                    dev_c_in_h   <= c_in_h;
-                    dev_d_in_h   <= d_in_h;
-
-                    // if msyn transition waiting for all three, maybe signal it's done
-                    if (muxcount[4:3] == muxsyncd) begin
-                        muxsyncd <= 0;
-                    end
-                end
-
-                // give transistors 50nS to switch and soak
-                if (muxcount[2:0] != 4) begin
-                    muxcount[2:0] <= muxcount[2:0] + 1;
-                end else begin
-                    // increment on to next multiplexor selection
-                    muxcount[4:3] <= (muxcount[4:3] == 3) ? 1 : (muxcount[4:3] + 1);
-                    muxcount[2:0] <= 0;
-                end
-
-                // delay msyn_in_h a full demux cycle so we know multiplexed signals are all updated
-                // master has given it some delay but give it more to be sure
-                if (~ syn_msyn_in_h) begin
-                    dev_msyn_in_h  <= 0;                // drop internal msyn as soon as external drops
-                    last_msyn_in_h <= 0;                // set up to detect transition
-                end else if (~ last_msyn_in_h) begin    // check for transition
-                    if (muxcount[2:0] == 0) begin       // wait for beginning of mux cycle so we get all new signals
-                        last_msyn_in_h <= 1;            // remember we handled transition
-                        muxsyncd <= muxcount[4:3];      // remember mux selector at transition (1, 2 or 3)
-                    end
-                end else if (muxsyncd == 0) begin       // see if all 3 clocked in since transition
-                    dev_msyn_in_h <= 1;                 // ok to assert internal msyn now
-                end
-            end
-        endcase
-    end
-
-    // continuously forward non-multiplxed signals to internal bus
-
     always @(*) begin
         case (regctla[31:30])
 
             // FM_OFF, FM_MAN - zeroes on internal bus
             FM_OFF, FM_MAN: begin
+                dev_a_in_h     <= 0;
                 dev_ac_lo_in_h <= 0;
                 dev_bbsy_in_h  <= 0;
                 dev_bg_in_l    <= 15;
+                dev_c_in_h     <= 0;
+                dev_d_in_h     <= 0;
                 dev_dc_lo_in_h <= 0;
-                dev_hltgr_in_l <= 0;
+                dev_hltgr_in_l <= 1;
                 dev_init_in_h  <= ~ RESET_N;
                 dev_intr_in_h  <= 0;
+                dev_msyn_in_h  <= 0;
                 dev_npg_in_l   <= 1;
                 dev_sack_in_h  <= 0;
                 dev_ssyn_in_h  <= 0;
@@ -462,13 +420,17 @@ module Zynq (
 
             // FM_SIM - forward inputs from simulator to internal bus
             FM_SIM: begin
+                dev_a_in_h     <= sim_a_in_h;
                 dev_ac_lo_in_h <= sim_ac_lo_in_h;
                 dev_bbsy_in_h  <= sim_bbsy_in_h;
                 dev_bg_in_l    <= sim_bg_in_l;
+                dev_c_in_h     <= sim_c_in_h;
+                dev_d_in_h     <= sim_d_in_h;
                 dev_dc_lo_in_h <= sim_dc_lo_in_h;
                 dev_hltgr_in_l <= sim_hltgr_in_l;
                 dev_init_in_h  <= sim_init_in_h | ~ RESET_N;
                 dev_intr_in_h  <= sim_intr_in_h;
+                dev_msyn_in_h  <= sim_msyn_in_h;
                 dev_npg_in_l   <= sim_npg_in_l;
                 dev_sack_in_h  <= sim_sack_in_h;
                 dev_ssyn_in_h  <= sim_ssyn_in_h;
@@ -476,13 +438,17 @@ module Zynq (
 
             // FM_REAL - forward inputs from unibus to internal bus
             FM_REAL: begin
-                dev_ac_lo_in_h <= syn_ac_lo_in_h;
+                dev_a_in_h     <= dmx_a_in_h;       // demultiplexed
+                dev_ac_lo_in_h <= syn_ac_lo_in_h;   // syncd to fpga clock
                 dev_bbsy_in_h  <= syn_bbsy_in_h;
                 dev_bg_in_l    <= syn_bg_in_l;
+                dev_c_in_h     <= dmx_c_in_h;
+                dev_d_in_h     <= dmx_d_in_h;
                 dev_dc_lo_in_h <= syn_dc_lo_in_h;
                 dev_hltgr_in_l <= syn_hltgr_in_l;
                 dev_init_in_h  <= syn_init_in_h | ~ RESET_N;
                 dev_intr_in_h  <= syn_intr_in_h;
+                dev_msyn_in_h  <= del_msyn_in_h;    // delayed until 3 demux cycles complete
                 dev_npg_in_l   <= syn_npg_in_l;
                 dev_sack_in_h  <= syn_sack_in_h;
                 dev_ssyn_in_h  <= syn_ssyn_in_h;
@@ -495,7 +461,7 @@ module Zynq (
     ///////////////////////////////////////////////////////
 
     wire[31:00] regctlc = {
-        muxa,           // multiplexed inputs
+        muxa,               // multiplexed inputs
         muxb,
         muxc,
         muxd,
@@ -511,40 +477,40 @@ module Zynq (
         muxr,
         muxs,
 
-        rsel1_h,        // multiplexor selectors
+        rsel1_h,            // multiplexor selectors
         rsel2_h,
         rsel3_h,
 
-        ac_lo_in_h,     // control inputs
-        bbsy_in_h,
-        dc_lo_in_h,
-        hltgr_in_l,
-        init_in_h,
-        intr_in_h,
-        msyn_in_h,
-        npg_in_l,
-        sack_in_h,
-        ssyn_in_h,
+        dev_ac_lo_in_h,     // control inputs
+        dev_bbsy_in_h,
+        dev_dc_lo_in_h,
+        dev_hltgr_in_l,
+        dev_init_in_h,
+        dev_intr_in_h,
+        dev_msyn_in_h,
+        dev_npg_in_l,
+        dev_sack_in_h,
+        dev_ssyn_in_h,
 
-        bg_in_l         // bus grant inputs
+        dev_bg_in_l         // bus grant inputs
     };
 
     wire[31:00] regctld = {
         3'b0,
 
-        bbsy_out_h,     // control outputs
-        hltrq_out_h,
-        init_out_h,
-        intr_out_h,
-        msyn_out_h,
-        npg_out_l,
-        npr_out_h,
-        pa_out_h,
-        pb_out_h,
-        sack_out_h,
-        ssyn_out_h,
+        dev_bbsy_out_h,     // control outputs
+        dev_hltrq_out_h,
+        dev_init_out_h,
+        dev_intr_out_h,
+        dev_msyn_out_h,
+        dev_npg_out_l,
+        dev_npr_out_h,
+            pa_out_h,
+            pb_out_h,
+        dev_sack_out_h,
+        dev_ssyn_out_h,
 
-        a_out_h         // address bus outputs
+        dev_a_out_h         // address bus outputs
     };
 
     wire[31:00] regctle = {
@@ -552,35 +518,34 @@ module Zynq (
 
         muxcount,
 
-        npr_in_h,
-        pa_in_h,
-        pb_in_h,
-        hltrq_in_h,
+        dmx_npr_in_h,
+        dmx_pa_in_h,
+        dmx_pb_in_h,
+        dev_hltrq_in_h,
 
-        c_in_h,
-        c_out_h,        // control bus outputs
+        dev_c_in_h,
+        dev_c_out_h,        // control bus outputs
 
-        br_in_h,
-        br_out_h,       // bus request outputs
-        bg_out_l        // bus grant outputs
+        dmx_br_in_h,
+        dev_br_out_h,       // bus request outputs
+        dev_bg_out_l        // bus grant outputs
     };
 
     wire[31:00] regctlf = {
         14'b0,
-        a_in_h
+        dev_a_in_h
     };
 
     wire[31:00] regctlg = {
-        d_in_h,         // data bus inputs (multiplexed)
-        d_out_h         // data bus outputs
+        dev_d_in_h,         // data bus inputs
+        dev_d_out_h         // data bus outputs
     };
 
     /////////////////////////////////////
     //  arm reading/writing registers  //
     /////////////////////////////////////
 
-    wire[31:00] lmarmrdata;
-    wire[31:00] tt0armrdata;
+    wire[31:00] lmarmrdata, slarmrdata, tt0armrdata;
 
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION     :
@@ -591,14 +556,19 @@ module Zynq (
         (readaddr        == 10'b0000000101) ? regctle     :
         (readaddr        == 10'b0000000110) ? regctlf     :
         (readaddr        == 10'b0000000111) ? regctlg     :
+        (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, 4'b0, ilaindex } :
+        (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
+        (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
         (readaddr[11:04] ==  8'b00001000)   ? lmarmrdata  :
-        (readaddr[11:04] ==  8'b00001001)   ? tt0armrdata :
+        (readaddr[11:04] ==  8'b00001001)   ? slarmrdata  :
+        (readaddr[11:04] ==  8'b00001010)   ? tt0armrdata :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
     wire lmarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001000);
-    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001001);
+    wire slarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001001);
+    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001010);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -671,7 +641,7 @@ module Zynq (
     wire lm_ssyn_out_h;
     wire[15:00] lm_d_out_h;
 
-    lilmem lilmem0 (
+    lilmem lminst (
         .CLOCK (CLOCK),
         .RESET (~ RESET_N),
 
@@ -690,12 +660,39 @@ module Zynq (
         .d_out_h (lm_d_out_h),
         .ssyn_out_h (lm_ssyn_out_h));
 
+    // switches and lights
+    wire sl_sack_out_h, sl_ssyn_out_h;
+    wire[15:00] sl_d_out_h;
+
+    swlight slinst (
+        .CLOCK (CLOCK),
+        .RESET (~ RESET_N),
+
+        .armraddr (readaddr[3:2]),
+        .armrdata (slarmrdata),
+        .armwaddr (writeaddr[3:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (slarmwrite),
+
+        .a_in_h (dev_a_in_h),
+        .c_in_h (dev_c_in_h),
+        .d_in_h (dev_d_in_h),
+        .hltgr_in_l (dev_hltgr_in_l),
+        .init_in_h (dev_init_in_h),
+        .msyn_in_h (dev_msyn_in_h),
+
+        .d_out_h (sl_d_out_h),
+        .hltrq_out_h (dev_hltrq_out_h),
+        .init_out_h (dev_init_out_h),
+        .sack_out_h (sl_sack_out_h),
+        .ssyn_out_h (sl_ssyn_out_h));
+
     // console tty
     wire tt0intreq, tt0_ssyn_out_h;
     wire[7:0] tt0intvec;
     wire[15:00] tt0_d_out_h;
 
-    dl11 tt0dev (
+    dl11 tt0inst (
         .CLOCK (CLOCK),
         .RESET (~ RESET_N),
 
@@ -732,7 +729,7 @@ module Zynq (
     wire irq7_bbsy_out_h, irq7_intr_out_h, irq7_sack_out_h;
     wire[15:00] irq4_d_out_h, irq5_d_out_h, irq6_d_out_h, irq7_d_out_h;
 
-    intctl irq4 (
+    intctl irq4inst (
         .CLOCK (CLOCK),
         .RESET (dev_init_in_h),
 
@@ -750,7 +747,7 @@ module Zynq (
         .intr_out_h (irq4_intr_out_h),
         .sack_out_h (irq4_sack_out_h));
 
-    intctl irq5 (
+    intctl irq5inst (
         .CLOCK (CLOCK),
         .RESET (dev_init_in_h),
 
@@ -768,7 +765,7 @@ module Zynq (
         .intr_out_h (irq5_intr_out_h),
         .sack_out_h (irq5_sack_out_h));
 
-    intctl irq6 (
+    intctl irq6inst (
         .CLOCK (CLOCK),
         .RESET (dev_init_in_h),
 
@@ -786,7 +783,7 @@ module Zynq (
         .intr_out_h (irq6_intr_out_h),
         .sack_out_h (irq6_sack_out_h));
 
-    intctl irq7 (
+    intctl irq7inst (
         .CLOCK (CLOCK),
         .RESET (dev_init_in_h),
 
@@ -809,10 +806,10 @@ module Zynq (
     ////////////////////////////////////////
 
     assign dev_bbsy_out_h = irq4_bbsy_out_h | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h;
-    assign dev_d_out_h    = irq4_d_out_h    | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | tt0_d_out_h;
+    assign dev_d_out_h    = irq4_d_out_h    | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | sl_d_out_h | tt0_d_out_h;
     assign dev_intr_out_h = irq4_intr_out_h | irq5_intr_out_h | irq6_intr_out_h | irq7_intr_out_h;
-    assign dev_sack_out_h = irq4_sack_out_h | irq5_sack_out_h | irq6_sack_out_h | irq7_sack_out_h;
-    assign dev_ssyn_out_h = lm_ssyn_out_h | tt0_ssyn_out_h;
+    assign dev_sack_out_h = irq4_sack_out_h | irq5_sack_out_h | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
+    assign dev_ssyn_out_h = lm_ssyn_out_h   | sl_ssyn_out_h   | tt0_ssyn_out_h;
 
     /////////////////////////////////
     //  integrated logic analyzer  //
@@ -840,15 +837,33 @@ module Zynq (
 
                 // capture signals while before trigger and for ilaafter cycles thereafter
                 if (ilaarmed | (ilaafter != 0)) begin
-                    ilaarray[ilaindex] <= { 4'b0 };
+                    ilaarray[ilaindex] <= {
+                        dmx_a_in_h,      // dev_a_in_h,
+                            ac_lo_in_h,  // dev_ac_lo_in_h,
+                            bbsy_in_h,   // dev_bbsy_in_h,
+                            bg_in_l,     // dev_bg_in_l,
+                        dmx_br_in_h,     // dev_br_in_h,
+                        dmx_c_in_h,      // dev_c_in_h,
+                        dmx_d_in_h,      // dev_d_in_h,
+                            dc_lo_in_h,  // dev_dc_lo_in_h,
+                            hltgr_in_l,  // dev_hltgr_in_l,
+                        dmx_hltrq_in_h,  // dev_hltrq_in_h,
+                            init_in_h,   // dev_init_in_h,
+                            intr_in_h,   // dev_intr_in_h,
+                            msyn_in_h,   // dev_msyn_in_h,
+                            npg_in_l,    // dev_npg_in_l,
+                        dmx_npr_in_h,    // dev_npr_in_h,
+                            sack_in_h,   // dev_sack_in_h,
+                            ssyn_in_h    // dev_ssyn_in_h
+                    };
 
                     ilaindex <= ilaindex + 1;
                     if (~ ilaarmed) ilaafter <= ilaafter - 1;
                 end
 
                 // check trigger condition
-                // - disk controller requesting dma cycle
-                if (msyn_in_h) begin
+                // - hltrq_in_h
+                if (rsel1_h & muxc) begin
                     ilaarmed <= 0;
                 end
             end

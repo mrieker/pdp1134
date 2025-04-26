@@ -45,18 +45,16 @@
 #define a_hltrq_out_h (1U << 25)
 #define a_bbsy_out_h  (1U << 26)
 #define a_fpgamode    (3U << 30)
-#define FM_RESET  0U    // reset FPGA and disconnect from bus
-#define FM_NORMAL 1U    // normal mode, assumes PDP-11/34 present
-#define FM_SIMCPU 2U    // simulated CPU, ignores PDP-11/34
-#define FM_MANUAL 3U    // manual control of all bus lines
+#define FM_OFF  0U    // reset FPGA and disconnect from bus
+#define FM_SIM  1U    // simulated CPU, ignores PDP-11/34, disconnected from bus
+#define FM_REAL 2U    // normal mode, assumes PDP-11/34 present
+#define FM_MAN  3U    // manual control of all bus lines
 
 #define b_a_out_h     (0777777U << 0)
 #define b_c_out_h     (3U << 18)
 #define b_br_out_h    (017U << 20)
 #define b_bg_out_l    (017U << 24)
-#define b_rsel1_h     (1U << 28)
-#define b_rsel2_h     (1U << 29)
-#define b_rsel3_h     (1U << 30)
+#define b_rsel_h      (3U << 28)
 
 #define c_muxa        (1U << 31)
 #define c_muxb        (1U << 30)

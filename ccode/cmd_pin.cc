@@ -40,8 +40,9 @@ struct PinDef {
 
 #define DEV_11 0
 #define DEV_LM 1
+#define DEV_SL 2
 
-static uint32_t volatile *devs[2];
+static uint32_t volatile *devs[3];
 
 static PinDef const pindefs[] = {
 
@@ -63,9 +64,7 @@ static PinDef const pindefs[] = {
     { "man_c_out_h",     DEV_11, Z_RB, b_c_out_h,     0, true  },
     { "man_br_out_h",    DEV_11, Z_RB, b_br_out_h,    4, true  },
     { "man_bg_out_l",    DEV_11, Z_RB, b_bg_out_l,    4, true  },
-    { "man_rsel1_h",     DEV_11, Z_RB, b_rsel1_h,     0, true  },
-    { "man_rsel2_h",     DEV_11, Z_RB, b_rsel2_h,     0, true  },
-    { "man_rsel3_h",     DEV_11, Z_RB, b_rsel3_h,     0, true  },
+    { "man_rsel_h",      DEV_11, Z_RB, b_rsel_h,      0, true  },
 
     { "muxa",            DEV_11, Z_RC, c_muxa,        0, false },
     { "muxb",            DEV_11, Z_RC, c_muxb,        0, false },
@@ -129,6 +128,14 @@ static PinDef const pindefs[] = {
     { "lm_data",         DEV_LM, 2,    0177777,       0, true  },
     { "lm_enab",         DEV_LM, 3,    0x80000000,    0, true  },
 
+    { "sl_switches",     DEV_SL, 1,    0x0000FFFF,    0, true  },
+    { "sl_lights",       DEV_SL, 1,    0xFFFF0000,    0, false },
+    { "sl_enable",       DEV_SL, 2,    0x80000000,    0, true  },
+    { "sl_haltreq",      DEV_SL, 2,    0x40000000,    0, true  },
+    { "sl_halted",       DEV_SL, 2,    0x20000000,    0, false },
+    { "sl_stepreq",      DEV_SL, 2,    0x10000000,    0, true  },
+    { "sl_businit",      DEV_SL, 2,    0x08000000,    0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 
@@ -155,6 +162,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         z11page = new Z11Page ();
         devs[DEV_11] = z11page->findev ("11", NULL, NULL, false);
         devs[DEV_LM] = z11page->findev ("LM", NULL, NULL, false);
+        devs[DEV_SL] = z11page->findev ("SL", NULL, NULL, false);
 #if 000
         // get pointer to the 32K-word ram
         // maps each 12-bit word into low 12 bits of 32-bit word

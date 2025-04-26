@@ -52,10 +52,10 @@ module lilmem
     always @(posedge CLOCK) begin
         if (init_in_h) begin
             if (RESET) begin
-                enable <= 0;
+                enable  <= 0;
+                addrptr <= 0;
+                dataval <= 16'hBAAD;
             end
-            addrptr    <= 0;
-            dataval    <= 16'hBAAD;
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end

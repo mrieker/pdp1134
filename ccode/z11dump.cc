@@ -196,16 +196,13 @@ int main (int argc, char **argv)
             printf ("   init_out_h=%o       init_in_h=%o       init_out_h=%o%s",      FIELD(Z_RA,a_init_out_h),   FIELD(Z_RC,c_init_in_h),   FIELD(Z_RD,d_init_out_h),   eol);
             printf ("   intr_out_h=%o       intr_in_h=%o       intr_out_h=%o%s",      FIELD(Z_RA,a_intr_out_h),   FIELD(Z_RC,c_intr_in_h),   FIELD(Z_RD,d_intr_out_h),   eol);
             printf ("   msyn_out_h=%o       msyn_in_h=%o       msyn_out_h=%o%s",      FIELD(Z_RA,a_msyn_out_h),   FIELD(Z_RC,c_msyn_in_h),   FIELD(Z_RD,d_msyn_out_h),   eol);
-            printf ("                            mux=%05o%s",                                                     (z11s[Z_RC]>>17)&32767,                                eol);
             printf ("    npg_out_l=%o        npg_in_l=%o        npg_out_l=%o%s",      FIELD(Z_RA,a_npg_out_l),    FIELD(Z_RC,c_npg_in_l),    FIELD(Z_RD,d_npg_out_l),    eol);
             printf ("    npr_out_h=%o        npr_in_h=%o        npr_out_h=%o%s",      FIELD(Z_RA,a_npr_out_h),    FIELD(Z_RE,e_npr_in_h),    FIELD(Z_RD,d_npr_out_h),    eol);
             printf ("     pa_out_h=%o         pa_in_h=%o         pa_out_h=%o%s",      FIELD(Z_RA,a_pa_out_h),     FIELD(Z_RE,e_pa_in_h),     FIELD(Z_RD,d_pa_out_h),     eol);
             printf ("     pb_out_h=%o         pb_in_h=%o         pb_out_h=%o%s",      FIELD(Z_RA,a_pb_out_h),     FIELD(Z_RE,e_pb_in_h),     FIELD(Z_RD,d_pb_out_h),     eol);
-            printf ("      rsel1_h=%o           rsel1=%o%s",                          FIELD(Z_RB,b_rsel1_h),      FIELD(Z_RC,c_rsel1_h),                                 eol);
-            printf ("      rsel2_h=%o           rsel2=%o%s",                          FIELD(Z_RB,b_rsel2_h),      FIELD(Z_RC,c_rsel2_h),                                 eol);
-            printf ("      rsel3_h=%o           rsel3=%o%s",                          FIELD(Z_RB,b_rsel3_h),      FIELD(Z_RC,c_rsel3_h),                                 eol);
             printf ("   sack_out_h=%o       sack_in_h=%o       sack_out_h=%o%s",      FIELD(Z_RA,a_sack_out_h),   FIELD(Z_RC,c_sack_in_h),   FIELD(Z_RD,d_sack_out_h),   eol);
             printf ("   ssyn_out_h=%o       ssyn_in_h=%o       ssyn_out_h=%o%s",      FIELD(Z_RA,a_ssyn_out_h),   FIELD(Z_RC,c_ssyn_in_h),   FIELD(Z_RD,d_ssyn_out_h),   eol);
+            printf ("       rsel_h=%o             mux=%05o  rsel1,2,3_h=%o,%o,%o%s",  FIELD(Z_RB,b_rsel_h),       (z11s[Z_RC]>>17)&32767,    FIELD(Z_RC,c_rsel1_h), FIELD(Z_RC,c_rsel2_h), FIELD(Z_RC,c_rsel3_h), eol);
 
             for (int i = 0; i < 1024;) {
                 uint32_t idver = z11s[i];
