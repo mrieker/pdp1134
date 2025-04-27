@@ -34,15 +34,18 @@
 #include "z11util.h"
 
 #define DEPTH 4096  // total number of elements in ilaarray
-#define AFTER 4000  // number of samples to take after sample containing trigger
+#define AFTER   96  // number of samples to take after sample containing trigger
+#define DIVID 10    // sample at 10MHz rate
 
 #define ILACTL 021
 #define ILADAT 022
 
 #define CTL_ARMED  0x80000000U
 #define CTL_AFTER0 0x00010000U
+#define CTL_DIVID0 0x00001000U
 #define CTL_INDEX0 0x00000001U
 #define CTL_AFTER  (CTL_AFTER0 * (DEPTH - 1))
+#define CTL_DIVID  (CTL_DIVID0 * (DIVID - 1))
 #define CTL_INDEX  (CTL_INDEX0 * (DEPTH - 1))
 
 int main (int argc, char **argv)
@@ -79,7 +82,7 @@ int main (int argc, char **argv)
 
         // tell zynq.v to start collecting samples
         // tell it to stop when collected trigger sample plus AFTER thereafter
-        pdpat[ILACTL] = CTL_ARMED | AFTER * CTL_AFTER0;
+        pdpat[ILACTL] = CTL_ARMED | CTL_DIVID | AFTER * CTL_AFTER0;
         printf ("armed\n");
 
         // wait for sampling to stop
@@ -104,8 +107,8 @@ int main (int argc, char **argv)
         if (nodots || (i == 0) || (i == DEPTH - 1) ||
                 (thisentry != preventry) || (thisentry != nextentry)) {
 
-            printf ("%6.2f [%02X] %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
-                (i - DEPTH + AFTER + 1) / 100.0,        // trigger shows as 0.00uS
+            printf ("%7.2f [%02X] %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
+                (i - DEPTH + AFTER + 1) * DIVID / 100.0,// trigger shows as 0.00uS
 
                 (unsigned) (thisentry >> 56) & 0xFF,    // [garbage]
                 (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h

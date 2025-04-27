@@ -108,7 +108,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314004;
+    localparam VERSION = 32'h31314005;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -211,16 +211,16 @@ module Zynq (
     reg[17:00] dmx_a_in_h;
     reg[15:00] dmx_d_in_h;
 
-    // del_msyn_in_h - delayed 150nS so all demuxed signals up-to-date
+    // del_msyn_in_h - delayed MUXDELAY*3*10nS so all demuxed signals up-to-date
     // - specifically we care about dmx_a_in_h, dmx_c_in_h, dmx_d_in_h
     //   the other dmx_ signals are just passed to arm for debugging
-    localparam MUXDELAY = 5;
+    localparam MUXDELAY = 15;
     reg del_msyn_in_h;
 
-    reg[4:0] muxcount, muxdelay;
-    assign rsel1_h  = muxcount[4:3] == 1;
-    assign rsel2_h  = muxcount[4:3] == 2;
-    assign rsel3_h  = muxcount[4:3] == 3;
+    reg[5:0] muxcount, muxdelay;
+    assign rsel1_h  = muxcount[5:4] == 1;
+    assign rsel2_h  = muxcount[5:4] == 2;
+    assign rsel3_h  = muxcount[5:4] == 3;
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -228,8 +228,8 @@ module Zynq (
         end else begin
 
             // give transistors 50nS to switch and soak
-            if (muxcount[2:0] != MUXDELAY-1) begin
-                muxcount[2:0] <= muxcount[2:0] + 1;
+            if (muxcount[3:0] != MUXDELAY-1) begin
+                muxcount[3:0] <= muxcount[3:0] + 1;
             end else begin
 
                 // all soaked in, clock into corresponding flipflops
@@ -285,13 +285,13 @@ module Zynq (
                 end
 
                 // increment on to next multiplexor selection
-                muxcount[2:0] <= 0;
+                muxcount[3:0] <= 0;
 
                 // - if FM_MAN mode and non-zero b_rsel_h, use that one
                 //   otherwise, cycle on through one to the next
-                muxcount[4:3] <=
+                muxcount[5:4] <=
                     ((regctla[31:30] == FM_MAN) & (regctlb[29:28] != 0)) ? regctlb[29:28] :
-                                            (muxcount[4:3] == 3) ? 1 : (muxcount[4:3] + 1);
+                                            (muxcount[5:4] == 3) ? 1 : (muxcount[5:4] + 1);
             end
 
             // delay msyn_in_h a full demux cycle so we know multiplexed signals are all updated
@@ -368,10 +368,11 @@ module Zynq (
             end
 
             // FM_MAN - signals come from arm registers
+            // - for the grants, =0 passes grant, =1 blocks grant
             FM_MAN: begin
                 a_out_h     <= regctlb[17:00];
                 bbsy_out_h  <= regctla[26];
-                bg_out_l    <= regctlb[27:24];
+                bg_out_l    <= regctlb[27:24] | bg_in_l;
                 br_out_h    <= regctlb[23:20];
                 c_out_h     <= regctlb[19:18];
                 d_out_h     <= regctla[15:00];
@@ -379,7 +380,7 @@ module Zynq (
                 init_out_h  <= regctla[24];
                 intr_out_h  <= regctla[23];
                 msyn_out_h  <= regctla[22];
-                npg_out_l   <= regctla[21];
+                npg_out_l   <= regctla[21]    | npg_in_l;
                 npr_out_h   <= regctla[20];
                 pa_out_h    <= regctla[19];
                 pb_out_h    <= regctla[18];
@@ -460,6 +461,8 @@ module Zynq (
     //  give arm direct read-only access to unibus pins  //
     ///////////////////////////////////////////////////////
 
+    wire simmode = regctla[31:30] == FM_SIM;
+
     wire[31:00] regctlc = {
         muxa,               // multiplexed inputs
         muxb,
@@ -481,18 +484,18 @@ module Zynq (
         rsel2_h,
         rsel3_h,
 
-        dev_ac_lo_in_h,     // control inputs
-        dev_bbsy_in_h,
-        dev_dc_lo_in_h,
-        dev_hltgr_in_l,
-        dev_init_in_h,
-        dev_intr_in_h,
-        dev_msyn_in_h,
-        dev_npg_in_l,
-        dev_sack_in_h,
-        dev_ssyn_in_h,
+        simmode ? sim_ac_lo_in_h : ac_lo_in_h,  // control inputs
+        simmode ? sim_bbsy_in_h  : bbsy_in_h,
+        simmode ? sim_dc_lo_in_h : dc_lo_in_h,
+        simmode ? sim_hltgr_in_l : hltgr_in_l,
+        simmode ? sim_init_in_h  : init_in_h,
+        simmode ? sim_intr_in_h  : intr_in_h,
+        simmode ? sim_msyn_in_h  : msyn_in_h,
+        simmode ? sim_npg_in_l   : npg_in_l,
+        simmode ? sim_sack_in_h  : sack_in_h,
+        simmode ? sim_ssyn_in_h  : ssyn_in_h,
 
-        dev_bg_in_l         // bus grant inputs
+        simmode ? sim_bg_in_l    : bg_in_l      // bus grant inputs
     };
 
     wire[31:00] regctld = {
@@ -514,30 +517,30 @@ module Zynq (
     };
 
     wire[31:00] regctle = {
-        7'b0,
+        6'b0,
 
         muxcount,
 
-        dmx_npr_in_h,
-        dmx_pa_in_h,
-        dmx_pb_in_h,
-        dev_hltrq_in_h,
+        simmode ? 1'b0       : dmx_npr_in_h,
+        simmode ? 1'b0       : dmx_pa_in_h,
+        simmode ? 1'b0       : dmx_pb_in_h,
+        simmode ? 1'b0       : dmx_hltrq_in_h,
 
-        dev_c_in_h,
+        simmode ? sim_c_in_h : dmx_c_in_h,
         dev_c_out_h,        // control bus outputs
 
-        dmx_br_in_h,
+        simmode ? 1'b0       : dmx_br_in_h,
         dev_br_out_h,       // bus request outputs
         dev_bg_out_l        // bus grant outputs
     };
 
     wire[31:00] regctlf = {
         14'b0,
-        dev_a_in_h
+        simmode ? sim_a_in_h : dmx_a_in_h
     };
 
     wire[31:00] regctlg = {
-        dev_d_in_h,         // data bus inputs
+        simmode ? sim_d_in_h : dmx_d_in_h,
         dev_d_out_h         // data bus outputs
     };
 
@@ -819,18 +822,27 @@ module Zynq (
     //             1: waiting for trigger condition
     //  ilaafter = number of cycles to record after trigger condition satisfied
     //  ilaindex = next entry in ilaarray to write
+    //  iladivid = 0: 100MHz; 1: 50MHz; 2: 33MHz; 4: 25MHz; ...
+
+    reg[3:0] ilacount, iladivid;
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
             ilaarmed <= 0;
             ilaafter <= 0;
+            ilacount <= 0;
+            iladivid <= 0;
+        end else if (ilacount != iladivid) begin
+            ilacount <= ilacount + 1;
         end else begin
+            ilacount <= 0;
 
             if (armwrite & (writeaddr == 10'b0000010001)) begin
 
                 // arm processor is writing control register
                 ilaarmed <= saxi_WDATA[31];
                 ilaafter <= saxi_WDATA[27:16];
+                iladivid <= saxi_WDATA[15:12];
                 ilaindex <= saxi_WDATA[11:00];
                 ilardata <= ilaarray[saxi_WDATA[11:00]];
             end else begin
@@ -862,8 +874,9 @@ module Zynq (
                 end
 
                 // check trigger condition
-                // - hltrq_in_h
-                if (rsel1_h & muxc) begin
+                ////if (rsel1_h & muxc) begin   // - hltrq_in_h
+                ////if (~ hltgr_in_l) begin
+                if (rsel3_h & muxf) begin   // - a_in_h[06]
                     ilaarmed <= 0;
                 end
             end
