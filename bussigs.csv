@@ -1,88 +1,90 @@
- unibus signal, SPC conn, transistor, mux, zturn conn, zturn sig, zynq pin, zynq signal,
-BUS_A00_L,CH2,"Q57A,B",3K,J11-17,B13-LP13,Y7,a_out_h[00],address from zynq out to unibus
-BUS_A01_L,CH1,"Q14A,B",3A,J12-42,B35-LP10,K19,a_out_h[01],
-BUS_A02_L,CF1,"Q13A,B",2C,J12-44,B35-LN10,J19,a_out_h[02],
-BUS_A03_L,CV2,"Q63A,B",3S,J11-31,B34-LP04,V12,a_out_h[03],
-BUS_A04_L,CU2,"Q62A,B",3R,J11-29,B34-LN02,U12,a_out_h[04],
-BUS_A05_L,CV1,"Q21A,B",3H,J12-25,B35-LN01,B20,a_out_h[05],
-BUS_A06_L,CU1,"Q20A,B",3F,J12-23,B35-LP01,C20,a_out_h[06],
-BUS_A07_L,CP2,"Q61A,B",3P,J11-27,B34-LP02,T12,a_out_h[07],
-BUS_A08_L,CN2,"Q60A,B",3N,J11-23,B13-LN15,W8,a_out_h[08],
-BUS_A09_L,CR1,"Q19A,B",3E,J12-22,B35-LP02,B19,a_out_h[09],
-BUS_A10_L,CP1,"Q18A,B",3D,J12-24,B35-LN02,A20,a_out_h[10],
-BUS_A11_L,CL1,"Q17A,B",3C,J12-26,B35-LP04,D19,a_out_h[11],
-BUS_A12_L,CC1,"Q10A,B",2A,J11-46,LCD-DATA02,V15,a_out_h[12],
-BUS_A13_L,CK2,"Q59A,B",3M,J11-21,B13-LP15,V8,a_out_h[13],
-BUS_A14_L,CK1,"Q16A,B",3B,J12-34,B35-LN06,F17,a_out_h[14],
-BUS_A15_L,CD2,"Q54A,B",2N,J11-09,B13-LN11,V7,a_out_h[15],
-BUS_A16_L,CE2,"Q55A,B",2P,J11-11,B13-LP12,T9,a_out_h[16],
-BUS_A17_L,CD1,"Q11A,B",2B,J11-32,B34-LN03,V13,a_out_h[17],
-BUS_AC_LO_L,AV1,Q08A,,J11-70,LCD-VSYNC,V16,ac_lo_in_h,ac power low from pdp to zynq
-BUS_BBSY_L(I),DD1,Q22A,,J12-29,B35-LN03,D18,bbsy_in_h,sense that some device is bus master
-BUS_BBSY_L(O),DD1,Q22B,,J12-27,B35-LP03,E17,bbsy_out_h,bus busy from zynq out to unibus
-BUS_BG4_IN_H,BS2,Q53A,,J11-65,LCD-DATA13,W20,bg_in_l[4],bus grant 4 from pdp to zynq
-BUS_BG4_OUT_H,BT2,Q53B,,J11-69,LCD-HSYNC,W16,bg_out_l[4],bus grant 4 from zynq to outer devs
-BUS_BG5_IN_H,BP2,Q52A,,J11-61,LCD-DATA09,P20,bg_in_l[5],bus grant 5 from pdp to zynq
-BUS_BG5_OUT_H,BR2,Q52B,,J11-63,LCD-DATA12,V20,bg_out_l[5],bus grant 5 from zynq to outer devs
-BUS_BG6_IN_H,BM2,Q51A,,J11-57,LCD-DATA05,U19,bg_in_l[6],bus grant 6 from pdp to zynq
-BUS_BG6_OUT_H,BN2,Q51B,,J11-59,LCD-DATA08,N20,bg_out_l[6],bus grant 6 from zynq to outer devs
-BUS_BG7_IN_H,BK2,Q50A,,J11-53,LCD-DATA01,U17,bg_in_l[7],bus grant 7 from pdp to zynq
-BUS_BG7_OUT_H,BL2,Q50B,,J11-55,LCD-DATA04,U18,bg_out_l[7],bus grant 7 from zynq to outer devs
-BUS_BR4_L,BH2,"Q43A,B",2M,J11-51,LCD-DATA00,T16,br_out_h[4],bus request 4 from zynq to pdp
-BUS_BR5_L,BF2,"Q42A,B",2L,J11-47,B34-LN11,U15,br_out_h[5],bus request 5 from zynq to pdp
-BUS_BR6_L,BE2,"Q41A,B",2K,J12-57,B35-LP15,F19,br_out_h[6],bus request 6 from zynq to pdp
-BUS_BR7_L,BD2,"Q40A,B",2J,J11-43,B34-LN08,Y14,br_out_h[7],bus request 7 from zynq to pdp
-BUS_C0_L,CJ2,"Q58A,B",3L,J11-19,B13-LN13,Y6,c_out_h[0],control bits from zynq to unibus
-BUS_C1_L,CF2,"Q56A,B",2R,J11-13,B13-LN12,U10,c_out_h[1],
-BUS_D00_L,AS2,"Q36A,B",2D,J12-56,B35-LP16,G17,d_out_h[00],data bits from zynq to unibus
-BUS_D01_L,AR2,"Q35A,B",1S,J12-58,B35-LN16,G18,d_out_h[01],
-BUS_D02_L,AU2,"Q38A,B",2F,J12-52,B35-LP14,J18,d_out_h[02],
-BUS_D03_L,AT2,"Q37A,B",2E,J12-54,B35-LN14,H18,d_out_h[03],
-BUS_D04_L,AN2,"Q33A,B",1P,J12-64,B35-LN18,G20,d_out_h[04],
-BUS_D05_L,AP2,"Q34A,B",1R,J12-62,B35-LP18,G19,d_out_h[05],
-BUS_D06_L,AV2,"Q39A,B",2H,J11-41,B34-LP08,W14,d_out_h[06],
-BUS_D07_L,AM2,"Q32A,B",1N,J12-66,B35-LP20,K14,d_out_h[07],
-BUS_D08_L,AL2,"Q31A,B",1M,J12-77,B35-LP23,M14,d_out_h[08],
-BUS_D09_L,AK2,"Q30A,B",1L,J12-75,B35-LN21,N16,d_out_h[09],
-BUS_D10_L,AJ2,"Q29A,B",1K,J12-73,B35-LP21,N15,d_out_h[10],
-BUS_D11_L,AH1,"Q03A,B",1B,J12-76,B35-LP24,K16,d_out_h[11],
-BUS_D12_L,AH2,"Q28A,B",1J,J12-69,B35-LN19,G15,d_out_h[12],
-BUS_D13_L,AF2,"Q27A,B",1H,J12-67,B35-LP19,H15,d_out_h[13],
-BUS_D14_L,AE2,"Q26A,B",1F,J12-65,B35-LN17,H20,d_out_h[14],
-BUS_D15_L,AD2,"Q25A,B",1E,J12-63,B35-LP17,J20,d_out_h[15],
-BUS_DC_LO_L,AN1,Q04A,,J12-74,B35-LN22,L15,dc_lo_in_h,dc power low from pdp to zynq
-BUS_INIT_L(I),BL1,Q09A,,J11-64,LCD-DE,R16,init_in_h,bus init from pdp to zynq
-BUS_INIT_L(O),BL1,Q09B,,J11-66,LCD-PCLK,R17,init_out_h,bus init from zynq to pdp and devices
-BUS_INTR_L(I),DM1,Q24A,,J12-37,B35-LP07,M19,intr_in_h,sense that some device is interrupting
-BUS_INTR_L(O),DM1,Q24B,,J12-35,B35-LN05,E19,intr_out_h,send interrupt vector to processor
-BUS_MSYN_L(I),CE1,Q12A,,J11-20,B13-LP21,V11,msyn_in_h,sense that some device is initiating cycle
-BUS_MSYN_L(O),CE1,Q12B,,J11-22,B13-LN21,V10,msyn_out_h,send cycle initiation to pdp and devices
-BUS_NPG_IN_H,AA1,Q01A,,J12-79,B35-LN23,M15,npg_in_l,dma grant from pdp to zynq
-BUS_NPG_OUT_H,AB1,Q01B,,J12-59,B35-LN15,F20,npg_out_l,dma grant from zynq to outer devs
-BUS_NPR_L,DJ1,"Q23A,B",3J,J12-33,B35-LP05,E18,npr_out_h,send zynq dma request to pdp
-BUS_PA_L,AC1,"Q02A,B",1A,J12-78,B35-LN24,J16,pa_out_h,
-BUS_PB_L,AS1,"Q07A,B",1D,J12-46,B35-LP12,K17,pb_out_h,
-BUS_SACK_L(I),DT2,Q64A,,J11-33,B34-LN04,W13,sack_in_h,some device is acking selection
-BUS_SACK_L(O),DT2,Q64B,,J11-37,B34-LP06,P14,sack_out_h,zynq is acknowledging selection
-BUS_SSYN_L(I),CJ1,Q15A,,J12-36,B35-LP08,M17,ssyn_in_h,some device is completing a cycle
-BUS_SSYN_L(O),CJ1,Q15B,,J12-38,B35-LN08,M18,ssyn_out_h,zynq is completing a cycle
-HALT_GRANT_H,AR1,Q06A,,J12-68,B35-LN20,J14,hltgr_in_l,processor is halted
-HALT_RQST_L,AP1,"Q05A,B",1C,J12-72,B35-LP22,L14,hltrq_out_h,request processor to halt
-,,,MUXA,J11-18,B13-LN14,Y8,muxa,read associated signal from unibus
-,,,MUXB,J11-26,B34-LP01,T11,muxb,
-,,,MUXC,J11-28,B34-LN01,T10,muxc,
-,,,MUXD,J11-30,B34-LP03,U13,muxd,
-,,,MUXE,J11-48,LCD-DATA03,W15,muxe,
-,,,MUXF,J11-38,B34-LN05,T15,muxf,
-,,,MUXH,J11-36,B34-LP05,T14,muxh,
-,,,MUXJ,J11-50,LCD-DATA06,N18,muxj,
-,,,MUXK,J11-52,LCD-DATA07,P19,muxk,
-,,,MUXL,J11-56,LCD-DATA10,T20,muxl,
-,,,MUXM,J11-58,LCD-DATA11,U20,muxm,
-,,,MUXN,J11-60,LCD-DATA14,Y18,muxn,
-,,,MUXP,J11-62,LCD-DATA15,Y19,muxp,
-,,,MUXR,J11-07,B13-LP11,U7,muxr,
-,,,MUXS,J11-16,B13-LP14,Y9,muxs,
-,,Q44A,RSEL1,J12-48,B35-LN12,K18,rsel1_h,select which signals come in on mux lines
-,,Q44B,RSEL2,J12-28,B35-LN04,D20,rsel2_h,
-,,Q06B,RSEL3,J12-32,B35-LP06,F16,rsel3_h,
+ unibus signal, SPC conn, transistor, mux, zturn conn, zynq signal,
+BUS_A00_L,CH2,"Q57A,B",3K,J11-17,a_out_h[00],address from zynq out to unibus
+BUS_A01_L,CH1,"Q14A,B",3A,J12-42,a_out_h[01],
+BUS_A02_L,CF1,"Q13A,B",2C,J12-44,a_out_h[02],
+BUS_A03_L,CV2,"Q63A,B",3S,J11-31,a_out_h[03],
+BUS_A04_L,CU2,"Q62A,B",3R,J11-29,a_out_h[04],
+BUS_A05_L,CV1,"Q21A,B",3H,J12-25,a_out_h[05],
+BUS_A06_L,CU1,"Q20A,B",3F,J12-23,a_out_h[06],
+BUS_A07_L,CP2,"Q61A,B",3P,J11-27,a_out_h[07],
+BUS_A08_L,CN2,"Q60A,B",3N,J11-23,a_out_h[08],
+BUS_A09_L,CR1,"Q19A,B",3E,J12-22,a_out_h[09],
+BUS_A10_L,CP1,"Q18A,B",3D,J12-24,a_out_h[10],
+BUS_A11_L,CL1,"Q17A,B",3C,J12-26,a_out_h[11],
+BUS_A12_L,CC1,"Q10A,B",2A,J11-46,a_out_h[12],
+BUS_A13_L,CK2,"Q59A,B",3M,J11-21,a_out_h[13],
+BUS_A14_L,CK1,"Q16A,B",3B,J12-34,a_out_h[14],
+BUS_A15_L,CD2,"Q54A,B",2N,J11-09,a_out_h[15],
+BUS_A16_L,CE2,"Q55A,B",2P,J11-11,a_out_h[16],
+BUS_A17_L,CD1,"Q11A,B",2B,J11-32,a_out_h[17],
+BUS_AC_LO_L(I),AV1,Q08A,,J11-70,ac_lo_in_h,ac power low from pdp to zynq
+BUS_AC_LO_L(O),AV1,Q08B,,J12-46,ac_lo_out_h,ac power low from zynq to pdp
+BUS_BBSY_L(I),DD1,Q22A,,J12-29,bbsy_in_h,sense that some device is bus master
+BUS_BBSY_L(O),DD1,Q22B,,J12-27,bbsy_out_h,bus busy from zynq out to unibus
+BUS_BG4_IN_H,BS2,Q53A,,J11-65,bg_in_l[4],bus grant 4 from pdp to zynq
+BUS_BG4_OUT_H,BT2,Q53B,,J11-69,bg_out_l[4],bus grant 4 from zynq to outer devs
+BUS_BG5_IN_H,BP2,Q52A,,J11-61,bg_in_l[5],bus grant 5 from pdp to zynq
+BUS_BG5_OUT_H,BR2,Q52B,,J11-63,bg_out_l[5],bus grant 5 from zynq to outer devs
+BUS_BG6_IN_H,BM2,Q51A,,J11-57,bg_in_l[6],bus grant 6 from pdp to zynq
+BUS_BG6_OUT_H,BN2,Q51B,,J11-59,bg_out_l[6],bus grant 6 from zynq to outer devs
+BUS_BG7_IN_H,BK2,Q50A,,J11-53,bg_in_l[7],bus grant 7 from pdp to zynq
+BUS_BG7_OUT_H,BL2,Q50B,,J11-55,bg_out_l[7],bus grant 7 from zynq to outer devs
+BUS_BR4_L,BH2,"Q43A,B",2M,J11-51,br_out_h[4],bus request 4 from zynq to pdp
+BUS_BR5_L,BF2,"Q42A,B",2L,J11-47,br_out_h[5],bus request 5 from zynq to pdp
+BUS_BR6_L,BE2,"Q41A,B",2K,J11-43,br_out_h[6],bus request 6 from zynq to pdp
+BUS_BR7_L,BD2,"Q40A,B",2J,J11-41,br_out_h[7],bus request 7 from zynq to pdp
+BUS_C0_L,CJ2,"Q58A,B",3L,J11-19,c_out_h[0],control bits from zynq to unibus
+BUS_C1_L,CF2,"Q56A,B",2R,J11-13,c_out_h[1],
+BUS_D00_L,AS2,"Q36A,B",2D,J12-58,d_out_h[00],data bits from zynq to unibus
+BUS_D01_L,AR2,"Q35A,B",1S,J12-62,d_out_h[01],
+BUS_D02_L,AU2,"Q38A,B",2F,J12-54,d_out_h[02],
+BUS_D03_L,AT2,"Q37A,B",2E,J12-56,d_out_h[03],
+BUS_D04_L,AN2,"Q33A,B",1P,J12-66,d_out_h[04],
+BUS_D05_L,AP2,"Q34A,B",1R,J12-64,d_out_h[05],
+BUS_D06_L,AV2,"Q39A,B",2H,J12-52,d_out_h[06],
+BUS_D07_L,AM2,"Q32A,B",1N,J12-77,d_out_h[07],
+BUS_D08_L,AL2,"Q31A,B",1M,J12-75,d_out_h[08],
+BUS_D09_L,AK2,"Q30A,B",1L,J12-73,d_out_h[09],
+BUS_D10_L,AJ2,"Q29A,B",1K,J12-69,d_out_h[10],
+BUS_D11_L,AH1,"Q03A,B",1B,J12-79,d_out_h[11],
+BUS_D12_L,AH2,"Q28A,B",1J,J12-67,d_out_h[12],
+BUS_D13_L,AF2,"Q27A,B",1H,J12-65,d_out_h[13],
+BUS_D14_L,AE2,"Q26A,B",1F,J12-59,d_out_h[14],
+BUS_D15_L,AD2,"Q25A,B",1E,J12-55,d_out_h[15],
+BUS_DC_LO_L(I),AN1,Q04A,,J12-76,dc_lo_in_h,dc power low from pdp to zynq
+BUS_DC_LO_L(O),AN1,Q04B,,J12-78,dc_lo_out_h,dc power low from zynq to pdp
+BUS_INIT_L(I),BL1,Q09A,,J11-64,init_in_h,bus init from pdp to zynq
+BUS_INIT_L(O),BL1,Q09B,,J11-66,init_out_h,bus init from zynq to pdp and devices
+BUS_INTR_L(I),DM1,Q24A,,J12-37,intr_in_h,sense that some device is interrupting
+BUS_INTR_L(O),DM1,Q24B,,J12-35,intr_out_h,send interrupt vector to processor
+BUS_MSYN_L(I),CE1,Q12A,,J11-20,msyn_in_h,sense that some device is initiating cycle
+BUS_MSYN_L(O),CE1,Q12B,,J11-22,msyn_out_h,send cycle initiation to pdp and devices
+BUS_NPG_IN_H,AA1,Q01A,,J12-57,npg_in_l,dma grant from pdp to zynq
+BUS_NPG_OUT_H,AB1,Q01B,,J12-53,npg_out_l,dma grant from zynq to outer devs
+BUS_NPR_L,DJ1,"Q23A,B",3J,J12-33,npr_out_h,send zynq dma request to pdp
+BUS_PA_L,AC1,"Q02A,B",1A,J12-63,pa_out_h,
+BUS_PB_L,AS1,"Q07A,B",1D,J12-48,pb_out_h,
+BUS_SACK_L(I),DT2,Q64A,,J11-33,sack_in_h,some device is acking selection
+BUS_SACK_L(O),DT2,Q64B,,J11-37,sack_out_h,zynq is acknowledging selection
+BUS_SSYN_L(I),CJ1,Q15A,,J12-36,ssyn_in_h,some device is completing a cycle
+BUS_SSYN_L(O),CJ1,Q15B,,J12-38,ssyn_out_h,zynq is completing a cycle
+HALT_GRANT_H,AR1,Q06A,,J12-72,hltgr_in_l,processor is halted
+HALT_RQST_L,AP1,"Q05A,B",1C,J12-74,hltrq_out_h,request processor to halt
+,,,MUXR,J11-07,muxr,
+,,,MUXS,J11-16,muxs,
+,,,MUXA,J11-18,muxa,read associated signal from unibus
+,,,MUXB,J11-26,muxb,
+,,,MUXC,J11-28,muxc,
+,,,MUXD,J11-30,muxd,
+,,,MUXH,J11-36,muxh,
+,,,MUXF,J11-38,muxf,
+,,,MUXE,J11-48,muxe,
+,,,MUXJ,J11-50,muxj,
+,,,MUXK,J11-52,muxk,
+,,,MUXL,J11-56,muxl,
+,,,MUXM,J11-58,muxm,
+,,,MUXN,J11-60,muxn,
+,,,MUXP,J11-62,muxp,
+,,Q44B,RSEL2,J12-28,rsel2_h,
+,,Q06B,RSEL3,J12-32,rsel3_h,
+,,Q44A,RSEL1,J12-68,rsel1_h,select which signals come in on mux lines
