@@ -1,3 +1,24 @@
+//    Copyright (C) Mike Rieker, Beverly, MA USA
+//    www.outerworldapps.com
+//
+//    This program is free software; you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation; version 2 of the License.
+//
+//    This program is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with this program; if not, write to the Free Software
+//    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+//
+//    http://www.gnu.org/licenses/gpl-2.0.html
+
+// Test pdp1134.v by sending random instruction stream and checking the bus cycles
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -6,6 +27,8 @@
 
 #include "obj_dir/Vpdp1134.h"
 
+#define S_FETCH 2U
+
 // single word-sized operand instruction
 //  opcode   = 16-bit opcode with 00 for the dd field
 //  readdst  = true to read old dst value
@@ -13,9 +36,11 @@
 //  function = computation function (dstval = old dst value)
 //  pswv     = true to set V bit; false to clear V bit
 //  pswc     = true to set C bit; false to clear C bit
-#define SINGLEWORD(instr,opcode,readdst,writedst,function,pswv,pswc) do { \
-    uint16_t dd = genranddd (true); \
-    printf ("= %s %s\n", instr, ddstr (ddbuff, dd)); \
+#define SINGLEWORD(instr,opcode,readdst,writedst,function,pswv,pswc) \
+    uint16_t dd; \
+    do dd = genranddd (true, 0); \
+    while ((dd & 076) == 006); \
+    printf ("%12llu0 : %s%s\n", cyclectr, instr, ddstr (ddbuff, dd)); \
     sendfetch (opcode | dd); \
     uint16_t dstval, result; \
     if ((dd & 070) == 0) { \
@@ -26,15 +51,16 @@
         uint16_t ddva = sendfetchdd (dd, true); \
         dstval = randbits (16); \
         result = function; \
-        if (readdst)  sendword (ddva, dstval); \
-        if (writedst) recvword (ddva, result); \
+        if (readdst)  sendword (ddva, dstval, "dst value"); \
+        if (writedst) recvword (ddva, result, "dst value"); \
     } \
-    psw = (psw & 0177760) | ((result & 0100000) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0); \
-} while (false)
+    psw = (psw & 0177760) | ((result & 0100000) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0);
 
-#define SINGLEBYTE(instr,opcode,readdst,writedst,function,pswv,pswc) do { \
-    uint16_t dd = genranddd (false); \
-    printf ("= %s %s\n", instr, ddstr (ddbuff, dd)); \
+#define SINGLEBYTE(instr,opcode,readdst,writedst,function,pswv,pswc) \
+    uint16_t dd; \
+    do dd = genranddd (true, 0); \
+    while ((dd & 076) == 006); \
+    printf ("%12llu0 : %s%s\n", cyclectr, instr, ddstr (ddbuff, dd)); \
     sendfetch (opcode | dd); \
     uint8_t dstval, result; \
     if ((dd & 070) == 0) { \
@@ -46,16 +72,17 @@
         uint16_t ddva = sendfetchdd (dd, false); \
         dstval = randbits (16); \
         result = function; \
-        if (readdst)  sendbyte (ddva, dstval); \
-        if (writedst) recvbyte (ddva, result); \
+        if (readdst)  sendbyte (ddva, dstval, "dst value"); \
+        if (writedst) recvbyte (ddva, result, "dst value"); \
     } \
-    psw = (psw & 0177760) | ((result & 0000200) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0); \
-} while (false)
+    psw = (psw & 0177760) | ((result & 0000200) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0);
 
-#define DOUBLEWORD(instr,opcode,readdst,writedst,function,pswv,pswc) do { \
-    uint16_t ss = genranddd (true); \
-    uint16_t dd = genranddd (true); \
-    printf ("= %s %s,%s\n", instr, ddstr (ssbuff, ss), ddstr (ddbuff, dd)); \
+#define DOUBLEWORD(instr,opcode,readdst,writedst,function,pswv,pswc) \
+    uint16_t ss = genranddd (true, 0); \
+    uint16_t dd; \
+    do dd = genranddd (true, ss); \
+    while ((dd & 076) == 006); \
+    printf ("%12llu0 : %s %s,%s\n", cyclectr, instr, ddstr (ssbuff, ss), ddstr (ddbuff, dd)); \
     sendfetch (opcode | (ss << 6) | dd); \
     uint16_t srcval; \
     if ((ss & 070) == 0) { \
@@ -63,7 +90,7 @@
     } else { \
         uint16_t ssva = sendfetchdd (ss, true); \
         srcval = randbits (16); \
-        sendword (ssva, srcval); \
+        sendword (ssva, srcval, "src value"); \
     } \
     uint16_t dstval, result; \
     if ((dd & 070) == 0) { \
@@ -74,16 +101,17 @@
         uint16_t ddva = sendfetchdd (dd, true); \
         dstval = randbits (16); \
         result = function; \
-        if (readdst)  sendword (ddva, dstval); \
-        if (writedst) recvword (ddva, result); \
+        if (readdst)  sendword (ddva, dstval, "dst value"); \
+        if (writedst) recvword (ddva, result, "dst value"); \
     } \
-    psw = (psw & 0177760) | ((result & 0100000) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0); \
-} while (false)
+    psw = (psw & 0177760) | ((result & 0100000) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0);
 
-#define DOUBLEBYTE(instr,opcode,readdst,writedst,function,pswv,pswc) do { \
-    uint16_t ss = genranddd (false); \
-    uint16_t dd = genranddd (false); \
-    printf ("= %s %s,%s\n", instr, ddstr (ssbuff, ss), ddstr (ddbuff, dd)); \
+#define DOUBLEBYTE(instr,opcode,readdst,writedst,function,pswv,pswc) \
+    uint16_t ss = genranddd (false, 0); \
+    uint16_t dd; \
+    do dd = genranddd (false, ss); \
+    while ((dd & 076) == 006); \
+    printf ("%12llu0 : %s %s,%s\n", cyclectr, instr, ddstr (ssbuff, ss), ddstr (ddbuff, dd)); \
     sendfetch (opcode | (ss << 6) | dd); \
     uint8_t srcval; \
     if ((ss & 070) == 0) { \
@@ -91,7 +119,7 @@
     } else { \
         uint16_t ssva = sendfetchdd (ss, false); \
         srcval = randbits (8); \
-        sendbyte (ssva, srcval); \
+        sendbyte (ssva, srcval, "src value"); \
     } \
     uint8_t dstval, result; \
     if ((dd & 070) == 0) { \
@@ -103,27 +131,33 @@
         uint16_t ddva = sendfetchdd (dd, false); \
         dstval = randbits (16); \
         result = function; \
-        if (readdst)  sendbyte (ddva, dstval); \
-        if (writedst) recvbyte (ddva, result); \
+        if (readdst)  sendbyte (ddva, dstval, "dst value"); \
+        if (writedst) recvbyte (ddva, result, "dst value"); \
     } \
-    psw = (psw & 0177760) | ((result & 0000200) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0); \
-} while (false)
+    psw = (psw & 0177760) | ((result & 0000200) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0);
 
+
+char const *const brmnes[] = {
+        "BN",  "BR",  "BNE", "BEQ",  "BGE", "BLT", "BGT", "BLE",
+        "BPL", "BMI", "BHI", "BLOS", "BVC", "BVS", "BCC", "BCS" };
+
+bool didsomething;
+long long unsigned cyclectr;
 uint16_t gprs[16];
 uint16_t psw;
-uint32_t cyclectr;
 Vpdp1134 vp;
 
 uint16_t gprx (uint16_t r, uint16_t mode) { return (r == 6) && (mode & 2) ? 016 : r; }
 uint16_t curgprx (uint16_t r) { return gprx (r, psw >> 14); }
 
-uint16_t genranddd (bool word);
+uint16_t genranddd (bool word, uint16_t ss);
 uint16_t sendfetchdd (uint16_t dd, bool word);
 void sendfetch (uint16_t data);
-void sendword (uint32_t physaddr, uint16_t data);
-void sendbyte (uint32_t physaddr, uint8_t data);
-void recvword (uint32_t physaddr, uint16_t data);
-void recvbyte (uint32_t physaddr, uint8_t data);
+void sendword (uint16_t virtaddr, uint16_t data, char const *desc);
+void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc);
+void recvword (uint16_t virtaddr, uint16_t data, char const *desc);
+void recvbyte (uint16_t virtaddr, uint8_t data, char const *desc);
+uint32_t virt2phys (uint16_t virtaddr, bool wrt);
 void readword (uint32_t physaddr, uint16_t data);
 void writeword (uint32_t physaddr, uint16_t data);
 void kerchunk ();
@@ -184,18 +218,36 @@ int main ()
         kerchunk ();
     }
 
+    didsomething = true;
+
     while (true) {
         char ddbuff[8], ssbuff[8];
 
-        // processor should be fetching
+        if (didsomething) {
+
+            // processor should be fetching
+            for (int i = 0; vp.state != S_FETCH; i ++) {
+                if (i > 100) fatal ("expecting state S_FETCH (%02u)\n", S_FETCH);
+                kerchunk ();
+            }
+            if ((vp.r0 != gprs[0]) || (vp.r1 != gprs[1]) || (vp.r2 != gprs[2]) || (vp.r3 != gprs[3]) || (vp.r4 != gprs[4]) || (vp.r5 != gprs[5]) || (vp.r6 != gprs[6]) || (vp.r7 != gprs[7]) || (vp.ps != psw)) {
+                fatal ("register mismatch - expect         R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n",
+                        gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw);
+            }
+
+            printf ("R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n",
+                    gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw);
+            printf ("- - - - - - - - - - - - - - - - - - - -\n");
+        }
 
         // generate random opcode and send to processor
-        uint8_t select = randbits (8);
+        didsomething = false;
+        uint8_t select = randbits (6);
         switch (select) {
 
             // HALT
             case  0: {
-                printf ("= HALT\n");
+                printf ("%12llu0 : HALT\n", cyclectr);
                 sendfetch (0000000);
                 for (int i = 0; ! vp.halt_grant_h; i ++) {
                     if (i > 5) fatal ("did not halt\n");
@@ -224,9 +276,9 @@ int main ()
             // JMP
             case  7: {
                 uint16_t dd;
-                do dd = genranddd (true);
+                do dd = genranddd (true, 0);
                 while ((dd & 070) == 0);
-                printf ("= JMP %s\n", ddstr (ddbuff, dd));
+                printf ("%12llu0 : JMP %s\n", cyclectr, ddstr (ddbuff, dd));
                 sendfetch (0000100 | dd);
                 uint16_t ddva = sendfetchdd (dd, true);
                 gprs[7] = ddva;
@@ -235,21 +287,23 @@ int main ()
 
             // SWAB
             case  8: {
-                SINGLEWORD ("SWAB", 0000300, true, true, (dstval << 8) | (dstval >> 8), false, false);
+                SINGLEWORD ("SWAB ", 0000300, true, true, (dstval << 8) | (dstval >> 8), false, false);
+                psw = (psw & 0177760) | ((result & 0000200) ? 010 : 0) | (((result & 0000377) == 0) ? 004 : 0);
                 break;
             }
 
             // JSR
             case  9: {
                 uint16_t dd;
-                do dd = genranddd (true);
+                do dd = genranddd (true, 0);
                 while ((dd & 070) == 0);
                 uint16_t r = randbits (3);
-                printf ("= JSR R%o,%s\n", r, ddstr (ddbuff, dd));
-                sendfetch (0000100 | (r << 6) | dd);
+                printf ("%12llu0 : JSR R%o,%s\n", cyclectr, r, ddstr (ddbuff, dd));
+                sendfetch (0004000 | (r << 6) | dd);
                 uint16_t ddva = sendfetchdd (dd, true);
+                uint16_t oldreg = gprs[curgprx(r)];
                 gprs[curgprx(6)] -= 2;
-                recvword (gprs[curgprx(6)], gprs[curgprx(r)]);
+                recvword (gprs[curgprx(6)], oldreg, "push old register");
                 gprs[curgprx(r)] = gprs[7];
                 gprs[7] = ddva;
                 break;
@@ -257,236 +311,250 @@ int main ()
 
             // CLR
             case 10: {
-                SINGLEWORD ("CLR", 0005000, false, true, 0, false, false);
+                SINGLEWORD ("CLR ", 0005000, false, true, 0, false, false);
                 break;
             }
 
             // CLRB
             case 11: {
-                SINGLEBYTE ("", 0105000, false, true, 0, false, false);
+                SINGLEBYTE ("CLRB ", 0105000, false, true, 0, false, false);
                 break;
             }
 
             // COM
             case 12: {
-                SINGLEWORD ("", 0005100, true, true, ~ dstval, false, true);
+                SINGLEWORD ("COM ", 0005100, true, true, ~ dstval, false, true);
                 break;
             }
 
             // COMB
             case 13: {
-                SINGLEWORD ("", 0105100, true, true, ~ dstval, false, true);
+                SINGLEBYTE ("COMB ", 0105100, true, true, ~ dstval, false, true);
                 break;
             }
 
             // INC
             case 14: {
-                SINGLEWORD ("", 0005200, true, true, dstval + 1, dstval & ~ result & 0100000, psw & 1);
+                SINGLEWORD ("INC ", 0005200, true, true, dstval + 1, dstval == 0077777, psw & 1);
                 break;
             }
 
             // INCB
             case 15: {
-                SINGLEBYTE ("", 0105200, true, true, dstval + 1, dstval & ~ result & 0000200, psw & 1);
+                SINGLEBYTE ("INCB ", 0105200, true, true, dstval + 1, dstval == 0177, psw & 1);
                 break;
             }
 
             // DEC
             case 16: {
-                SINGLEWORD ("", 0005300, true, true, dstval - 1, ~ dstval & result & 0100000, psw & 1);
+                SINGLEWORD ("DEC ", 0005300, true, true, dstval - 1, dstval == 0100000, psw & 1);
                 break;
             }
 
             // DECB
             case 17: {
-                SINGLEBYTE ("", 0105300, true, true, dstval - 1, ~ dstval & result & 0000200, psw & 1);
+                SINGLEBYTE ("DECB ", 0105300, true, true, dstval - 1, dstval == 0200, psw & 1);
                 break;
             }
 
             // NEG
             case 18: {
-                SINGLEWORD ("", 0005400, true, true, - dstval, result == 0100000, result != 0);
+                SINGLEWORD ("NEG ", 0005400, true, true, - dstval, result == 0100000, result != 0);
                 break;
             }
 
             // NEGB
             case 19: {
-                SINGLEBYTE ("", 0105400, true, true, - dstval, result == 0000200, result != 0);
+                SINGLEBYTE ("NEGB ", 0105400, true, true, - dstval, result == 0000200, result != 0);
                 break;
             }
 
             // ADC
             case 20: {
-                SINGLEWORD ("", 0005500, true, true, dstval + (psw & 1), ~ dstval & result & 0100000, ~ dstval & result & 0100000);
+                SINGLEWORD ("ADC ", 0005500, true, true, dstval + (psw & 1), ~ dstval & result & 0100000, dstval & ~ result & 0100000);
                 break;
             }
 
             // ADCB
             case 21: {
-                SINGLEBYTE ("", 0105500, true, true, dstval + (psw & 1), ~ dstval & result & 0000200, ~ dstval & result & 0000200);
+                SINGLEBYTE ("ADCB ", 0105500, true, true, dstval + (psw & 1), ~ dstval & result & 0000200, dstval & ~ result & 0000200);
                 break;
             }
 
             // SBC
             case 22: {
-                SINGLEWORD ("", 0005600, true, true, dstval - (psw & 1), dstval & ~ result & 0100000, dstval & ~ result & 0100000);
+                SINGLEWORD ("SBC ", 0005600, true, true, dstval - (psw & 1), dstval & ~ result & 0100000, ~ dstval & result & 0100000);
                 break;
             }
 
             // SBCB
             case 23: {
-                SINGLEWORD ("", 0105600, true, true, dstval - (psw & 1), dstval & ~ result & 0000200, dstval & ~ result & 0000200);
+                SINGLEBYTE ("SBCB ", 0105600, true, true, dstval - (psw & 1), dstval & ~ result & 0000200, ~ dstval & result & 0000200);
                 break;
             }
 
             // TST
             case 24: {
-                SINGLEWORD ("", 0005700, true, false, dstval, false, false);
+                SINGLEWORD ("TST ", 0005700, true, false, dstval, false, false);
                 break;
             }
 
             // TSTB
             case 25: {
-                SINGLEBYTE ("", 0105700, true, false, dstval, false, false);
+                SINGLEBYTE ("TSTB ", 0105700, true, false, dstval, false, false);
                 break;
             }
 
             // ROR
             case 26: {
-                SINGLEWORD ("", 0006000, true, true, ((psw & 1) << 15) | (dstval >> 1),
+                SINGLEWORD ("ROR ", 0006000, true, true, ((psw & 1) << 15) | (dstval >> 1),
                     ((result >> 15) ^ dstval) & 1, dstval & 1);
                 break;
             }
 
             // RORB
             case 27: {
-                SINGLEBYTE ("", 0106000, true, true, ((psw & 1) <<  7) | (dstval >> 1),
+                SINGLEBYTE ("RORB ", 0106000, true, true, ((psw & 1) <<  7) | (dstval >> 1),
                     ((result >>  7) ^ dstval) & 1, dstval & 1);
                 break;
             }
 
             // ROL
             case 28: {
-                SINGLEWORD ("", 0006100, true, true, (dstval << 1) | (psw & 1),
+                SINGLEWORD ("ROL ", 0006100, true, true, (dstval << 1) | (psw & 1),
                     ((result ^ dstval) >> 15) & 1, (dstval >> 15) & 1);
                 break;
             }
 
             // ROLB
             case 29: {
-                SINGLEWORD ("", 0106100, true, true, (dstval << 1) | (psw & 1),
+                SINGLEBYTE ("ROLB ", 0106100, true, true, (dstval << 1) | (psw & 1),
                     ((result ^ dstval) >>  7) & 1, (dstval >>  7) & 1);
                 break;
             }
 
             // ASR
             case 30: {
-                SINGLEWORD ("", 0006200, true, true, (dstval & 0100000) | (dstval >> 1),
+                SINGLEWORD ("ASR ", 0006200, true, true, (dstval & 0100000) | (dstval >> 1),
                     ((result >> 15) ^ dstval) & 1, dstval & 1);
                 break;
             }
 
             // ASRB
             case 31: {
-                SINGLEBYTE ("", 0106200, true, true, (dstval & 0000200) | (dstval >> 1),
+                SINGLEBYTE ("ASRB ", 0106200, true, true, (dstval & 0000200) | (dstval >> 1),
                     ((result >>  7) ^ dstval) & 1, dstval & 1);
                 break;
             }
 
             // ASL
             case 32: {
-                SINGLEWORD ("", 0006300, true, true, dstval << 1,
+                SINGLEWORD ("ASL ", 0006300, true, true, dstval << 1,
                     ((result ^ dstval) >> 15) & 1, (dstval >> 15) & 1);
                 break;
             }
 
             // ASLB
             case 33: {
-                SINGLEWORD ("", 0106300, true, true, dstval << 1,
+                SINGLEBYTE ("ASLB ", 0106300, true, true, dstval << 1,
                     ((result ^ dstval) >>  7) & 1, (dstval >>  7) & 1);
                 break;
             }
 
             // MARK (p 99)
             case 34: {
-                uint16_t nn = randbits (6);
-                sendfetch (0006400 | nn);
-                uint16_t newsp = gprs[7] + nn * 2;
-                gprs[7] = gprs[5];
-                uint16_t newr5 = randbits (16);
-                sendword (newsp, newr5);
-                gprs[5] = newr5;
-                gprs[curgprx(6)] = newsp + 2;
+                if (! (gprs[5] & 1)) {
+                    uint16_t nn = randbits (6);
+                    printf ("%12llu0 : MARK %02o\n", cyclectr, nn);
+                    sendfetch (0006400 | nn);
+                    uint16_t newsp = gprs[7] + nn * 2;
+                    gprs[7] = gprs[5];
+                    uint16_t newr5 = randbits (16);
+                    sendword (newsp, newr5, "push old R5");
+                    gprs[5] = newr5;
+                    gprs[curgprx(6)] = newsp + 2;
+                }
                 break;
             }
 
             // MTPS (p 64)
             case 35: {
-                uint16_t dd = genranddd (false);
+                uint16_t dd = genranddd (false, 0);
+                printf ("%12llu0 : MTPS %s\n", cyclectr, ddstr (ddbuff, dd));
                 sendfetch (0106400 | dd);
                 uint8_t newpsb;
                 if ((dd & 070) == 0) {
                     newpsb = gprs[curgprx(dd)];
                 } else {
-                    uint16_t ddva = sendfetchdd (dd, true);
-                    uint8_t newpsb = randbits (3) << 5;
-                    sendbyte (ddva, newpsb);
+                    uint16_t ddva = sendfetchdd (dd, false);
+                    newpsb = randbits (3) << 5;
+                    sendbyte (ddva, newpsb, "psb value");
                 }
-                if ((psw & 0140000) == 0) psw = (psw & 0177437) | (newpsb & 0000340);
-                psw = (psw & 0177761) | ((newpsb & 0000200) ? 010 : 0) | ((newpsb == 0) ? 004 : 0);
+                if ((psw & 0140000) == 0) psw = (psw & 0177437) | (newpsb & 0340);
+                psw = (psw & 0177761) | ((newpsb & 0200) ? 010 : 0) | ((newpsb == 0) ? 004 : 0);
                 break;
             }
 
             // MFPI (p 168)
             case 36: {
-                uint16_t dd = genranddd (true);
-                sendfetch (0006500 | dd);
-                uint16_t value;
-                if ((dd & 070) == 0) {
-                    value = gprs[gprx(dd,psw>>12)];
-                } else {
-                    uint16_t ddva = sendfetchdd (dd, true);
-                    value = randbits (16);
-                    sendword (ddva, value);
+                if (gprs[6] > 0410) {       // avoid yellow stack
+                    uint16_t dd = genranddd (true, 0);
+                    printf ("%12llu0 : MFPI %s\n", cyclectr, ddstr (ddbuff, dd));
+                    sendfetch (0006500 | dd);
+                    uint16_t value;
+                    if ((dd & 070) == 0) {
+                        value = gprs[gprx(dd,psw>>12)];
+                    } else {
+                        uint16_t ddva = sendfetchdd (dd, true);
+                        value = randbits (16);
+                        sendword (ddva, value, "dst value");
+                    }
+                    uint16_t newsp = gprs[curgprx(6)] - 2;
+                    gprs[curgprx(6)] = newsp;
+                    recvword (newsp, value, "push value");
                 }
-                uint16_t newsp = gprs[curgprx(6)] - 2;
-                gprs[curgprx(6)] = newsp;
-                recvword (newsp, value);
                 break;
             }
 
             // MTPI (p 169)
             case 37: {
-                uint16_t dd = genranddd (true);
+                uint16_t dd;
+                do dd = genranddd (true, 0);
+                while (dd == 007);
+                printf ("%12llu0 : MTPI %s\n", cyclectr, ddstr (ddbuff, dd));
                 sendfetch (0006600 | dd);
+                uint16_t ddva = ((dd & 070) == 0) ? 0 : sendfetchdd (dd, true);
                 uint16_t oldsp = gprs[curgprx(6)];
                 gprs[curgprx(6)] = oldsp + 2;
                 uint16_t value = randbits (16);
-                sendword (oldsp, value);
+                if (dd == 006) value &= -2;
+                sendword (oldsp, value, "pop stack value");
                 if ((dd & 070) == 0) {
                     gprs[gprx(dd,psw>>12)] = value;
                 } else {
-                    uint16_t ddva = sendfetchdd (dd, true);
-                    recvword (ddva, value);
+                    recvword (ddva, value, "dst value");
                 }
                 break;
             }
 
             // SXT (p 62)
             case 38: {
-                SINGLEWORD ("", 0006700, false, true, (psw & 010) ? -1 : 0, false, psw & 1);
+                SINGLEWORD ("SXT ", 0006700, false, true, (psw & 010) ? -1 : 0, false, psw & 1);
                 break;
             }
 
             // MFPS (p 63)
             case 39: {
-                uint16_t dd = genranddd (false);
+                uint16_t dd;
+                do dd = genranddd (false, 0);
+                while ((dd & 076) == 006);
+                printf ("%12llu0 : MFPS %s\n", cyclectr, ddstr (ddbuff, dd));
                 sendfetch (0106700 | dd);
                 if ((dd & 070) == 0) {
                     gprs[curgprx(dd)] = (int16_t) (int8_t) psw;
                 } else {
                     uint16_t ddva = sendfetchdd (dd, false);
-                    recvbyte (ddva, psw);
+                    recvbyte (ddva, psw, "psb value");
                 }
                 psw = (psw & 0177761) | ((psw & 0000200) ? 010 : 0) | (((int8_t) psw == 0) ? 004 : 0);
                 break;
@@ -494,19 +562,22 @@ int main ()
 
             // MOV
             case 40: {
-                DOUBLEWORD ("", 0010000, false, true, srcval, false, psw & 1);
+                DOUBLEWORD ("MOV", 0010000, false, true, srcval, false, psw & 1);
                 break;
             }
 
             // MOVB
             case 41: {
-                DOUBLEBYTE ("", 0110000, false, true, srcval, false, psw & 1);
+                DOUBLEBYTE ("MOVB", 0110000, false, true, srcval, false, psw & 1);
+                if ((dd & 070) == 0) {
+                    gprs[curgprx(dd)] = (int16_t) (int8_t) result;
+                }
                 break;
             }
 
             // CMP
             case 42: {
-                DOUBLEWORD ("", 0020000, true, false, srcval - dstval,
+                DOUBLEWORD ("CMP", 0020000, true, false, srcval - dstval,
                     (srcval ^ dstval) & (~ result ^ dstval) & 0100000,
                     srcval < dstval);
                 break;
@@ -514,7 +585,7 @@ int main ()
 
             // CMPB
             case 43: {
-                DOUBLEBYTE ("", 0120000, true, false, srcval - dstval,
+                DOUBLEBYTE ("CMPB", 0120000, true, false, srcval - dstval,
                     (srcval ^ dstval) & (~ result ^ dstval) & 0000200,
                     srcval < dstval);
                 break;
@@ -522,51 +593,51 @@ int main ()
 
             // BIT
             case 44: {
-                DOUBLEWORD ("", 0030000, true, false, srcval & dstval, false, psw & 1);
+                DOUBLEWORD ("BIT", 0030000, true, false, srcval & dstval, false, psw & 1);
                 break;
             }
 
             // BITB
             case 45: {
-                DOUBLEBYTE ("", 0130000, true, false, srcval & dstval, false, psw & 1);
+                DOUBLEBYTE ("BITB", 0130000, true, false, srcval & dstval, false, psw & 1);
                 break;
             }
 
             // BIC
             case 46: {
-                DOUBLEWORD ("", 0040000, true, true, ~ srcval & dstval, false, psw & 1);
+                DOUBLEWORD ("BIC", 0040000, true, true, ~ srcval & dstval, false, psw & 1);
                 break;
             }
 
             // BICB
             case 47: {
-                DOUBLEBYTE ("", 0140000, true, true, ~ srcval & dstval, false, psw & 1);
+                DOUBLEBYTE ("BICB", 0140000, true, true, ~ srcval & dstval, false, psw & 1);
                 break;
             }
 
             // BIS
             case 48: {
-                DOUBLEWORD ("", 0040000, true, true, srcval | dstval, false, psw & 1);
+                DOUBLEWORD ("BIS", 0050000, true, true, srcval | dstval, false, psw & 1);
                 break;
             }
 
             // BISB
             case 49: {
-                DOUBLEBYTE ("", 0140000, true, true, srcval | dstval, false, psw & 1);
+                DOUBLEBYTE ("BISB", 0150000, true, true, srcval | dstval, false, psw & 1);
                 break;
             }
 
             // ADD
             case 50: {
-                DOUBLEWORD ("", 0020000, true, false, dstval + srcval,
+                DOUBLEWORD ("ADD", 0060000, true, true, dstval + srcval,
                     (~ srcval ^ dstval) & (result ^ dstval) & 0100000,
                     ((uint32_t) srcval + (uint32_t) dstval) >> 16);
                 break;
             }
 
-            // SUB
+            // SUB (p 68)
             case 51: {
-                DOUBLEWORD ("", 0020000, true, true, dstval - srcval,
+                DOUBLEWORD ("SUB", 0160000, true, true, dstval - srcval,
                     (srcval ^ dstval) & (~ result ^ srcval) & 0100000,
                     dstval < srcval);
                 break;
@@ -576,28 +647,28 @@ int main ()
             // MUL (p 147)
             case 52: {
                 uint16_t regno = randbits (3);
-                SINGLEWORD ("", 0070000 | (regno << 6), true, false, mulinstr (regno, dstval), psw & 2, psw & 1);
+                SINGLEWORD ("MUL ", 0070000 | (regno << 6), true, false, mulinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 
             // DIV (p 148)
             case 53: {
                 uint16_t regno = randbits (3);
-                SINGLEWORD ("", 0071000 | (regno << 6), true, false, divinstr (regno, dstval), psw & 2, psw & 1);
+                SINGLEWORD ("DIV ", 0071000 | (regno << 6), true, false, divinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 
             // ASH (p 149)
             case 54: {
                 uint16_t regno = randbits (3);
-                SINGLEWORD ("", 0072000 | (regno << 6), true, false, ashinstr (regno, dstval), psw & 2, psw & 1);
+                SINGLEWORD ("ASH ", 0072000 | (regno << 6), true, false, ashinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 
             // ASHC (p 150)
             case 55: {
                 uint16_t regno = randbits (3);
-                SINGLEWORD ("", 0073000 | (regno << 6), true, false, ashcinstr (regno, dstval), psw & 2, psw & 1);
+                SINGLEWORD ("ASHC ", 0073000 | (regno << 6), true, false, ashcinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 ***/
@@ -605,15 +676,19 @@ int main ()
             // XOR (p 73)
             case 56: {
                 uint16_t srcreg = randbits (3);
-                uint16_t srcval = gprs[curgprx(srcreg)];
-                SINGLEWORD ("", 0074000 | (srcreg << 6), true, true, srcval ^ dstval, false, psw & 1);
+                char xrbuff[8];
+                sprintf (xrbuff, "XOR R%o,", srcreg);
+                SINGLEWORD (xrbuff, 0074000 | (srcreg << 6), true, true, gprs[curgprx(srcreg)] ^ dstval, false, psw & 1);
                 break;
             }
 
             // SOB (p 101)
             case 57: {
-                uint16_t regno = randbits (3);
+                uint16_t regno;
+                do regno = randbits (3);
+                while ((regno & 6) == 6);
                 uint16_t nn = randbits (6);
+                printf ("%12llu0 : SOB R%o,%06o\n", cyclectr, regno, nn);
                 sendfetch (0077000 | (regno << 6) | nn);
                 if (-- gprs[curgprx(regno)] != 0) gprs[7] -= nn * 2;
                 break;
@@ -623,6 +698,7 @@ int main ()
             // EMT
             case 58: {
                 uint16_t code = randbits (8);
+                printf ("%12llu0 : EMT %03o\n", cyclectr, code);
                 sendfetch (0104000 | code);
                 trapthrough (0030);
                 break;
@@ -631,6 +707,7 @@ int main ()
             // TRAP
             case 59: {
                 uint16_t code = randbits (8);
+                printf ("%12llu0 : TRAP %03o\n", cyclectr, code);
                 sendfetch (0104400 | code);
                 trapthrough (0034);
                 break;
@@ -639,15 +716,16 @@ int main ()
 
             // Bxx (p 75..93)
             case 60: {
-                uint16_t opcode;
-                do opcode = randbits (16) & 0103777;
-                while ((opcode & 0103400) == 0);
+                uint16_t brcode;
+                do brcode = randbits (4);
+                while (brcode == 0);
+
                 bool n = (psw & 8) != 0;
                 bool z = (psw & 4) != 0;
                 bool v = (psw & 2) != 0;
                 bool c = (psw & 1) != 0;
                 bool brtrue;
-                switch (((opcode >> 13) & 4) | ((opcode >> 9) & 3)) {
+                switch (brcode >> 1) {
                     case 0: brtrue = false; break;
                     case 1: brtrue = ! z; break;                // BNE
                     case 2: brtrue = ! (n ^ v); break;          // BGE
@@ -657,16 +735,23 @@ int main ()
                     case 6: brtrue = ! v; break;                // BVC
                     case 7: brtrue = ! c; break;                // BCC
                 }
-                brtrue ^= (opcode & 0000400) != 0;
+                brtrue ^= (brcode & 1) != 0;
+
+                uint16_t opcode = randbits (8) | ((brcode & 8) << 12) | ((brcode & 7) << 8);
+                uint16_t newpc  = gprs[7] + ((int16_t) (int8_t) opcode) * 2 + 2;
+                printf ("%12llu0 : %s %06o  (%s)\n", cyclectr, brmnes[brcode], newpc, brtrue ? "true" : "false");
+                sendfetch (opcode);
+                if (brtrue) gprs[7] = newpc;
                 break;
             }
 
             // CCS (p 114)
             case 61: {
                 uint16_t bits = randbits (5);
+                printf ("%12llu0 : CCS %02o\n", cyclectr, bits);
                 sendfetch (0000240 | bits);
-                if (bits & 020) psw |= bits & 017;
-                           else psw &= bits ^ 017;
+                if (bits & 020) psw |=    bits & 017;
+                           else psw &= ~ (bits & 017);
                 break;
             }
         }
@@ -675,35 +760,48 @@ int main ()
 }
 
 // generate random DD operand
-// make sure address is a memory address
-uint16_t genranddd (bool word)
+// if memory address, make sure it is in range and for word, it is even
+uint16_t genranddd (bool word, uint16_t ss)
 {
     while (true) {
+
+        // get a random dd field
         uint16_t dd = randbits (6);
+        uint16_t dr = dd & 7;
+        uint16_t dv = gprs[curgprx(dr)];
+
+        // maybe ss field will modify the register
+        uint16_t sinc = (word || ((ss & 6) == 6)) ? 2 : 1;
+        if (ss == 020 + dr) dv += sinc;
+        if (ss == 030 + dr) dv += 2;
+        if (ss == 040 + dr) dv -= sinc;
+        if (ss == 050 + dr) dv -= 2;
+
+        // make sure we can use it
         switch (dd >> 3) {
             case 0: break;
             case 1: case 2: {
-                uint16_t x = gprs[curgprx(dd&7)];
-                if (x > 0157777) continue;
-                if (x & (uint16_t) word) continue;
+                if (dv > 0157777) continue;
+                if (dv & (uint16_t) word) continue;
                 break;
             }
             case 3: {
-                uint16_t x = gprs[curgprx(dd&7)];
-                if (x > 0157777) continue;
-                if (x & 1) continue;
+                if (dv > 0157777) continue;
+                if (dv & 1) continue;
                 break;
             }
             case 4: {
-                uint16_t x = gprs[curgprx(dd&7)] - (word ? 2 : 1);
-                if (x > 0157777) continue;
-                if (x & 1) continue;
+                uint16_t dinc = (word || ((dr & 6) == 6)) ? 2 : 1;
+                dv -= dinc;
+                if (dv > 0157777) continue;
+                if (dv & 1) continue;
+                if ((dd == 046) && (dv < 0410)) continue;   // avoid yellow stack
                 break;
             }
             case 5: {
-                uint16_t x = gprs[curgprx(dd&7)] - 2;
-                if (x > 0157777) continue;
-                if (x & 1) continue;
+                dv -= 2;
+                if (dv > 0157777) continue;
+                if (dv & 1) continue;
                 break;
             }
             case 6: case 7: break;
@@ -730,7 +828,7 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
             uint16_t y;
             do y = randbits (16);
             while ((y > 0157777) || (y & (uint16_t) word));
-            sendword (x, y);
+            sendword (x, y, "@(Rx)+ pointer");
             gprs[curgprx(dd&7)] = x + 2;
             return y;
         }
@@ -744,31 +842,37 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
             uint16_t y;
             do y = randbits (16);
             while ((y > 0157777) || (y & (uint16_t) word));
-            sendword (x, y);
+            sendword (x, y, "@-(Rn) pointer");
             gprs[curgprx(dd&7)] = x;
             return y;
         }
         case 6: {
             uint16_t x = gprs[curgprx(dd&7)];
             if ((dd & 7) == 7) x += 2;
-            uint16_t y;
-            do y = randbits (16);
-            while ((x + y > 0157777) || ((x + y) & (uint16_t) word));
-            sendfetch (y);
+            uint16_t y, z;
+            do {
+                y = randbits (16);
+                z = x + y;
+            } while ((z > 0157777) || (z & (uint16_t) word));
+            sendword (gprs[7], y, "index");
+            gprs[7] += 2;
             return x + y;
         }
         case 7: {
-            uint16_t x = gprs[curgprx(dd&7)];
-            if ((dd & 7) == 7) x += 2;
-            uint16_t y;
-            do y = randbits (16);
-            while ((x + y > 0157777) || ((x + y) & 1));
-            sendfetch (y);
-            uint16_t z;
-            do z = randbits (16);
-            while ((z > 0157777) || (z & (uint16_t) word));
-            sendword (x + y, z);
-            return z;
+            uint16_t x = gprs[curgprx(dd&7)];                   // register being indexed
+            if ((dd & 7) == 7) x += 2;                          // if PC, index after word fetched
+            uint16_t y, z;
+            do {
+                y = randbits (16);                              // generate random index value
+                z = x + y;                                      // compute effective address
+            } while ((z > 0157777) || (z & 1));                 // repeat if not in range or odd
+            uint16_t p;                                         // generate random pointer
+            do p = randbits (16);
+            while ((p > 0157777) || (p & (uint16_t) word));     // repeat if not in range
+            sendword (gprs[7], y, "index");                     // send random index
+            gprs[7] += 2;
+            sendword (z, p, "@x(Rn) pointer");                  // send random pointer
+            return p;                                           // return pointer
         }
         default: abort ();
     }
@@ -777,15 +881,17 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
 // send opcode word to processor and increment local copy of PC
 void sendfetch (uint16_t data)
 {
-    sendword (gprs[7], data);
+    sendword (gprs[7], data, "opcode");
     gprs[7] += 2;
 }
 
 // PDP is reading a word from memory
 // send the value we want it to get
-void sendword (uint32_t physaddr, uint16_t data)
+void sendword (uint16_t virtaddr, uint16_t data, char const *desc)
 {
-    printf ("- sendword %06o %06o\n", physaddr, data);
+    printf ("- sendword %06o %06o  %s\n", virtaddr, data, desc);
+
+    uint32_t physaddr = virt2phys (virtaddr, false);
 
     for (int i = 0; vp.bus_msyn_out_l; i = i + 1) {
         if (i > 200) fatal ("sendword: vp.bus_MSYN did not assert\n");
@@ -808,9 +914,11 @@ void sendword (uint32_t physaddr, uint16_t data)
 
 // PDP is reading a byte from memory
 // send the value we want it to get
-void sendbyte (uint32_t physaddr, uint8_t data)
+void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc)
 {
-    printf ("- sendbyte %06o %03o\n", physaddr, data);
+    printf ("- sendbyte %06o %03o  %s\n", virtaddr, data, desc);
+
+    uint32_t physaddr = virt2phys (virtaddr, false);
 
     for (int i = 0; vp.bus_msyn_out_l; i = i + 1) {
         if (i > 200) fatal ("sendbyte: vp.bus_MSYN did not assert\n");
@@ -832,9 +940,12 @@ void sendbyte (uint32_t physaddr, uint8_t data)
 }
 
 // receive a word over unibus from the pdp and check its value
-void recvword (uint32_t physaddr, uint16_t data)
+void recvword (uint16_t virtaddr, uint16_t data, char const *desc)
 {
-    printf ("- recvword %06o %06o\n", physaddr, data);
+    printf ("- recvword %06o %06o  %s\n", virtaddr, data, desc);
+
+    uint32_t physaddr = virt2phys (virtaddr, true);
+
     for (int i = 0; vp.bus_msyn_out_l; i = i + 1) {
         if (i > 200) fatal ("recvword: vp.bus_MSYN did not assert\n");
         kerchunk ();
@@ -852,15 +963,18 @@ void recvword (uint32_t physaddr, uint16_t data)
 }
 
 // receive a byte over unibus from the pdp and check its value
-void recvbyte (uint32_t physaddr, uint8_t data)
+void recvbyte (uint16_t virtaddr, uint8_t data, char const *desc)
 {
-    printf ("- recvbyte %06o %03o\n", physaddr, data);
+    printf ("- recvbyte %06o %03o  %s\n", virtaddr, data, desc);
+
+    uint32_t physaddr = virt2phys (virtaddr, true);
+
     for (int i = 0; vp.bus_msyn_out_l; i = i + 1) {
         if (i > 200) fatal ("recvbyte: vp.bus_MSYN did not assert\n");
         kerchunk ();
     }
     if ((vp.bus_a_out_l ^ 0777777) != physaddr) fatal ("recvbyte: expected BUS_A %06o got %06o\n", physaddr, vp.bus_a_out_l ^ 0777777);
-    if ((vp.bus_c_out_l ^ 3) != 2) fatal ("recvbyte: expected BUS_C 2 was %o\n", vp.bus_c_out_l ^ 3);
+    if ((vp.bus_c_out_l ^ 3) != 3) fatal ("recvbyte: expected BUS_C 3 was %o\n", vp.bus_c_out_l ^ 3);
     uint8_t got = (vp.bus_d_out_l ^ 0177777) >> ((physaddr & 1) * 8);
     if (got != data) fatal ("recvbyte: expected BUS_D %03o got %03o\n", data, got);
     vp.bus_ssyn_in_l = 0;
@@ -869,6 +983,11 @@ void recvbyte (uint32_t physaddr, uint8_t data)
         kerchunk ();
     }
     vp.bus_ssyn_in_l = 1;
+}
+
+uint32_t virt2phys (uint16_t virtaddr, bool wrt)
+{
+    return (virtaddr > 0157777) ? virtaddr | 0600000 : virtaddr;
 }
 
 // read word from unibus via dma
@@ -991,6 +1110,7 @@ void kerchunk ()
     vp.CLOCK = 0;   // get ready for more input changes
 
     ++ cyclectr;
+    didsomething = true;
 }
 
 void fatal (char const *fmt, ...)
@@ -1005,7 +1125,7 @@ void fatal (char const *fmt, ...)
 
 void dumpstate ()
 {
-    printf ("%9u0:  RESET=%o  state=%02d pc=%06o\n"
+    printf ("%12llu0:  RESET=%o  state=%02d  R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n"
         "   bus_ac_lo_l=%o bus_bbsy_l=%o bus_br_l=%o%o%o%o bus_dc_lo_l=%o bus_intr_l=%o bus_npr_l=%o bus_pa_l=%o bus_pb_l=%o bus_sack_l=%o halt_rqst_l=%o\n"
         "   bus_a_in_l=%06o bus_c_in_l=%o%o bus_d_in_l=%06o bus_init_in_l=%o bus_msyn_in_l=%o bus_ssyn_in_l=%o\n"
         "   bus_a_out_l=%06o bus_c_out_l=%o%o bus_d_out_l=%06o bus_init_out_l=%o bus_msyn_out_l=%o bus_ssyn_out_l=%o bus_bg_h=%o%o%o%o bus_npg_h=%o\n"
@@ -1014,7 +1134,15 @@ void dumpstate ()
                 cyclectr,
                 vp.RESET,
                 vp.state,
-                vp.pc,
+                vp.r0,
+                vp.r1,
+                vp.r2,
+                vp.r3,
+                vp.r4,
+                vp.r5,
+                vp.r6,
+                vp.r7,
+                vp.ps,
 
                 vp.bus_ac_lo_l,
                 vp.bus_bbsy_l,

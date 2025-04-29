@@ -1,4 +1,24 @@
+//    Copyright (C) Mike Rieker, Beverly, MA USA
+//    www.outerworldapps.com
+//
+//    This program is free software; you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation; version 2 of the License.
+//
+//    This program is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with this program; if not, write to the Free Software
+//    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+//
+//    http://www.gnu.org/licenses/gpl-2.0.html
 
+// Implementation of PDP-11/34 processor
 
 module pdp1134 (
     input CLOCK,
@@ -34,7 +54,7 @@ module pdp1134 (
     output reg halt_grant_h
 
     ,output reg[5:0] state
-    ,output [15:00] pc
+    ,output [15:00] r0, r1, r2, r3, r4, r5, r6, r7, ps
 );
 
     localparam[5:0] S_HALT      = 00;
@@ -124,7 +144,15 @@ module pdp1134 (
     endfunction
     wire[3:0] cspgprx = gprx (psw[15:14], 6);    // access current mode stack pointer
 
-    assign pc = gprs[7];
+    assign r0 = gprs[0];
+    assign r1 = gprs[1];
+    assign r2 = gprs[2];
+    assign r3 = gprs[3];
+    assign r4 = gprs[4];
+    assign r5 = gprs[5];
+    assign r6 = gprs[6];
+    assign r7 = gprs[7];
+    assign ps = psw;
 
     reg[7:0] trapvec;
     localparam[7:0] T_CPUERR  = 8'o004;
@@ -197,8 +225,8 @@ module pdp1134 (
     reg getopaddr;
     reg[1:0] getopbusy;
     reg[5:0] getopmode;
-    wire[15:00] getopsize = (byteinstr & (getopmode[2:1] != 3)) ? 1 : 2;
-    wire[3:0]   getgprx   = gprx (psw[15:14], getopmode[2:0]);
+    wire[15:00] getopinc = (byteinstr & ~ getopmode[3] & (getopmode[2:1] != 3)) ? 1 : 2;
+    wire[3:0]   getgprx  = gprx (psw[15:14], getopmode[2:0]);
 
     wire intrqst = (~ bus_br_l[7] & (psw[07:05] < 7)) |
                    (~ bus_br_l[6] & (psw[07:05] < 6)) |
@@ -232,15 +260,16 @@ module pdp1134 (
     wire[3:0] mmuprxi = { memmode[1], virtaddr[15:13] };
 
     // branch condition true
+    wire[2:0] brindx = { instreg[15], instreg[10:09] };
     reg brtemp, brtrue;
     always @(*) begin
-        case ({ instreg[15], instreg[10:09] })
+        case (brindx)
             0: brtemp = 0;
             1: brtemp =  ~ psw[2];                      // BNE
             2: brtemp =  ~ psw[3] ^ psw[1];             // BGE
             3: brtemp = (~ psw[3] ^ psw[1]) & ~ psw[2]; // BGT
             4: brtemp =  ~ psw[3];                      // BPL
-            5: brtemp =  ~ psw[3] & ~ psw[0];           // BHI
+            5: brtemp =  ~ psw[2] & ~ psw[0];           // BHI
             6: brtemp =  ~ psw[1];                      // BVC
             7: brtemp =  ~ psw[0];                      // BCC/BHIS
         endcase
@@ -354,6 +383,7 @@ module pdp1134 (
                         cpuerr[07] <= 1;
                         state      <= S_ENDINST;
                         trapvec    <= T_CPUERR;
+                        $display ("T_CPUERR*: halt in user mode");
                     end
                 end
 
@@ -418,8 +448,8 @@ module pdp1134 (
                 // start getting source operand
                 S_GETSRC: begin
                     if (instreg[11:09] == 0) begin
-                        srcval <= byteinstr ? { gprs[srcgprx][7:0], 8'b0 } : gprs[srcgprx];
-                        state  <= S_GETDST;
+                        srcval    <= byteinstr ? { gprs[srcgprx][7:0], 8'b0 } : gprs[srcgprx];
+                        state     <= S_GETDST;
                     end else begin
                         getopaddr <= 1;
                         getopmode <= instreg[11:06];
@@ -462,18 +492,22 @@ module pdp1134 (
                 S_WAITDST: begin
                     if (~ getopaddr) begin
                         if (iJMP) begin
-                            gprs[7]   <= virtaddr;
-                            state     <= S_ENDINST;
-                        end else if (iJSR) begin
-                            gprs[cspgprx] <= gprs[cspgprx] - 2;
-                            membyte   <= 0;
-                            memmode   <= psw[15:14];
-                            readdata  <= virtaddr;
-                            state     <= S_EXECJSR;
-                            virtaddr  <= gprs[cspgprx] - 2;
-                            writedata <= gprs[srcgprx];
-                            writing   <= 1;
-                        end else begin
+                            gprs[7]   <= virtaddr;              // put dst address in PC
+                            state     <= S_ENDINST;             // end of instruction
+                        end
+                        else if (iJSR) begin
+                            gprs[cspgprx] <= gprs[cspgprx] - 2; // decrement current stack pointer
+                            membyte   <= 0;                     // doing word-sized mem op
+                            memmode   <= psw[15:14];            // current mode mem op
+                            readdata  <= virtaddr;              // save dst address where where it will be safe
+                            state     <= S_EXECJSR;             // finish JSR next
+                            virtaddr  <= gprs[cspgprx] - 2;     // address to write to
+                            writedata <= gprs[srcgprx];         // save source register to stack
+                            writing   <= 1;                     // start writing to memory
+                        end
+                        else if (iMFPID) state <= S_EXMFPI;     // MFPI/MFPD
+                        else if (iMTPID) state <= S_EXMTPI;     // MTPI/MTPD
+                        else begin
                             membyte   <= byteinstr;
                             memmode   <= psw[15:14];
                             reading   <= needtoreaddst;
@@ -514,16 +548,16 @@ module pdp1134 (
                         else if (iADD)  result <= dstval + srcval;
                         else if (iSUB)  result <= dstval - srcval;
                         else if (iCLRb) result <= 0;
-                        else if (iCOMb) result <= ~ dstval;
+                        else if (iCOMb) result <= { ~ dstval[15:08], (instreg[15] ? 8'b0 : ~ dstval[07:00]) };
                         else if (iINCb) result <= dstval + oneval;
                         else if (iDECb) result <= dstval - oneval;
                         else if (iNEGb) result <= - dstval;
                         else if (iADCb) result <= dstval + (psw[00] ? oneval : 0);
                         else if (iSBCb) result <= dstval - (psw[00] ? oneval : 0);
                         else if (iTSTb) result <= dstval;
-                        else if (iRORb) result <= { psw[00], dstval[15:01] };
+                        else if (iRORb) result <= { psw[00],    dstval[15:09], (instreg[15] ? 8'b0 : dstval[08:01]) };
                         else if (iROLb) result <= instreg[15] ? { dstval[14:08], psw[00], 8'b0 } : { dstval[14:00], psw[00] };
-                        else if (iASRb) result <= { dstval[15], dstval[15:01] };
+                        else if (iASRb) result <= { dstval[15], dstval[15:09], (instreg[15] ? 8'b0 : dstval[08:01]) };
                         else if (iASLb) result <= { dstval[14:00], 1'b0 };
                         else if (iSXT)  result <= psw[03] ? 16'o177777 : 16'o000000;
                         else if (iXOR)  result <= dstval ^ gprs[srcgprx];
@@ -542,9 +576,9 @@ module pdp1134 (
                         psw[03:00] <= { result[07], result[07:00] == 0, 2'b00 };
                     end else begin
                         psw[03:02] <= { result[15], result == 0 };
-                             if (iCMPb) psw[01:00] <= { (srcval ^ 16'o100000) < (dstval ^ 16'o100000), srcval < dstval };
-                        else if (iADD)  psw[01:00] <= { (result ^ 16'o100000) < (dstval ^ 16'o100000), result < dstval };
-                        else if (iSUB)  psw[01:00] <= { (srcval ^ 16'o100000) > (dstval ^ 16'o100000), srcval > dstval };
+                             if (iCMPb) psw[01:00] <= { (srcval[15] ^ dstval[15]) & (~ result[15] ^ dstval[15]), srcval < dstval };
+                        else if (iADD)  psw[01:00] <= { (~ srcval[15] ^ dstval[15]) & (result[15] ^ dstval[15]), result < dstval };
+                        else if (iSUB)  psw[01:00] <= { (srcval[15] ^ dstval[15]) & (~ result[15] ^ srcval[15]), srcval > dstval };
                         else if (iCLRb) psw[01:00] <= { 2'b00 };
                         else if (iCOMb) psw[01:00] <= { 2'b01 };
                         else if (iINCb) psw[01]    <= { ~ dstval[15] & result[15] };
@@ -561,7 +595,7 @@ module pdp1134 (
                     end
 
                     if (needtowritedst) begin
-                        if (instreg[05:02] == 0) begin
+                        if (instreg[05:03] == 0) begin
                             if (iMOVB | iMFPS) begin
                                 gprs[dstgprx] <= { { 8 { result[15] } }, result[15:08] };
                             end else if (byteinstr) begin
@@ -763,16 +797,16 @@ module pdp1134 (
                     state         <= S_ENDINST;
                 end
 
-                // move to previous address space
+                // move from current stack to previous address space
                 //  virtaddr = address in previous space
                 S_EXMTPI: begin
-                    dstval        <= virtaddr;
-                    gprs[cspgprx] <= gprs[cspgprx] + 2;
-                    membyte       <= 0;
-                    memmode       <= psw[15:14];
-                    state         <= S_EXMTPI2;
-                    virtaddr      <= gprs[cspgprx];
-                    reading       <= 1;
+                    dstval        <= virtaddr;              // save addr in prev space
+                    gprs[cspgprx] <= gprs[cspgprx] + 2;     // increment stack pointer
+                    membyte       <= 0;                     // do word-sized mem op
+                    memmode       <= psw[15:14];            // access current addr space
+                    state         <= S_EXMTPI2;             // do step 2 next
+                    virtaddr      <= gprs[cspgprx];         // access top-of-stack word
+                    reading       <= 1;                     // start reading memory
                 end
                 S_EXMTPI2: if (~ reading) begin
                     if (instreg[05:03] == 0) begin
@@ -782,6 +816,7 @@ module pdp1134 (
                         membyte   <= 0;
                         memmode   <= psw[13:12];
                         state     <= S_EXMTPI3;
+                        virtaddr  <= dstval;
                         writedata <= readdata;
                         writing   <= 1;
                     end
@@ -800,6 +835,7 @@ module pdp1134 (
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;
+                        $display ("T_CPUERR*: yellow stack error");
                     end else if (traceck & psw[4]) begin
                         state      <= S_TRAP;
                         trapvec    <= T_BPTRACE;
@@ -939,8 +975,7 @@ module pdp1134 (
         //  input:
         //   getopaddr = 1 : start computing
         //   getopmode = 6-bit operand address mode & register
-        //   getopsize = 1: byte operand; 2: word operand
-        //               getopsize forced to 2 for SP,PC registers
+        //   getopinc  = amount to increment/decrement register by for modes 2,3,4,5
         //  output:
         //   getopaddr = 0 : address computed
         //   virtaddr  = operand address
@@ -957,7 +992,7 @@ module pdp1134 (
                 2, 3: begin
                     case (getopbusy)
                         0: begin
-                            gprs[getgprx] <= gprs[getgprx] + getopsize;
+                            gprs[getgprx] <= gprs[getgprx] + getopinc;
                             virtaddr      <= gprs[getgprx];
                             if (getopmode[3]) begin
                                 getopbusy <= 1;
@@ -980,8 +1015,8 @@ module pdp1134 (
                 4, 5: begin
                     case (getopbusy)
                         0: begin
-                            gprs[getgprx] <= gprs[getgprx] - getopsize;
-                            virtaddr      <= gprs[getgprx] - getopsize;
+                            gprs[getgprx] <= gprs[getgprx] - getopinc;
+                            virtaddr      <= gprs[getgprx] - getopinc;
                             if (getopmode[3]) begin
                                 getopbusy <= 1;
                                 membyte   <= 0;
@@ -1064,6 +1099,7 @@ module pdp1134 (
                         state      <= S_ENDINST;
                         trapvec    <= T_CPUERR;
                         writing    <= 0;
+                        $display ("T_CPUERR*: odd address");
                     end
 
                     // if mmu enabled, read page registers then check access
@@ -1177,6 +1213,7 @@ module pdp1134 (
                         state          <= S_ENDINST;
                         trapvec        <= T_CPUERR;
                         writing        <= 0;
+                        $display ("T_CPUERR*: ssyn timeout");
                     end else begin
                         rwdelay        <= rwdelay + 1;
                     end
