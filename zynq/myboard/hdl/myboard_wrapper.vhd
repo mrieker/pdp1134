@@ -38,6 +38,7 @@ entity myboard_wrapper is
     LEDoutR_0 : out STD_LOGIC;
     a_out_h_0 : out STD_LOGIC_VECTOR ( 17 downto 0 );
     ac_lo_in_h_0 : in STD_LOGIC;
+    ac_lo_out_h_0 : out STD_LOGIC;
     bbsy_in_h_0 : in STD_LOGIC;
     bbsy_out_h_0 : out STD_LOGIC;
     bg_in_l_0 : in STD_LOGIC_VECTOR ( 7 downto 4 );
@@ -46,6 +47,7 @@ entity myboard_wrapper is
     c_out_h_0 : out STD_LOGIC_VECTOR ( 1 downto 0 );
     d_out_h_0 : out STD_LOGIC_VECTOR ( 15 downto 0 );
     dc_lo_in_h_0 : in STD_LOGIC;
+    dc_lo_out_h_0 : out STD_LOGIC;
     hltgr_in_l_0 : in STD_LOGIC;
     hltrq_out_h_0 : out STD_LOGIC;
     init_in_h_0 : in STD_LOGIC;
@@ -113,6 +115,7 @@ architecture STRUCTURE of myboard_wrapper is
     LEDoutR_0 : out STD_LOGIC;
     a_out_h_0 : out STD_LOGIC_VECTOR ( 17 downto 0 );
     ac_lo_in_h_0 : in STD_LOGIC;
+    ac_lo_out_h_0 : out STD_LOGIC;
     bbsy_in_h_0 : in STD_LOGIC;
     bbsy_out_h_0 : out STD_LOGIC;
     bg_in_l_0 : in STD_LOGIC_VECTOR ( 7 downto 4 );
@@ -121,6 +124,7 @@ architecture STRUCTURE of myboard_wrapper is
     c_out_h_0 : out STD_LOGIC_VECTOR ( 1 downto 0 );
     d_out_h_0 : out STD_LOGIC_VECTOR ( 15 downto 0 );
     dc_lo_in_h_0 : in STD_LOGIC;
+    dc_lo_out_h_0 : out STD_LOGIC;
     hltgr_in_l_0 : in STD_LOGIC;
     hltrq_out_h_0 : out STD_LOGIC;
     init_in_h_0 : in STD_LOGIC;
@@ -187,6 +191,7 @@ myboard_i: component myboard
     LEDoutR_0 => LEDoutR_0,
     a_out_h_0(17 downto 0) => a_out_h_0(17 downto 0),
     ac_lo_in_h_0 => ac_lo_in_h_0,
+    ac_lo_out_h_0 => ac_lo_out_h_0,
     bbsy_in_h_0 => bbsy_in_h_0,
     bbsy_out_h_0 => bbsy_out_h_0,
     bg_in_l_0(7 downto 4) => bg_in_l_0(7 downto 4),
@@ -195,6 +200,7 @@ myboard_i: component myboard
     c_out_h_0(1 downto 0) => c_out_h_0(1 downto 0),
     d_out_h_0(15 downto 0) => d_out_h_0(15 downto 0),
     dc_lo_in_h_0 => dc_lo_in_h_0,
+    dc_lo_out_h_0 => dc_lo_out_h_0,
     hltgr_in_l_0 => hltgr_in_l_0,
     hltrq_out_h_0 => hltrq_out_h_0,
     init_in_h_0 => init_in_h_0,

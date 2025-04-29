@@ -283,6 +283,9 @@
           "ac_lo_in_h": {
             "direction": "I"
           },
+          "ac_lo_out_h": {
+            "direction": "O"
+          },
           "bbsy_in_h": {
             "direction": "I"
           },
@@ -316,6 +319,9 @@
           },
           "dc_lo_in_h": {
             "direction": "I"
+          },
+          "dc_lo_out_h": {
+            "direction": "O"
           },
           "hltgr_in_l": {
             "direction": "I"
@@ -2117,7 +2123,7 @@
       }
     },
     "design_info": {
-      "boundary_crc": "0xAA6618DB8FDE8C16",
+      "boundary_crc": "0x3F7EFD1C96F83622",
       "device": "xc7z020clg400-1",
       "name": "myboard",
       "synth_flow_mode": "None",
@@ -2262,6 +2268,12 @@
           "a_out_h_0"
         ]
       },
+      "Zynq_0_ac_lo_out_h": {
+        "ports": [
+          "Zynq_0/ac_lo_out_h",
+          "ac_lo_out_h_0"
+        ]
+      },
       "Zynq_0_bbsy_out_h": {
         "ports": [
           "Zynq_0/bbsy_out_h",
@@ -2290,6 +2302,12 @@
         "ports": [
           "Zynq_0/d_out_h",
           "d_out_h_0"
+        ]
+      },
+      "Zynq_0_dc_lo_out_h": {
+        "ports": [
+          "Zynq_0/dc_lo_out_h",
+          "dc_lo_out_h_0"
         ]
       },
       "Zynq_0_hltrq_out_h": {
@@ -2643,6 +2661,9 @@
       "ac_lo_in_h_0": {
         "direction": "I"
       },
+      "ac_lo_out_h_0": {
+        "direction": "O"
+      },
       "bbsy_in_h_0": {
         "direction": "I"
       },
@@ -2676,6 +2697,9 @@
       },
       "dc_lo_in_h_0": {
         "direction": "I"
+      },
+      "dc_lo_out_h_0": {
+        "direction": "O"
       },
       "hltgr_in_l_0": {
         "direction": "I"

@@ -43,7 +43,9 @@
 #define a_intr_out_h  (1U << 23)
 #define a_init_out_h  (1U << 24)
 #define a_hltrq_out_h (1U << 25)
-#define a_bbsy_out_h  (1U << 26)
+#define a_dc_lo_out_h (1U << 26)
+#define a_bbsy_out_h  (1U << 27)
+#define a_ac_lo_out_h (1U << 28)
 #define a_fpgamode    (3U << 30)
 #define FM_OFF  0U    // reset FPGA and disconnect from bus
 #define FM_SIM  1U    // simulated CPU, ignores PDP-11/34, disconnected from bus
@@ -86,7 +88,9 @@
 #define c_ssyn_in_h   (1U <<  4)
 #define c_bg_in_l     (15U << 0)
 
-#define d_bbsy_out_h  (1U << 28)
+#define d_ac_lo_out_h (1U << 30)
+#define d_bbsy_out_h  (1U << 29)
+#define d_dc_lo_out_h (1U << 28)
 #define d_hltrq_out_h (1U << 27)
 #define d_init_out_h  (1U << 26)
 #define d_intr_out_h  (1U << 25)

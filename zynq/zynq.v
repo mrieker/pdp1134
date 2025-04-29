@@ -70,7 +70,9 @@ module Zynq (
 
     input[7:4] bg_in_l,         // bus grant inputs
 
-    output reg bbsy_out_h,      // control outputs
+    output reg ac_lo_out_h,     // control outputs
+    output reg bbsy_out_h,
+    output reg dc_lo_out_h,
     output reg hltrq_out_h,
     output reg init_out_h,
     output reg intr_out_h,
@@ -108,7 +110,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314005;
+    localparam VERSION = 32'h31314006;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -142,6 +144,8 @@ module Zynq (
     reg dev_sack_in_h;
     reg dev_ssyn_in_h;
 
+    wire dev_ac_lo_out_h;
+    wire dev_dc_lo_out_h;
     wire dev_hltrq_out_h;
     wire dev_init_out_h;
 
@@ -330,11 +334,13 @@ module Zynq (
             // - input muxes shut off
             FM_OFF, FM_SIM: begin
                 a_out_h     <= 0;           // sending 0V to gates opens the transistors
+                ac_lo_out_h <= 0;
                 bbsy_out_h  <= 0;
                 bg_out_l    <= bg_in_l;     // act as grant jumper card when shut off
                 br_out_h    <= 0;
                 c_out_h     <= 0;
                 d_out_h     <= 0;
+                dc_lo_out_h <= 0;
                 hltrq_out_h <= 0;
                 init_out_h  <= 0;
                 intr_out_h  <= 0;
@@ -350,11 +356,13 @@ module Zynq (
             // FM_REAL - forward internal signals out onto unibus
             FM_REAL: begin
                 a_out_h     <= dev_a_out_h;
+                ac_lo_out_h <= dev_ac_lo_out_h;
                 bbsy_out_h  <= dev_bbsy_out_h;
                 bg_out_l    <= dev_bg_out_l;
                 br_out_h    <= dev_br_out_h;
                 c_out_h     <= dev_c_out_h;
                 d_out_h     <= dev_d_out_h;
+                dc_lo_out_h <= dev_dc_lo_out_h;
                 hltrq_out_h <= dev_hltrq_out_h;
                 init_out_h  <= dev_init_out_h;
                 intr_out_h  <= dev_intr_out_h;
@@ -371,11 +379,13 @@ module Zynq (
             // - for the grants, =0 passes grant, =1 blocks grant
             FM_MAN: begin
                 a_out_h     <= regctlb[17:00];
-                bbsy_out_h  <= regctla[26];
+                ac_lo_out_h <= regctla[28];
+                bbsy_out_h  <= regctla[27];
                 bg_out_l    <= regctlb[27:24] | bg_in_l;
                 br_out_h    <= regctlb[23:20];
                 c_out_h     <= regctlb[19:18];
                 d_out_h     <= regctla[15:00];
+                dc_lo_out_h <= regctla[26];
                 hltrq_out_h <= regctla[25];
                 init_out_h  <= regctla[24];
                 intr_out_h  <= regctla[23];
@@ -499,9 +509,11 @@ module Zynq (
     };
 
     wire[31:00] regctld = {
-        3'b0,
+        1'b0,
 
-        dev_bbsy_out_h,     // control outputs
+        dev_ac_lo_out_h,    // control outputs
+        dev_bbsy_out_h,
+        dev_dc_lo_out_h,
         dev_hltrq_out_h,
         dev_init_out_h,
         dev_intr_out_h,
@@ -684,7 +696,9 @@ module Zynq (
         .init_in_h (dev_init_in_h),
         .msyn_in_h (dev_msyn_in_h),
 
+        .ac_lo_out_h (dev_ac_lo_out_h),
         .d_out_h (sl_d_out_h),
+        .dc_lo_out_h (dev_dc_lo_out_h),
         .hltrq_out_h (dev_hltrq_out_h),
         .init_out_h (dev_init_out_h),
         .sack_out_h (sl_sack_out_h),

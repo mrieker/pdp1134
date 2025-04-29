@@ -184,13 +184,13 @@ int main (int argc, char **argv)
             printf ("VERSION=%08X 11%s", z11s[0], eol);
             printf ("  fpgamode=%o%s",                                                                            FIELD(Z_RA,a_fpgamode),                                eol);
             printf ("      a_out_h=%06o     a_in_h=%06o     a_out_h=%06o%s",          FIELD(Z_RB,b_a_out_h),      FIELD(Z_RF,f_a_in_h),      FIELD(Z_RD,d_a_out_h),      eol);
-            printf ("                     ac_lo_in_h=%o%s",                                                       FIELD(Z_RC,c_ac_lo_in_h),                              eol);
+            printf ("  ac_lo_out_h=%o      ac_lo_in_h=%o%s",                          FIELD(Z_RA,a_ac_lo_out_h),  FIELD(Z_RC,c_ac_lo_in_h),                              eol);
             printf ("   bbsy_out_h=%o       bbsy_in_h=%o       bbsy_out_h=%o%s",      FIELD(Z_RA,a_bbsy_out_h),   FIELD(Z_RC,c_bbsy_in_h),   FIELD(Z_RD,d_bbsy_out_h),   eol);
             printf ("     bg_out_l=%02o        bg_in_l=%02o        bg_out_l=%02o%s",  FIELD(Z_RB,b_bg_out_l),     FIELD(Z_RC,c_bg_in_l),     FIELD(Z_RE,e_bg_out_l),     eol);
             printf ("     br_out_h=%02o        br_in_h=%02o        br_out_h=%02o%s",  FIELD(Z_RB,b_br_out_h),     FIELD(Z_RE,e_br_in_h),     FIELD(Z_RE,e_br_out_h),     eol);
             printf ("      c_out_h=%o          c_in_h=%o          c_out_h=%o%s",      FIELD(Z_RB,b_c_out_h),      FIELD(Z_RE,e_c_in_h),      FIELD(Z_RE,e_c_out_h),      eol);
             printf ("      d_out_h=%06o     d_in_h=%06o     d_out_h=%06o%s",          FIELD(Z_RA,a_d_out_h),      FIELD(Z_RG,g_d_in_h),      FIELD(Z_RG,g_d_out_h),      eol);
-            printf ("                     dc_lo_in_h=%o%s",                                                       FIELD(Z_RC,c_dc_lo_in_h),                              eol);
+            printf ("  dc_lo_out_h=%o      dc_lo_in_h=%o%s",                          FIELD(Z_RA,a_dc_lo_out_h),  FIELD(Z_RC,c_dc_lo_in_h),                              eol);
             printf ("                     hltgr_in_l=%o%s",                                                       FIELD(Z_RC,c_hltgr_in_l),                              eol);
             printf ("  hltrq_out_h=%o      hltrq_in_h=%o      hltrq_out_h=%o%s",      FIELD(Z_RA,a_hltrq_out_h),  FIELD(Z_RE,e_hltrq_in_h),  FIELD(Z_RD,d_hltrq_out_h),  eol);
             printf ("   init_out_h=%o       init_in_h=%o       init_out_h=%o%s",      FIELD(Z_RA,a_init_out_h),   FIELD(Z_RC,c_init_in_h),   FIELD(Z_RD,d_init_out_h),   eol);

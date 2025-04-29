@@ -57,7 +57,9 @@ static PinDef const pindefs[] = {
     { "man_intr_out_h",  DEV_11, Z_RA, a_intr_out_h,  0, true  },
     { "man_init_out_h",  DEV_11, Z_RA, a_init_out_h,  0, true  },
     { "man_hltrq_out_h", DEV_11, Z_RA, a_hltrq_out_h, 0, true  },
+    { "man_dc_lo_out_h", DEV_11, Z_RA, a_dc_lo_out_h, 0, true  },
     { "man_bbsy_out_h",  DEV_11, Z_RA, a_bbsy_out_h,  0, true  },
+    { "man_ac_lo_out_h", DEV_11, Z_RA, a_ac_lo_out_h, 0, true  },
     { "fpgamode",        DEV_11, Z_RA, a_fpgamode,    0, true  },
 
     { "man_a_out_h",     DEV_11, Z_RB, b_a_out_h,     0, true  },
@@ -96,7 +98,10 @@ static PinDef const pindefs[] = {
     { "ssyn_in_h",       DEV_11, Z_RC, c_ssyn_in_h,   0, false },
     { "bg_in_l",         DEV_11, Z_RC, c_bg_in_l,     4, false },
 
+    { "a_out_h",         DEV_11, Z_RD, d_a_out_h,     0, false },
+    { "ac_lo_out_h",     DEV_11, Z_RD, d_ac_lo_out_h, 0, false },
     { "bbsy_out_h",      DEV_11, Z_RD, d_bbsy_out_h,  0, false },
+    { "dc_lo_out_h",     DEV_11, Z_RD, d_dc_lo_out_h, 0, false },
     { "hltrq_out_h",     DEV_11, Z_RD, d_hltrq_out_h, 0, false },
     { "init_out_h",      DEV_11, Z_RD, d_init_out_h,  0, false },
     { "intr_out_h",      DEV_11, Z_RD, d_intr_out_h,  0, false },
@@ -105,8 +110,8 @@ static PinDef const pindefs[] = {
     { "npr_out_h",       DEV_11, Z_RD, d_npr_out_h,   0, false },
     { "pa_out_h",        DEV_11, Z_RD, d_pa_out_h,    0, false },
     { "pb_out_h",        DEV_11, Z_RD, d_pb_out_h,    0, false },
+    { "sack_out_h",      DEV_11, Z_RD, d_sack_out_h,  0, false },
     { "ssyn_out_h",      DEV_11, Z_RD, d_ssyn_out_h,  0, false },
-    { "a_out_h",         DEV_11, Z_RD, d_a_out_h,     0, false },
 
     { "npr_in_h",        DEV_11, Z_RE, e_npr_in_h,    0, false },
     { "pa_in_h",         DEV_11, Z_RE, e_pa_in_h,     0, false },

@@ -35,26 +35,32 @@ module swlight (
     input init_in_h,
     input msyn_in_h,
 
+    output ac_lo_out_h,
     output reg[15:00] d_out_h,
+    output dc_lo_out_h,
     output reg hltrq_out_h,
     output init_out_h,
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg enable, haltreq, halted, stepreq, businit;
+    reg enable, haltreq, halted, stepreq, businit, aclow, dclow;
     reg[1:0] haltstate;
     reg[15:00] lights, switches;
 
     assign armrdata = (armraddr == 0) ? 32'h534C1001 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
-                      (armraddr == 2) ? { enable, haltreq, halted, stepreq, businit, 27'b0 } :
+                      (armraddr == 2) ? { enable, haltreq, halted, stepreq, businit, aclow, dclow, 25'b0 } :
                       32'hDEADBEEF;
 
-    assign init_out_h = businit;
+    assign ac_lo_out_h = aclow;
+    assign dc_lo_out_h = dclow;
+    assign init_out_h  = businit;
 
     always @(posedge CLOCK) begin
         if (RESET) begin
+            aclow       <= 0;
             businit     <= 0;
+            dclow       <= 0;
             enable      <= 0;
             haltreq     <= 0;
             haltstate   <= 0;
