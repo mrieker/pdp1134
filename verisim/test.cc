@@ -656,13 +656,14 @@ int main ()
                 break;
             }
 
-/***
             // DIV (p 148)
             case 53: {
                 uint16_t regno; do regno = randbits (2) * 2; while (regno == 6);
                 char xrbuff[8];
                 sprintf (xrbuff, "DIV R%o,", regno);
+                uint16_t oldpsw = psw;
                 SINGLEWORD (xrbuff, 0071000 | (regno << 6), true, false, divinstr (regno, dstval), psw & 2, psw & 1);
+                if (psw & 002) psw = (psw & 0177763) | (oldpsw & 0000014);
                 break;
             }
 
@@ -683,7 +684,6 @@ int main ()
                 SINGLEWORD (xrbuff, 0073000 | (regno << 6), true, false, ashcinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
-***/
 
             // XOR (p 73)
             case 56: {
@@ -1141,19 +1141,26 @@ uint16_t mulinstr (uint16_t regno, uint16_t srcval)
 uint16_t divinstr (uint16_t regno, uint16_t srcval)
 {
     bool overflow = true;
-    int32_t dividend = 0;
     int32_t quotient = 0;
-    int32_t remaindr = 0;
     if (srcval != 0) {
-        dividend = (gprs[curgprx(regno)] << 16) | gprs[curgprx(regno|1)];
-        quotient = dividend / (int16_t) srcval;
-        remaindr = dividend % (int16_t) srcval;
-        gprs[curgprx(regno)]   = quotient;
-        gprs[curgprx(regno|1)] = remaindr;
-        overflow = ((int16_t) quotient != quotient);
+        int32_t dividend = (gprs[curgprx(regno)] << 16) | gprs[curgprx(regno|1)];
+        int16_t divisor  = srcval;
+        bool divdneg = (dividend < 0);
+        bool signbit = divdneg ^ (divisor < 0);
+        if (dividend < 0) dividend = - dividend;
+        if (divisor  < 0) divisor  = - divisor;
+        quotient = (int32_t) ((uint32_t) dividend / (uint32_t) (uint16_t) divisor);
+        int32_t remaindr = (int32_t) ((uint32_t) dividend % (uint32_t) (uint16_t) divisor);
+        overflow = (dividend < 0) || (quotient > 32767);
+        if (! overflow) {
+            if (signbit) quotient  = - quotient;
+            if (divdneg) remaindr  = - remaindr;
+            gprs[curgprx(regno)]   = quotient;
+            gprs[curgprx(regno|1)] = remaindr;
+        }
     }
-    psw = (psw & 0177760) | (overflow ? 002 : 0) | (srcval == 0);
-    return (quotient < 0) ? 0100000 : (quotient != 0);
+    psw = (psw & 0177774) | (overflow ? 002 : 0) | (srcval == 0);
+    return quotient;
 }
 
 // ASH (p 149)
@@ -1166,13 +1173,13 @@ uint16_t ashinstr (uint16_t regno, uint16_t srcval)
 
     if (count < 0) {
         do {
-            psw = (psw & 0177776) | ((value >> 15) & 1);
+            psw = (psw & 0177776) | (value & 1);
             value >>= 1;
         } while (++ count < 0);
     }
     if (count > 0) {
         do {
-            psw = (psw & 0177776) | (value & 1);
+            psw = (psw & 0177776) | ((value >> 15) & 1);
             int16_t newval = value << 1;
             if ((newval < 0) ^ (value < 0)) psw |= 2;
             value = newval;
@@ -1194,13 +1201,13 @@ uint16_t ashcinstr (uint16_t regno, uint16_t srcval)
 
     if (count < 0) {
         do {
-            psw = (psw & 0177776) | ((value >> 31) & 1);
+            psw = (psw & 0177776) | (value & 1);
             value >>= 1;
         } while (++ count < 0);
     }
     if (count > 0) {
         do {
-            psw = (psw & 0177776) | (value & 1);
+            psw = (psw & 0177776) | ((value >> 31) & 1);
             int32_t newval = value << 1;
             if ((newval < 0) ^ (value < 0)) psw |= 2;
             value = newval;

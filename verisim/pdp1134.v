@@ -85,38 +85,42 @@ module pdp1134 (
     localparam[5:0] S_EXMUL2    = 25;
     localparam[5:0] S_EXMUL3    = 26;
     localparam[5:0] S_EXMUL4    = 27;
-    localparam[5:0] S_EXECDIV   = 29;
-    localparam[5:0] S_EXECDIV2  = 30;
-    localparam[5:0] S_EXECDIV3  = 31;
-    localparam[5:0] S_EXECDIV4  = 32;
-    localparam[5:0] S_EXECDIV5  = 33;
-    localparam[5:0] S_EXECDIV6  = 34;
-    localparam[5:0] S_EXECDIV7  = 35;
-    localparam[5:0] S_EXMFPI    = 36;
-    localparam[5:0] S_EXMFPI2   = 37;
-    localparam[5:0] S_EXMFPI3   = 38;
-    localparam[5:0] S_EXMTPI    = 39;
-    localparam[5:0] S_EXMTPI2   = 40;
-    localparam[5:0] S_EXMTPI3   = 41;
-    localparam[5:0] S_ENDINST   = 42;
-    localparam[5:0] S_INTR      = 43;
-    localparam[5:0] S_INTR2     = 44;
-    localparam[5:0] S_INTR3     = 45;
-    localparam[5:0] S_TRAP      = 46;
-    localparam[5:0] S_TRAP2     = 47;
-    localparam[5:0] S_TRAP3     = 48;
-    localparam[5:0] S_TRAP4     = 49;
-    localparam[5:0] S_TRAP5     = 50;
-    localparam[5:0] S_EXTRAP    = 51;
-    localparam[5:0] S_EXRTIT    = 52;
-    localparam[5:0] S_EXASH     = 53;
+    localparam[5:0] S_EXDIV     = 28;
+    localparam[5:0] S_EXDIV3    = 29;
+    localparam[5:0] S_EXDIV4    = 30;
+    localparam[5:0] S_EXDIV5    = 31;
+    localparam[5:0] S_EXDIV6    = 32;
+    localparam[5:0] S_EXMFPI    = 33;
+    localparam[5:0] S_EXMFPI2   = 34;
+    localparam[5:0] S_EXMFPI3   = 35;
+    localparam[5:0] S_EXMTPI    = 36;
+    localparam[5:0] S_EXMTPI2   = 37;
+    localparam[5:0] S_EXMTPI3   = 38;
+    localparam[5:0] S_ENDINST   = 39;
+    localparam[5:0] S_INTR      = 40;
+    localparam[5:0] S_INTR2     = 41;
+    localparam[5:0] S_INTR3     = 42;
+    localparam[5:0] S_TRAP      = 43;
+    localparam[5:0] S_TRAP2     = 44;
+    localparam[5:0] S_TRAP3     = 45;
+    localparam[5:0] S_TRAP4     = 46;
+    localparam[5:0] S_TRAP5     = 47;
+    localparam[5:0] S_EXTRAP    = 48;
+    localparam[5:0] S_EXRTIT    = 49;
+    localparam[5:0] S_EXASH     = 50;
+    localparam[5:0] S_EXASH2    = 51;
+    localparam[5:0] S_EXASH3    = 52;
+    localparam[5:0] S_EXASH4    = 53;
     localparam[5:0] S_EXASHC    = 54;
-    localparam[5:0] S_EXRTIT2   = 55;
-    localparam[5:0] S_EXRTIT3   = 56;
-    localparam[5:0] S_EXMARK    = 57;
-    localparam[5:0] S_EXCCS     = 58;
-    localparam[5:0] S_EXECDD3   = 59;
-    localparam[5:0] S_EXMARK2   = 60;
+    localparam[5:0] S_EXASHC2   = 55;
+    localparam[5:0] S_EXASHC3   = 56;
+    localparam[5:0] S_EXASHC4   = 57;
+    localparam[5:0] S_EXRTIT2   = 58;
+    localparam[5:0] S_EXRTIT3   = 59;
+    localparam[5:0] S_EXMARK    = 60;
+    localparam[5:0] S_EXCCS     = 61;
+    localparam[5:0] S_EXECDD3   = 62;
+    localparam[5:0] S_EXMARK2   = 63;
 
     localparam[15:00] STKLIM = 16'o000400;
 
@@ -220,6 +224,7 @@ module pdp1134 (
     wire[15:00] oneval  = byteinstr ? 256 : 1;
     wire[3:0] dstgprx   = gprx (psw[15:14], instreg[02:00]);
     wire[3:0] srcgprx   = gprx (psw[15:14], instreg[08:06]);
+    wire[3:0] srcgprx1  = gprx (psw[15:14], instreg[08:06] | 1);
 
     reg getopaddr;
     reg[1:0] getopbusy;
@@ -534,7 +539,7 @@ module pdp1134 (
                 //             0 if read-only or write-only dst
                 S_EXECDD: begin
                          if (iMUL)   state <= S_EXMUL;     // MUL
-                    else if (iDIV)   state <= S_EXECDIV;   // DIV
+                    else if (iDIV)   state <= S_EXDIV;     // DIV
                     else if (iASH)   state <= S_EXASH;     // ASH
                     else if (iASHC)  state <= S_EXASHC;    // ASHC
                     else if (iMFPID) state <= S_EXMFPI;    // MFPI/MFPD
@@ -707,63 +712,114 @@ module pdp1134 (
                     psw[1] <= 0;
                     psw[0] <= psw[0] | (product > 32'h00007FFF) & (product < 32'hFFFF8000);
                     if (~ instreg[06]) gprs[srcgprx] <= product[31:16];
-                    gprs[gprx(psw[15:14],instreg[08:06]|1)] <= product[15:00];
+                    gprs[srcgprx1] <= product[15:00];
                     state  <= S_ENDINST;
                 end
 
                 // DIV
                 //  dstval = divisor
                 //  instreg[08:06] = dividend; destination register
-                S_EXECDIV: begin
+                S_EXDIV: begin
                     product[31:16] <= gprs[srcgprx];
-                    state          <= S_EXECDIV2;
+                    product[15:00] <= gprs[srcgprx1];
+                    state          <= S_EXDIV3;
                 end
-                S_EXECDIV2: begin
-                    srcval[15]     <= product[31];
-                    product[15:00] <= gprs[gprx(psw[15:14],instreg[08:06]|1)];
-                    state          <= S_EXECDIV3;
+                S_EXDIV3: begin
+                    dstval     <= dstval[15] ? - dstval : dstval;
+                    product    <= product[31] ? - product : product;
+                    psw[00]    <= 0;
+                    psw[01]    <= 0;
+                    srcval[15] <= product[31];
+                    signbit    <= product[31] ^ dstval[15];
+                    state      <= S_EXDIV4;
                 end
-                S_EXECDIV3: begin
-                    product <= product[31] ? - product : product;
-                    signbit <= product[31] ^ dstval[15];
-                    dstval  <= dstval[15] ? - dstval : dstval;
-                    state   <= S_EXECDIV4;
-                end
-                S_EXECDIV4: begin
-                    if (dstval == 0) begin
-                        psw[1] <= 1;
-                        psw[0] <= 1;
-                        state  <= S_ENDINST;
-                    end else if (product[31:16] > dstval) begin
-                        psw[1] <= 1;
-                        state  <= S_ENDINST;
+                S_EXDIV4: begin
+                    if (product[31:15] >= { 1'b0, dstval }) begin
+                        psw[00] <= (dstval == 0);
+                        psw[01] <= 1;
+                        state   <= S_ENDINST;
                     end else begin
-                        counter <= 0;
-                        state   <= S_EXECDIV5;
+                        counter <= 15;
+                        state   <= S_EXDIV5;
                     end
                 end
-                S_EXECDIV5: begin
+                S_EXDIV5: begin
                     if (product[30:15] >= dstval) begin
                         product <= { product[30:15] - dstval, product[14:00], 1'b1 };
                     end else begin
                         product <= { product[30:00], 1'b0 };
                     end
-                    if (counter != 15) counter <= counter + 1;
-                    else state <= S_EXECDIV6;
+                    if (counter == 0) state <= S_EXDIV6;
+                            else counter <= counter - 1;
                 end
                 // product[31:16] = unsigned remainder
                 // product[15:00] = unsigned quotient
                 // signbit        = quotient sign
                 // srcval[15]     = dividend sign = remainder sign
-                S_EXECDIV6: begin
+                S_EXDIV6: begin
                     psw[3] <= signbit & (product[15:00] != 0);
                     psw[2] <= product[15:00] == 0;
-                    gprs[srcgprx]   <= signbit    ? - product[15:00] : product[15:00];
-                    state  <= S_EXECDIV7;
-                end
-                S_EXECDIV7: begin
-                    gprs[gprx(psw[15:14],instreg[08:06]|1)] <= srcval[15] ? - product[31:16] : product[31:16];
+                    gprs[srcgprx] <= signbit ? - product[15:00] : product[15:00];
+                    gprs[srcgprx1] <= srcval[15] ? - product[31:16] : product[31:16];
                     state  <= S_ENDINST;
+                end
+
+                // ASH
+                //  dstval[5:0] = shift count
+                //  instreg[08:06] = operand; destination register
+                S_EXASH: begin
+                    product[31:16] <= gprs[srcgprx];
+                    psw[1]         <= 0;
+                    state          <= dstval[5:0] == 0 ? S_EXASH4 : dstval[5] ? S_EXASH2 : S_EXASH3;
+                end
+                S_EXASH2: begin
+                    dstval[4:0]    <= dstval[4:0] + 1;
+                    product[30:16] <= product[31:17];
+                    psw[0]         <= product[16];
+                    if (dstval[4:0] == 5'b11111) state <= S_EXASH4;
+                end
+                S_EXASH3: begin
+                    dstval[4:0]    <= dstval[4:0] - 1;
+                    product[31:16] <= { product[30:16], 1'b0 };
+                    psw[0]         <= product[31];
+                    psw[1]         <= psw[1] | (product[31] ^ product[30]);
+                    if (dstval[4:0] == 5'b00001) state <= S_EXASH4;
+                end
+                S_EXASH4: begin
+                    gprs[srcgprx]  <= product[31:16];
+                    psw[2]         <= product[31:16] == 0;
+                    psw[3]         <= product[31];
+                    state          <= S_ENDINST;
+                end
+
+                // ASHC
+                //  dstval[5:0] = shift count
+                //  instreg[08:06] = operand; destination register
+                S_EXASHC: begin
+                    product[31:16] <= gprs[srcgprx];
+                    product[15:00] <= gprs[srcgprx1];
+                    psw[1]         <= 0;
+                    state          <= dstval[5:0] == 0 ? S_EXASHC4 : dstval[5] ? S_EXASHC2 : S_EXASHC3;
+                end
+                S_EXASHC2: begin
+                    dstval[4:0]    <= dstval[4:0] + 1;
+                    product[30:00] <= product[31:01];
+                    psw[0]         <= product[00];
+                    if (dstval[4:0] == 5'b11111) state <= S_EXASHC4;
+                end
+                S_EXASHC3: begin
+                    dstval[4:0]    <= dstval[4:0] - 1;
+                    product[31:00] <= { product[30:00], 1'b0 };
+                    psw[0]         <= product[31];
+                    psw[1]         <= psw[1] | (product[31] ^ product[30]);
+                    if (dstval[4:0] == 5'b00001) state <= S_EXASHC4;
+                end
+                S_EXASHC4: begin
+                    gprs[srcgprx]  <= product[31:16];
+                    gprs[srcgprx1] <= product[15:00];
+                    psw[2]         <= product == 0;
+                    psw[3]         <= product[31];
+                    state          <= S_ENDINST;
                 end
 
                 // move from previous address space
