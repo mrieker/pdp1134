@@ -54,7 +54,7 @@ module pdp1134 (
     output reg halt_grant_h
 
     ,output reg[5:0] state
-    ,output [15:00] r0, r1, r2, r3, r4, r5, r6, r7, ps
+    ,output [15:00] r0, r1, r2, r3, r4, r5, r6, r7, ps, r16
 );
 
     localparam[5:0] S_HALT      = 00;
@@ -78,9 +78,9 @@ module pdp1134 (
     localparam[5:0] S_EXECJSR   = 18;
     localparam[5:0] S_EXECRTS   = 19;
     localparam[5:0] S_EXECRTS2  = 20;
-    localparam[5:0] S_EXECRTIT  = 21;
-    localparam[5:0] S_EXECRTIT2 = 22;
-    localparam[5:0] S_EXECRTIT3 = 23;
+    localparam[5:0] S_EXRTIT    = 21;
+    localparam[5:0] S_EXRTIT2   = 22;
+    localparam[5:0] S_EXRTIT3   = 23;
     localparam[5:0] S_EXMUL     = 24;
     localparam[5:0] S_EXMUL2    = 25;
     localparam[5:0] S_EXMUL3    = 26;
@@ -106,7 +106,6 @@ module pdp1134 (
     localparam[5:0] S_TRAP4     = 46;
     localparam[5:0] S_TRAP5     = 47;
     localparam[5:0] S_EXTRAP    = 48;
-    localparam[5:0] S_EXRTIT    = 49;
     localparam[5:0] S_EXASH     = 50;
     localparam[5:0] S_EXASH2    = 51;
     localparam[5:0] S_EXASH3    = 52;
@@ -115,8 +114,6 @@ module pdp1134 (
     localparam[5:0] S_EXASHC2   = 55;
     localparam[5:0] S_EXASHC3   = 56;
     localparam[5:0] S_EXASHC4   = 57;
-    localparam[5:0] S_EXRTIT2   = 58;
-    localparam[5:0] S_EXRTIT3   = 59;
     localparam[5:0] S_EXMARK    = 60;
     localparam[5:0] S_EXCCS     = 61;
     localparam[5:0] S_EXECDD3   = 62;
@@ -147,15 +144,16 @@ module pdp1134 (
     endfunction
     wire[3:0] cspgprx = gprx (psw[15:14], 6);    // access current mode stack pointer
 
-    assign r0 = gprs[0];
-    assign r1 = gprs[1];
-    assign r2 = gprs[2];
-    assign r3 = gprs[3];
-    assign r4 = gprs[4];
-    assign r5 = gprs[5];
-    assign r6 = gprs[6];
-    assign r7 = gprs[7];
-    assign ps = psw;
+    assign r0  = gprs[0];
+    assign r1  = gprs[1];
+    assign r2  = gprs[2];
+    assign r3  = gprs[3];
+    assign r4  = gprs[4];
+    assign r5  = gprs[5];
+    assign r6  = gprs[6];
+    assign r7  = gprs[7];
+    assign ps  = psw;
+    assign r16 = gprs[4'o16];
 
     reg[7:0] trapvec;
     localparam[7:0] T_CPUERR  = 8'o004;
@@ -241,6 +239,8 @@ module pdp1134 (
     reg[15:00] mmupdrs[15:00];
     reg[15:00] mmr0, mmr2;
     wire mmropen = (mmr0[15:13] == 0);
+
+    wire[7:0] instrapvec = iBPT ? 8'o14 : iIOT ? 8'o20 : iEMT ? 8'o30 : iTRAP ? 8'o34 : 8'o00;
 
     reg[15:00] parentry, pdrentry, readdata, virtaddr, writedata;
     reg[17:00] physaddr;
@@ -653,7 +653,7 @@ module pdp1134 (
                 end
 
                 // start reading new PC from stack
-                S_EXECRTIT: begin
+                S_EXRTIT: begin
                     membyte   <= 0;
                     memmode   <= psw[15:14];
                     reading   <= 1;
@@ -662,7 +662,7 @@ module pdp1134 (
                 end
 
                 // start reading new PS from stack
-                S_EXECRTIT2: if (~ reading) begin
+                S_EXRTIT2: if (~ reading) begin
                     membyte   <= 0;
                     memmode   <= psw[15:14];
                     reading   <= 1;
@@ -672,7 +672,7 @@ module pdp1134 (
                 end
 
                 // update old SP, PC, PS
-                S_EXECRTIT3: if (~ reading) begin
+                S_EXRTIT3: if (~ reading) begin
                     gprs[cspgprx] <= gprs[cspgprx] + 4;
                     gprs[7]    <= srcval;
                     psw[15:14] <= psw[15:14] | readdata[15:14];
@@ -683,6 +683,12 @@ module pdp1134 (
                     psw[04:00] <= readdata[04:00];
                     state      <= S_ENDINST;
                     traceck    <= ~ instreg[2];     // RTI=2; RTT=6
+                end
+
+                // one of the trap instructions
+                S_EXTRAP: begin
+                    trapvec <= instrapvec;
+                    state   <= S_ENDINST;
                 end
 
                 // MUL
@@ -959,11 +965,13 @@ module pdp1134 (
                 // do trap via trapvec
                 // - start reading new PC into srcval
                 S_TRAP: begin
+                    $display ("S_TRAP*: trapvec=%o", trapvec);
                     membyte    <= 0;
                     memmode    <= 0;
                     reading    <= 1;
                     state      <= S_TRAP2;
                     virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
+                    yellowck   <= 0;
                 end
 
                 // - start reading new PS into dstval
@@ -978,10 +986,11 @@ module pdp1134 (
 
                 // - start pushing old PS onto new stack
                 S_TRAP3: if (~ reading) begin
+                    dstval     <= readdata;
                     membyte    <= 0;
-                    memmode    <= dstval[15:14];
+                    memmode    <= readdata[15:14];
                     state      <= S_TRAP4;
-                    virtaddr   <= gprs[gprx(dstval[15:14],6)] - 2;
+                    virtaddr   <= gprs[gprx(readdata[15:14],6)] - 2;
                     writedata  <= psw;
                     writing    <= 1;
                 end
@@ -1001,11 +1010,10 @@ module pdp1134 (
                     gprs[7]    <= srcval;
                     gprs[gprx(dstval[15:14],6)] <= gprs[gprx(dstval[15:14],6)] - 4;
                     psw[15:14] <= dstval[15:14];
-                    psw[13:12] <= psw[15:14];
-                    psw[11:00] <= dstval[11:00];
+                    psw[13:12] <= dstval[15:14] | psw[15:14];
+                    psw[11:00] <= dstval[11:00] & 12'o0377;
                     state      <= S_ENDINST;
                     trapvec    <= 0;
-                    yellowck   <= 1;
                 end
 
                 // hang if invalid state

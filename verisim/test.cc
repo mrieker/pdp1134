@@ -152,6 +152,7 @@ uint16_t curgprx (uint16_t r) { return gprx (r, psw >> 14); }
 
 uint16_t genranddd (bool word, uint16_t ss);
 uint16_t sendfetchdd (uint16_t dd, bool word);
+void trapthrough (uint16_t vector);
 void sendfetch (uint16_t data);
 void sendword (uint16_t virtaddr, uint16_t data, char const *desc);
 void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc);
@@ -234,13 +235,13 @@ int main ()
                 if (i > 100) fatal ("expecting state S_FETCH (%02u)\n", S_FETCH);
                 kerchunk ();
             }
-            if ((vp.r0 != gprs[0]) || (vp.r1 != gprs[1]) || (vp.r2 != gprs[2]) || (vp.r3 != gprs[3]) || (vp.r4 != gprs[4]) || (vp.r5 != gprs[5]) || (vp.r6 != gprs[6]) || (vp.r7 != gprs[7]) || (vp.ps != psw)) {
-                fatal ("register mismatch - expect         R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n",
-                        gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw);
+            if ((vp.r0 != gprs[0]) || (vp.r1 != gprs[1]) || (vp.r2 != gprs[2]) || (vp.r3 != gprs[3]) || (vp.r4 != gprs[4]) || (vp.r5 != gprs[5]) || (vp.r6 != gprs[6]) || (vp.r7 != gprs[7]) || (vp.ps != psw) || (vp.r16 != gprs[016])) {
+                fatal ("register mismatch - expect         R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o R16=%06o\n",
+                        gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw, gprs[016]);
             }
 
-            printf ("R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n",
-                    gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw);
+            printf ("R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o R16=%06o\n",
+                    gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw, gprs[016]);
             printf ("- - - - - - - - - - - - - - - - - - - -\n");
         }
 
@@ -251,30 +252,72 @@ int main ()
 
             // HALT
             case  0: {
-                printf ("%12llu0 : HALT\n", cyclectr);
-                sendfetch (0000000);
-                for (int i = 0; ! vp.halt_grant_h; i ++) {
-                    if (i > 5) fatal ("did not halt\n");
+                if (! (psw & 0160000)) {    ////
+                    printf ("%12llu0 : HALT\n", cyclectr);
+                    sendfetch (0000000);
+                    for (int i = 0; ! vp.halt_grant_h; i ++) {
+                        if (i > 5) fatal ("did not halt\n");
+                        kerchunk ();
+                    }
+                    vp.halt_rqst_l = 0;
                     kerchunk ();
-                }
-                vp.halt_rqst_l = 0;
-                kerchunk ();
-                kerchunk ();
-                vp.halt_rqst_l = 1;
-                for (int i = 0; vp.halt_grant_h; i ++) {
-                    if (i > 5) fatal ("halt grant stuck on\n");
                     kerchunk ();
+                    vp.halt_rqst_l = 1;
+                    for (int i = 0; vp.halt_grant_h; i ++) {
+                        if (i > 5) fatal ("halt grant stuck on\n");
+                        kerchunk ();
+                    }
                 }
+                break;
+            }
+
+            // RTI/RTT
+            case  1: {
+                uint16_t opcode = randbits (1) ? 0000006 : 0000002;
+                printf ("%12llu0 : %s\n", cyclectr, opcode & 4 ? "RTT" : "RTI");
+                sendfetch (opcode);
+                uint16_t newpc;
+                do newpc = randbits (15) * 2;
+                while (newpc > 0157770);
+                uint16_t newps = randbits (4);          // NZVC
+                ////if (randbits (6) == 0) newps |= 020;    // Trace
+                newps |= randbits (3) << 5;             // priority
+                if (randbits (2) == 0) {
+                    newps |= 0170000;                   // currmode = prevmode = USER
+                } else if (randbits (3) == 0) {
+                    newps |= 0030000;                   // currmode = KERNEL; prevmode = USER
+                }
+                sendword (gprs[curgprx(6)] + 0, newpc, "rti/rtt restored pc");
+                sendword (gprs[curgprx(6)] + 2, newps, "rti/rtt restored ps");
+                gprs[curgprx(6)] += 4;
+                gprs[7]  = newpc;
+                if (psw & 0140000) {
+                    psw  = (psw & 0177740) | (newps & 037);
+                } else {
+                    psw  = newps;
+                }
+                break;
+            }
+
+            // BPT
+            case  2: {
+                printf ("%12llu0 : BPT\n", cyclectr);
+                sendfetch (0000003);
+                trapthrough (0014);
+                break;
+            }
+
+            // IOT
+            case  3: {
+                printf ("%12llu0 : IOT\n", cyclectr);
+                sendfetch (0000004);
+                trapthrough (0020);
                 break;
             }
 
             /*
     wire iWAIT  = (instreg == 1);
-    wire iRTI   = (instreg == 2);
-    wire iBPT   = (instreg == 3);
-    wire iIOT   = (instreg == 4);
     wire iRESET = (instreg == 5);
-    wire iRTT   = (instreg == 6);
             */
 
             // JMP
@@ -501,7 +544,7 @@ int main ()
 
             // MFPI (p 168)
             case 36: {
-                if (gprs[6] > 0410) {       // avoid yellow stack
+                if (gprs[curgprx(6)] > 0410) {       // avoid yellow stack
                     uint16_t dd = genranddd (true, 0);
                     printf ("%12llu0 : MFPI %s\n", cyclectr, ddstr (ddbuff, dd));
                     sendfetch (0006500 | dd);
@@ -706,7 +749,6 @@ int main ()
                 break;
             }
 
-/***
             // EMT
             case 58: {
                 uint16_t code = randbits (8);
@@ -724,7 +766,6 @@ int main ()
                 trapthrough (0034);
                 break;
             }
-***/
 
             // Bxx (p 75..93)
             case 60: {
@@ -888,6 +929,31 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
         }
         default: abort ();
     }
+}
+
+void trapthrough (uint16_t vector)
+{
+    uint16_t newpc;
+    do newpc = randbits (15) * 2;
+    while (newpc > 0157777);
+
+    uint16_t newps = randbits (8) & 0357;       // no T bit
+    if (randbits (3) == 0) {
+        newps |= 0140000;                       // sometimes trap to user mode
+    }
+    newps |= ((newps | psw) >> 2) & 0030000;    // newps[prevmode] = newps[currmode] | oldps[currmode]
+
+    uint16_t newsp = gprs[gprx(6,newps>>14)];   // stack pointer in n ew processor mode
+
+    sendword (vector,     newpc,  "trap vec pc");
+    sendword (vector | 2, newps,  "trap vec ps");
+
+    recvword (newsp - 2, psw,     "push trap ps");
+    recvword (newsp - 4, gprs[7], "push trap pc");
+    gprs[gprx(6,newps>>14)] = newsp - 4;
+
+    gprs[7] = newpc;
+    psw     = newps;
 }
 
 // send opcode word to processor and increment local copy of PC
@@ -1234,7 +1300,7 @@ void fatal (char const *fmt, ...)
 // print out fpga state
 void dumpstate ()
 {
-    printf ("%12llu0:  RESET=%o  state=%02d  R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n"
+    printf ("%12llu0:  RESET=%o  state=%02d  R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o R16=%06o\n"
         "   bus_ac_lo_l=%o bus_bbsy_l=%o bus_br_l=%o%o%o%o bus_dc_lo_l=%o bus_intr_l=%o bus_npr_l=%o bus_pa_l=%o bus_pb_l=%o bus_sack_l=%o halt_rqst_l=%o\n"
         "   bus_a_in_l=%06o bus_c_in_l=%o%o bus_d_in_l=%06o bus_init_in_l=%o bus_msyn_in_l=%o bus_ssyn_in_l=%o\n"
         "   bus_a_out_l=%06o bus_c_out_l=%o%o bus_d_out_l=%06o bus_init_out_l=%o bus_msyn_out_l=%o bus_ssyn_out_l=%o bus_bg_h=%o%o%o%o bus_npg_h=%o\n"
@@ -1252,6 +1318,7 @@ void dumpstate ()
                 vp.r6,
                 vp.r7,
                 vp.ps,
+                vp.r16,
 
                 vp.bus_ac_lo_l,
                 vp.bus_bbsy_l,
