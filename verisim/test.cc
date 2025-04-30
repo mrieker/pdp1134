@@ -161,6 +161,10 @@ uint32_t virt2phys (uint16_t virtaddr, bool wrt);
 void readword (uint32_t physaddr, uint16_t data);
 void writeword (uint32_t physaddr, uint16_t data);
 void kerchunk ();
+uint16_t mulinstr (uint16_t regno, uint16_t srcval);
+uint16_t divinstr (uint16_t regno, uint16_t srcval);
+uint16_t ashinstr (uint16_t regno, uint16_t srcval);
+uint16_t ashcinstr (uint16_t regno, uint16_t srcval);
 void fatal (char const *fmt, ...);
 void dumpstate ();
 char *ddstr (char *ddbuff, uint16_t dd);
@@ -643,32 +647,40 @@ int main ()
                 break;
             }
 
-/***
             // MUL (p 147)
             case 52: {
-                uint16_t regno = randbits (3);
-                SINGLEWORD ("MUL ", 0070000 | (regno << 6), true, false, mulinstr (regno, dstval), psw & 2, psw & 1);
+                uint16_t regno; do regno = randbits (3); while ((regno & 6) == 6);
+                char xrbuff[8];
+                sprintf (xrbuff, "MUL R%o,", regno);
+                SINGLEWORD (xrbuff, 0070000 | (regno << 6), true, false, mulinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 
+/***
             // DIV (p 148)
             case 53: {
-                uint16_t regno = randbits (3);
-                SINGLEWORD ("DIV ", 0071000 | (regno << 6), true, false, divinstr (regno, dstval), psw & 2, psw & 1);
+                uint16_t regno; do regno = randbits (2) * 2; while (regno == 6);
+                char xrbuff[8];
+                sprintf (xrbuff, "DIV R%o,", regno);
+                SINGLEWORD (xrbuff, 0071000 | (regno << 6), true, false, divinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 
             // ASH (p 149)
             case 54: {
-                uint16_t regno = randbits (3);
-                SINGLEWORD ("ASH ", 0072000 | (regno << 6), true, false, ashinstr (regno, dstval), psw & 2, psw & 1);
+                uint16_t regno; do regno = randbits (2) * 2; while (regno == 6);
+                char xrbuff[8];
+                sprintf (xrbuff, "ASH R%o,", regno);
+                SINGLEWORD (xrbuff, 0072000 | (regno << 6), true, false, ashinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 
             // ASHC (p 150)
             case 55: {
-                uint16_t regno = randbits (3);
-                SINGLEWORD ("ASHC ", 0073000 | (regno << 6), true, false, ashcinstr (regno, dstval), psw & 2, psw & 1);
+                uint16_t regno; do regno = randbits (2) * 2; while (regno == 6);
+                char xrbuff[9];
+                sprintf (xrbuff, "ASHC R%o,", regno);
+                SINGLEWORD (xrbuff, 0073000 | (regno << 6), true, false, ashcinstr (regno, dstval), psw & 2, psw & 1);
                 break;
             }
 ***/
@@ -1113,6 +1125,95 @@ void kerchunk ()
     didsomething = true;
 }
 
+// MUL (p 147)
+uint16_t mulinstr (uint16_t regno, uint16_t srcval)
+{
+    int16_t x = (int16_t) gprs[curgprx(regno)];
+    int16_t y = (int16_t) srcval;
+    int32_t prod = (int32_t) x * (int32_t) y;
+    gprs[curgprx(regno)] = prod >> 16;
+    gprs[curgprx(regno|1)] = prod;
+    psw = (psw & 0177761) | ((int16_t) prod != prod);
+    return (prod < 0) ? 0100000 : (prod != 0);
+}
+
+// DIV (p 148)
+uint16_t divinstr (uint16_t regno, uint16_t srcval)
+{
+    bool overflow = true;
+    int32_t dividend = 0;
+    int32_t quotient = 0;
+    int32_t remaindr = 0;
+    if (srcval != 0) {
+        dividend = (gprs[curgprx(regno)] << 16) | gprs[curgprx(regno|1)];
+        quotient = dividend / (int16_t) srcval;
+        remaindr = dividend % (int16_t) srcval;
+        gprs[curgprx(regno)]   = quotient;
+        gprs[curgprx(regno|1)] = remaindr;
+        overflow = ((int16_t) quotient != quotient);
+    }
+    psw = (psw & 0177760) | (overflow ? 002 : 0) | (srcval == 0);
+    return (quotient < 0) ? 0100000 : (quotient != 0);
+}
+
+// ASH (p 149)
+uint16_t ashinstr (uint16_t regno, uint16_t srcval)
+{
+    int16_t value = gprs[curgprx(regno)];
+    int16_t count = ((srcval & 077) ^ 040) - 040;
+
+    psw &= 0177775;
+
+    if (count < 0) {
+        do {
+            psw = (psw & 0177776) | ((value >> 15) & 1);
+            value >>= 1;
+        } while (++ count < 0);
+    }
+    if (count > 0) {
+        do {
+            psw = (psw & 0177776) | (value & 1);
+            int16_t newval = value << 1;
+            if ((newval < 0) ^ (value < 0)) psw |= 2;
+            value = newval;
+        } while (-- count > 0);
+    }
+
+    gprs[curgprx(regno)] = value;
+
+    return (value < 0) ? 0100000 : (value != 0);
+}
+
+// ASHC (p 150)
+uint16_t ashcinstr (uint16_t regno, uint16_t srcval)
+{
+    int32_t value = (gprs[curgprx(regno)] << 16) | gprs[curgprx(regno|1)];
+    int16_t count = ((srcval & 077) ^ 040) - 040;
+
+    psw &= 0177775;
+
+    if (count < 0) {
+        do {
+            psw = (psw & 0177776) | ((value >> 31) & 1);
+            value >>= 1;
+        } while (++ count < 0);
+    }
+    if (count > 0) {
+        do {
+            psw = (psw & 0177776) | (value & 1);
+            int32_t newval = value << 1;
+            if ((newval < 0) ^ (value < 0)) psw |= 2;
+            value = newval;
+        } while (-- count > 0);
+    }
+
+    gprs[curgprx(regno)] = value >> 16;
+    gprs[curgprx(regno|1)] = value;
+
+    return (value < 0) ? 0100000 : (value != 0);
+}
+
+// print out error message, dump fpga registers, then abort
 void fatal (char const *fmt, ...)
 {
     va_list ap;
@@ -1123,6 +1224,7 @@ void fatal (char const *fmt, ...)
     abort ();
 }
 
+// print out fpga state
 void dumpstate ()
 {
     printf ("%12llu0:  RESET=%o  state=%02d  R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o\n"
@@ -1174,6 +1276,8 @@ void dumpstate ()
                 vp.halt_grant_h);
 }
 
+// format the dd field to a string
+// assumes ddbuff assumed to be at least 8 chars long
 char *ddstr (char *ddbuff, uint16_t dd)
 {
     char *p = ddbuff;

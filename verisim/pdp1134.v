@@ -81,11 +81,10 @@ module pdp1134 (
     localparam[5:0] S_EXECRTIT  = 21;
     localparam[5:0] S_EXECRTIT2 = 22;
     localparam[5:0] S_EXECRTIT3 = 23;
-    localparam[5:0] S_EXECMUL   = 24;
-    localparam[5:0] S_EXECMUL2  = 25;
-    localparam[5:0] S_EXECMUL3  = 26;
-    localparam[5:0] S_EXECMUL4  = 27;
-    localparam[5:0] S_EXECMUL5  = 28;
+    localparam[5:0] S_EXMUL     = 24;
+    localparam[5:0] S_EXMUL2    = 25;
+    localparam[5:0] S_EXMUL3    = 26;
+    localparam[5:0] S_EXMUL4    = 27;
     localparam[5:0] S_EXECDIV   = 29;
     localparam[5:0] S_EXECDIV2  = 30;
     localparam[5:0] S_EXECDIV3  = 31;
@@ -250,6 +249,8 @@ module pdp1134 (
     reg[3:0] counter;
     reg[3:0] intrdelay;
     reg haltck, traceck, yellowck;
+
+    wire[31:00] multstep = { 1'b0, product[31:16] + (srcval[00] ? dstval : 16'b0), product[15:01] };
 
     // index into mmupars,mmupdrs for unibus access
     //  usr registers: 7776xx
@@ -532,7 +533,7 @@ module pdp1134 (
                 //   writing = 1 if read/modify/write (~5 cycles before write starts)
                 //             0 if read-only or write-only dst
                 S_EXECDD: begin
-                         if (iMUL)   state <= S_EXECMUL;   // MUL
+                         if (iMUL)   state <= S_EXMUL;     // MUL
                     else if (iDIV)   state <= S_EXECDIV;   // DIV
                     else if (iASH)   state <= S_EXASH;     // ASH
                     else if (iASHC)  state <= S_EXASHC;    // ASHC
@@ -682,38 +683,32 @@ module pdp1134 (
                 // MUL
                 //  dstval = multiplier
                 //  instreg[08:06] = multiplicand; destination register
-                S_EXECMUL: begin
+                S_EXMUL: begin
                     srcval  <= gprs[srcgprx];
-                    state   <= S_EXECMUL2;
+                    state   <= S_EXMUL2;
                 end
-                S_EXECMUL2: begin
-                    counter <= 0;
+                S_EXMUL2: begin
+                    counter <= 15;
                     dstval  <= dstval[15] ? - dstval : dstval;
                     product <= 0;
                     signbit <= dstval[15] ^ srcval[15];
                     srcval  <= srcval[15] ? - srcval : srcval;
-                    state   <= S_EXECMUL3;
+                    state   <= S_EXMUL3;
                 end
-                S_EXECMUL3: begin
-                    product <= { product[30:00], 1'b0 } + { 16'b0, (srcval[15] ? dstval : 16'b0) };
-                    srcval  <= { srcval[14:00], 1'b0 };
-                    if (counter != 15) counter <= counter + 1;
-                    else begin
-                        if (signbit) product <= - product;
-                        state <= S_EXECMUL4;
-                    end
+                S_EXMUL3: begin
+                    product <= (signbit & (counter == 0)) ? - multstep : multstep;
+                    srcval  <= { 1'b0, srcval[15:01] };
+                    if (counter == 0) state <= S_EXMUL4;
+                            else counter <= counter - 1;
                 end
-                S_EXECMUL4: begin
+                S_EXMUL4: begin
                     psw[3] <= product[31];
                     psw[2] <= product == 0;
                     psw[1] <= 0;
                     psw[0] <= psw[0] | (product > 32'h00007FFF) & (product < 32'hFFFF8000);
-                    gprs[srcgprx]   <= product[31:16];
-                    state <= S_EXECMUL5;
-                end
-                S_EXECMUL5: begin
+                    if (~ instreg[06]) gprs[srcgprx] <= product[31:16];
                     gprs[gprx(psw[15:14],instreg[08:06]|1)] <= product[15:00];
-                    state <= S_ENDINST;
+                    state  <= S_ENDINST;
                 end
 
                 // DIV
