@@ -97,15 +97,16 @@ module pdp1134 (
     localparam[5:0] S_EXMTPI2   = 37;
     localparam[5:0] S_EXMTPI3   = 38;
     localparam[5:0] S_ENDINST   = 39;
-    localparam[5:0] S_INTR      = 40;
-    localparam[5:0] S_INTR2     = 41;
-    localparam[5:0] S_INTR3     = 42;
-    localparam[5:0] S_TRAP      = 43;
-    localparam[5:0] S_TRAP2     = 44;
-    localparam[5:0] S_TRAP3     = 45;
-    localparam[5:0] S_TRAP4     = 46;
-    localparam[5:0] S_TRAP5     = 47;
-    localparam[5:0] S_EXTRAP    = 48;
+    localparam[5:0] S_NPG       = 40;
+    localparam[5:0] S_INTR      = 41;
+    localparam[5:0] S_INTR2     = 42;
+    localparam[5:0] S_INTR3     = 43;
+    localparam[5:0] S_TRAP      = 44;
+    localparam[5:0] S_TRAP2     = 45;
+    localparam[5:0] S_TRAP3     = 46;
+    localparam[5:0] S_TRAP4     = 47;
+    localparam[5:0] S_TRAP5     = 48;
+    localparam[5:0] S_EXTRAP    = 49;
     localparam[5:0] S_EXASH     = 50;
     localparam[5:0] S_EXASH2    = 51;
     localparam[5:0] S_EXASH3    = 52;
@@ -253,7 +254,7 @@ module pdp1134 (
     reg[31:00] product;
     reg[3:0] counter;
     reg[3:0] intrdelay;
-    reg haltck, traceck, yellowck;
+    reg haltck, traceck, trapping, yellowck;
 
     wire[31:00] multstep = { 1'b0, product[31:16] + (srcval[00] ? dstval : 16'b0), product[15:01] };
 
@@ -302,8 +303,10 @@ module pdp1134 (
             psw        <= 0;
             reading    <= 0;
             resdelay   <= 0;
+            rwstate    <= 0;
             state      <= S_HALT;
             traceck    <= 1;
+            trapping   <= 0;
             trapvec    <= 0;
             writing    <= 0;
             yellowck   <= 0;
@@ -386,10 +389,10 @@ module pdp1134 (
                     if (psw[15:14] == 0) begin
                         state      <= S_HALT;
                     end else begin
+                        $display ("T_CPUERR: halt in user mode");
                         cpuerr[07] <= 1;
                         state      <= S_ENDINST;
                         trapvec    <= T_CPUERR;
-                        $display ("T_CPUERR*: halt in user mode");
                     end
                 end
 
@@ -578,6 +581,23 @@ module pdp1134 (
 
                 // start writing destination value to register or memory
                 S_EXECDD2: begin
+                    if (needtowritedst) begin
+                        if (instreg[05:03] == 0) begin
+                            if (iMOVB | iMFPS) begin
+                                gprs[dstgprx] <= { { 8 { result[15] } }, result[15:08] };
+                            end else if (byteinstr) begin
+                                gprs[dstgprx][07:00] <= result[15:08];
+                            end else begin
+                                gprs[dstgprx] <= result;
+                            end
+                        end else begin
+                            writedata <= byteinstr ? { 8'b0, result[15:08] } : result;
+                            writing   <= 1;
+                        end
+                    end
+                    state <= S_EXECDD3;
+                end
+                S_EXECDD3: if (~ writing) begin
                     if (iSWAB) begin
                         psw[03:00] <= { result[07], result[07:00] == 0, 2'b00 };
                     end else begin
@@ -600,26 +620,6 @@ module pdp1134 (
                                    else psw[01]    <= { 1'b0 };
                     end
 
-                    if (needtowritedst) begin
-                        if (instreg[05:03] == 0) begin
-                            if (iMOVB | iMFPS) begin
-                                gprs[dstgprx] <= { { 8 { result[15] } }, result[15:08] };
-                            end else if (byteinstr) begin
-                                gprs[dstgprx][07:00] <= result[15:08];
-                            end else begin
-                                gprs[dstgprx] <= result;
-                            end
-                            state <= S_ENDINST;
-                        end else begin
-                            writedata <= byteinstr ? { 8'b0, result[15:08] } : result;
-                            writing   <= 1;
-                            state     <= S_EXECDD3;
-                        end
-                    end else begin
-                        state <= S_ENDINST;
-                    end
-                end
-                S_EXECDD3: if (~ writing) begin
                     state <= S_ENDINST;
                 end
 
@@ -687,8 +687,8 @@ module pdp1134 (
 
                 // one of the trap instructions
                 S_EXTRAP: begin
-                    trapvec <= instrapvec;
                     state   <= S_ENDINST;
+                    trapvec <= instrapvec;
                 end
 
                 // MUL
@@ -885,14 +885,21 @@ module pdp1134 (
                 // end of instruction, figure out what to do next
                 S_ENDINST: begin
 
+                    // in case we got here via trapping from one of these
+                    getopaddr <= 0;
+                    getopbusy <= 0;
+                    reading   <= 0;
+                    rwstate   <= 0;
+                    writing   <= 0;
+
                     // do traps caused by instruction before checking halt switch
                     if (trapvec != 0) begin
                         state      <= S_TRAP;
                     end else if (yellowck & (psw[15:14] == 0) & (gprs[6] < STKLIM)) begin
+                        $display ("T_CPUERR: yellow stack error %06o", gprs[6]);
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;
-                        $display ("T_CPUERR*: yellow stack error");
                     end else if (traceck & psw[4]) begin
                         state      <= S_TRAP;
                         trapvec    <= T_BPTRACE;
@@ -900,8 +907,13 @@ module pdp1134 (
 
                     // check halt switch
                     // suppressed first cycle after continuing from halt for single stepping
-                    else if (haltck & traceck & ~ halt_rqst_l) begin
+                    else if (haltck & ~ halt_rqst_l) begin
                         state <= S_HALT;
+                    end
+
+                    // check dma
+                    else if (bus_sack_l & ~ bus_npr_l) begin
+                        state <= S_NPG;
                     end
 
                     // check interrupts
@@ -927,6 +939,14 @@ module pdp1134 (
                     // always enable halt and trace checking
                     haltck  <= 1;
                     traceck <= 1;
+                end
+
+                // dma requested, stick around until dma finished
+                S_NPG: begin
+                    bus_npg_h <= ~ bus_npr_l;
+                    if (bus_bbsy_l & bus_npr_l & bus_sack_l) begin
+                        state <= S_ENDINST;
+                    end
                 end
 
                 // something is interrupting, grant has been sent
@@ -965,13 +985,21 @@ module pdp1134 (
                 // do trap via trapvec
                 // - start reading new PC into srcval
                 S_TRAP: begin
-                    $display ("S_TRAP*: trapvec=%o", trapvec);
-                    membyte    <= 0;
-                    memmode    <= 0;
-                    reading    <= 1;
-                    state      <= S_TRAP2;
-                    virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
-                    yellowck   <= 0;
+                    if (trapping) begin
+                        // was in middle of doing a trap, can't do nested ones
+                        state      <= S_HALT;
+                        trapping   <= 0;
+                        trapvec    <= 0;
+                    end else begin
+                        // didn't trap from doing a trap, do a trap
+                        membyte    <= 0;
+                        memmode    <= 0;
+                        reading    <= 1;
+                        state      <= S_TRAP2;
+                        trapping   <= 1;
+                        virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
+                        yellowck   <= 0;
+                    end
                 end
 
                 // - start reading new PS into dstval
@@ -990,6 +1018,7 @@ module pdp1134 (
                     membyte    <= 0;
                     memmode    <= readdata[15:14];
                     state      <= S_TRAP4;
+                    trapping   <= readdata[15:14] == 0;
                     virtaddr   <= gprs[gprx(readdata[15:14],6)] - 2;
                     writedata  <= psw;
                     writing    <= 1;
@@ -1013,21 +1042,13 @@ module pdp1134 (
                     psw[13:12] <= dstval[15:14] | psw[15:14];
                     psw[11:00] <= dstval[11:00] & 12'o0377;
                     state      <= S_ENDINST;
+                    trapping   <= 0;
                     trapvec    <= 0;
                 end
 
                 // hang if invalid state
                 default: begin end
             endcase
-        end
-
-        // non-processor request processing
-        if (RESET) begin
-            bus_npg_h <= 0;
-        end else if (~ bus_npr_l & (rwdelay == 0) & ~ writing) begin
-            bus_npg_h <= 1;
-        end else if (bus_npr_l) begin
-            bus_npg_h <= 0;
         end
 
         // get non-register operand address
@@ -1153,12 +1174,10 @@ module pdp1134 (
 
                     // check for accessing word at an odd address
                     if (~ membyte & virtaddr[00]) begin
+                        $display ("T_CPUERR: odd address %06o state %02d", virtaddr, state);
                         cpuerr[06] <= 1;
-                        reading    <= 0;
                         state      <= S_ENDINST;
                         trapvec    <= T_CPUERR;
-                        writing    <= 0;
-                        $display ("T_CPUERR*: odd address");
                     end
 
                     // if mmu enabled, read page registers then check access
@@ -1185,11 +1204,8 @@ module pdp1134 (
                         mmr0[06:05] <= memmode;
                         mmr0[04]    <= 0;
                         mmr0[03:01] <= virtaddr[15:13];
-                        reading     <= 0;
-                        rwstate     <= 0;
                         state       <= S_ENDINST;
                         trapvec     <= T_MMUTRAP;
-                        writing     <= 0;
                     end
 
                     // access codes 1 means read-only access to the page
@@ -1198,11 +1214,8 @@ module pdp1134 (
                         mmr0[06:05] <= memmode;
                         mmr0[04]    <= 0;
                         mmr0[03:01] <= virtaddr[15:13];
-                        reading     <= 0;
-                        rwstate     <= 0;
                         state       <= S_ENDINST;
                         trapvec     <= T_MMUTRAP;
-                        writing     <= 0;
                     end
 
                     // check page length violation
@@ -1211,11 +1224,8 @@ module pdp1134 (
                         mmr0[06:05] <= memmode;
                         mmr0[04]    <= 0;
                         mmr0[03:01] <= virtaddr[15:13];
-                        reading     <= 0;
-                        rwstate     <= 0;
                         state       <= S_ENDINST;
                         trapvec     <= T_MMUTRAP;
-                        writing     <= 0;
                     end
 
                     // mmu allows access
@@ -1262,17 +1272,14 @@ module pdp1134 (
                         rwdelay        <= 0;
                         rwstate        <= 6;
                     end else if (rwdelay == 1000) begin
+                        $display ("T_CPUERR: ssyn timeout %06o state %02d", physaddr, state);
                         bus_a_out_l    <= 18'o777777;
                         bus_c_out_l    <= 3;
                         bus_d_out_l    <= 16'o177777;
                         bus_msyn_out_l <= 1;
                         cpuerr[04]     <= 1;
-                        reading        <= 0;
-                        rwstate        <= 0;
                         state          <= S_ENDINST;
                         trapvec        <= T_CPUERR;
-                        writing        <= 0;
-                        $display ("T_CPUERR*: ssyn timeout");
                     end else begin
                         rwdelay        <= rwdelay + 1;
                     end
