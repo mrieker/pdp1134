@@ -50,9 +50,9 @@
     } else { \
         uint16_t ddva = sendfetchdd (dd, true); \
         dstval = randbits (16); \
-        if (readdst)  sendword (ddva, dstval, "dst value"); \
+        if (readdst)  sendword (ddva, dstval, psw >> 14, writedst, "dst value"); \
         result = function; \
-        if (writedst) recvword (ddva, result, "dst value"); \
+        if (writedst) recvword (ddva, result, psw >> 14, "dst value"); \
     } \
     writepsw ((psw & 0177760) | ((result & 0100000) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0));
 
@@ -71,9 +71,9 @@
     } else { \
         uint16_t ddva = sendfetchdd (dd, false); \
         dstval = randbits (16); \
-        if (readdst)  sendbyte (ddva, dstval, "dst value"); \
+        if (readdst)  sendbyte (ddva, dstval, psw >> 14, writedst, "dst value"); \
         result = function; \
-        if (writedst) recvbyte (ddva, result, "dst value"); \
+        if (writedst) recvbyte (ddva, result, psw >> 14, "dst value"); \
     } \
     writepsw ((psw & 0177760) | ((result & 0000200) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0));
 
@@ -90,7 +90,7 @@
     } else { \
         uint16_t ssva = sendfetchdd (ss, true); \
         srcval = randbits (16); \
-        sendword (ssva, srcval, "src value"); \
+        sendword (ssva, srcval, psw >> 14, false, "src value"); \
     } \
     uint16_t dstval, result; \
     if ((dd & 070) == 0) { \
@@ -100,9 +100,9 @@
     } else { \
         uint16_t ddva = sendfetchdd (dd, true); \
         dstval = randbits (16); \
-        if (readdst)  sendword (ddva, dstval, "dst value"); \
+        if (readdst)  sendword (ddva, dstval, psw >> 14, writedst, "dst value"); \
         result = function; \
-        if (writedst) recvword (ddva, result, "dst value"); \
+        if (writedst) recvword (ddva, result, psw >> 14, "dst value"); \
     } \
     writepsw ((psw & 0177760) | ((result & 0100000) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0));
 
@@ -119,7 +119,7 @@
     } else { \
         uint16_t ssva = sendfetchdd (ss, false); \
         srcval = randbits (8); \
-        sendbyte (ssva, srcval, "src value"); \
+        sendbyte (ssva, srcval, psw >> 14, false, "src value"); \
     } \
     uint8_t dstval, result; \
     if ((dd & 070) == 0) { \
@@ -130,9 +130,9 @@
     } else { \
         uint16_t ddva = sendfetchdd (dd, false); \
         dstval = randbits (16); \
-        if (readdst)  sendbyte (ddva, dstval, "dst value"); \
+        if (readdst)  sendbyte (ddva, dstval, psw >> 14, writedst, "dst value"); \
         result = function; \
-        if (writedst) recvbyte (ddva, result, "dst value"); \
+        if (writedst) recvbyte (ddva, result, psw >> 14, "dst value"); \
     } \
     writepsw ((psw & 0177760) | ((result & 0000200) ? 010 : 0) | ((result == 0) ? 004 : 0) | ((pswv) ? 002 : 0) | ((pswc) ? 001 : 0));
 
@@ -148,24 +148,28 @@ char const *const brmnes[] = {
 
 bool didsomething;
 long long unsigned cyclectr;
-uint16_t gprs[16];
-uint16_t psw;
+uint16_t gprs[16], pars[16], pdrs[16];
+uint16_t mmr0, mmr2, psw;
 Vpdp1134 vp;
 
 uint16_t gprx (uint16_t r, uint16_t mode) { return (r == 6) && (mode & 2) ? 016 : r; }
 uint16_t curgprx (uint16_t r) { return gprx (r, psw >> 14); }
 
 uint16_t genranddd (bool word, uint16_t ss);
+void vfyintreg (uint16_t regva, uint16_t regda);
 uint16_t sendfetchdd (uint16_t dd, bool word);
 void trapthrough (uint16_t vector);
 void restart ();
 void writepsw (uint16_t newpsw);
 void sendfetch (uint16_t data);
-void sendword (uint16_t virtaddr, uint16_t data, char const *desc);
-void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc);
-void recvword (uint16_t virtaddr, uint16_t data, char const *desc);
-void recvbyte (uint16_t virtaddr, uint8_t data, char const *desc);
-uint32_t virt2phys (uint16_t virtaddr, bool wrt);
+void sendword (uint16_t virtaddr, uint16_t data, uint16_t mode, bool rmw, char const *desc);
+void sendbyte (uint16_t virtaddr, uint8_t data, uint16_t mode, bool rmw, char const *desc);
+void recvword (uint16_t virtaddr, uint16_t data, uint16_t mode, char const *desc);
+void recvbyte (uint16_t virtaddr, uint8_t data, uint16_t mode, char const *desc);
+uint32_t virt2phys (uint16_t virtaddr, bool wrt, uint16_t mode);
+void setpdrw (char ident, int index, int value);
+void monintrd (uint32_t physaddr, uint16_t data, char const *desc);
+void monintwr (uint32_t physaddr, uint16_t data, char const *desc);
 void readword (uint32_t physaddr, uint16_t data);
 void writeword (uint32_t physaddr, uint16_t data);
 void kerchunk ();
@@ -232,10 +236,12 @@ int main ()
 
             printf ("R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o R16=%06o\n",
                     gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw, gprs[016]);
+            printf ("  MMR0=%06o PAR7=%06o PDR7=%06o\n", mmr0, pars[7], pdrs[7]);
             printf ("- - - - - - - - - - - - - - - - - - - -\n");
         }
 
         // generate random opcode and send to processor
+        if ((mmr0 & 0160000) == 0) mmr2 = gprs[7];
         didsomething = false;
         uint8_t select = randbits (6);
         try {
@@ -278,8 +284,8 @@ int main ()
                     } else if (randbits (3) == 0) {
                         newps |= 0030000;                   // currmode = KERNEL; prevmode = USER
                     }
-                    sendword (gprs[curgprx(6)] + 0, newpc, "rti/rtt restored pc");
-                    sendword (gprs[curgprx(6)] + 2, newps, "rti/rtt restored ps");
+                    sendword (gprs[curgprx(6)] + 0, newpc, psw >> 14, false, "rti/rtt restored pc");
+                    sendword (gprs[curgprx(6)] + 2, newps, psw >> 14, false, "rti/rtt restored ps");
                     gprs[curgprx(6)] += 4;
                     gprs[7]  = newpc;
                     if (psw & 0140000) {
@@ -341,7 +347,7 @@ int main ()
                     uint16_t ddva = sendfetchdd (dd, true);
                     uint16_t oldreg = gprs[curgprx(r)];
                     gprs[curgprx(6)] -= 2;
-                    recvword (gprs[curgprx(6)], oldreg, "push old register");
+                    recvword (gprs[curgprx(6)], oldreg, psw >> 14, "push old register");
                     gprs[curgprx(r)] = gprs[7];
                     gprs[7] = ddva;
                     break;
@@ -509,7 +515,7 @@ int main ()
                         gprs[curgprx(6)] = popfrom + 2;
                         gprs[7] = gprs[5];
                         uint16_t newr5 = randbits (16);
-                        sendword (popfrom, newr5, "pop old R5");
+                        sendword (popfrom, newr5, psw >> 14, false, "pop old R5");
                         gprs[5] = newr5;
                     }
                     break;
@@ -526,7 +532,7 @@ int main ()
                     } else {
                         uint16_t ddva = sendfetchdd (dd, false);
                         newpsb = randbits (3) << 5;
-                        sendbyte (ddva, newpsb, "psb value");
+                        sendbyte (ddva, newpsb, psw >> 14, false, "psb value");
                     }
                     if ((psw & 0140000) == 0) writepsw ((psw & 0177437) | (newpsb & 0340));
                     writepsw ((psw & 0177761) | ((newpsb & 0200) ? 010 : 0) | ((newpsb == 0) ? 004 : 0));
@@ -545,11 +551,11 @@ int main ()
                         } else {
                             uint16_t ddva = sendfetchdd (dd, true);
                             value = randbits (16);
-                            sendword (ddva, value, "dst value");
+                            sendword (ddva, value, psw >> 12, false, "dst value");
                         }
                         uint16_t newsp = gprs[curgprx(6)] - 2;
                         gprs[curgprx(6)] = newsp;
-                        recvword (newsp, value, "push value");
+                        recvword (newsp, value, psw >> 14, "push value");
                     }
                     break;
                 }
@@ -566,11 +572,11 @@ int main ()
                     gprs[curgprx(6)] = oldsp + 2;
                     uint16_t value = randbits (16);
                     if (dd == 006) value &= -2;
-                    sendword (oldsp, value, "pop stack value");
+                    sendword (oldsp, value, psw >> 14, false, "pop stack value");
                     if ((dd & 070) == 0) {
                         gprs[gprx(dd,psw>>12)] = value;
                     } else {
-                        recvword (ddva, value, "dst value");
+                        recvword (ddva, value, psw >> 12, "dst value");
                     }
                     break;
                 }
@@ -592,7 +598,7 @@ int main ()
                         gprs[curgprx(dd)] = (int16_t) (int8_t) psw;
                     } else {
                         uint16_t ddva = sendfetchdd (dd, false);
-                        recvbyte (ddva, psw, "psb value");
+                        recvbyte (ddva, psw, psw >> 14, "psb value");
                     }
                     writepsw ((psw & 0177761) | ((psw & 0000200) ? 010 : 0) | (((int8_t) psw == 0) ? 004 : 0));
                     break;
@@ -683,7 +689,6 @@ int main ()
 
                 // MUL (p 147)
                 case 52: {
-                    printf ("case52*: psw=%06o\n", psw);
                     uint16_t regno; do regno = randbits (3); while ((regno & 6) == 6);
                     char xrbuff[8];
                     sprintf (xrbuff, "MUL R%o,", regno);
@@ -799,6 +804,82 @@ int main ()
                                else writepsw (psw & ~ (bits & 017));
                     break;
                 }
+
+                // modify mmu register
+                case 63: {
+                    if (((psw & 0140000) == 0) && (gprs[7] <= 0157770)) {
+                        uint16_t n = randbits (6);
+                        switch (n >> 4) {
+
+                            // increment address register
+                            case 0: {
+                                uint16_t regva = ((n & 8) ? 0177640 : 0172340) + (n & 7) * 2;
+                                if (n == 7) {   // leave kernel 160000 -> 760000 intact
+                                    vfyintreg (regva, pars[7]);
+                                } else {
+                                    uint16_t incby = 1;
+                                    uint16_t oldpar = pars[n&15];
+                                    uint16_t newpar;
+                                    if (pars[n&15] < 07377) {
+                                        newpar = oldpar + 1;
+                                        printf ("%12llu0 : INC @#%06o\n", cyclectr, regva);
+                                        sendfetch (0005237);
+                                    } else {
+                                        incby = 00200 + randbits (5);
+                                        newpar = oldpar + incby;
+                                        printf ("%12llu0 : ADD #%06o,@#%06o\n", cyclectr, incby, regva);
+                                        sendfetch (0062737);
+                                        sendword (gprs[7], incby, psw >> 14, false, "par increment");
+                                        gprs[7] += 2;
+                                        psw &= ~ 001;
+                                    }
+                                    sendword (gprs[7], regva, psw >> 14, false, "par address");
+                                    gprs[7] += 2;
+                                    monintrd (regva | 0760000, oldpar, "old par contents");
+                                    monintwr (regva | 0760000, newpar, "new par contents");
+                                    setpdrw ('Z', n & 15, 0);          // clear W bit upon writing address register
+                                    if (mmr0 & 1) setpdrw ('Y', 7, 1); // set IO page W bit
+                                    psw = (psw & ~ 016) | ((newpar & 0100000) ? 010 :0) | ((newpar == 0) ? 004 : 0);
+                                    pars[n&15]  = newpar & 0007777;
+                                }
+                                break;
+                            }
+
+                            // verify descriptor register contents
+                            case 1: {
+                                uint16_t regva = ((n & 8) ? 0177600 : 0172300) + (n & 7) * 2;
+                                vfyintreg (regva, pdrs[n&15]);
+                                break;
+                            }
+
+                            // access MMR0, MMR2
+                            case 2: {
+                                // verify MMR0 contents
+                                if (n == 040) vfyintreg (0177572, mmr0);
+
+                                // flip MMR0 enable bit, clear abort bits
+                                if (n == 041) {
+                                    uint16_t newmmr0 = (mmr0 & 0157) ^ 1;
+                                    printf ("%12llu0 : MOV #%06o,@#%06o\n", cyclectr, newmmr0, 0177572);
+                                    sendfetch (0012737);
+                                    sendword (gprs[7], newmmr0, psw >> 14, false, "new MMR0 value");
+                                    gprs[7] += 2;
+                                    sendword (gprs[7], 0177572, psw >> 14, false, "MMR0 address");
+                                    gprs[7] += 2;
+                                    monintwr (0777572, newmmr0, "writing MMR0");
+                                    if (mmr0 & 1) setpdrw ('X', 7, 1);      // set IO page W bit
+                                    mmr0 = newmmr0;
+                                    psw  = (psw & 0177761) | ((newmmr0 & 0100000) ? 010 : 000) | ((newmmr0 == 0) ? 004 : 000);
+                                }
+
+                                // verify MMR2 contents
+                                if (n == 042) vfyintreg (0177576, mmr2);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
             }
         } catch (TrapThru &tt) {
             trapthrough (tt.vector);
@@ -883,7 +964,7 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
             uint16_t y;
             do y = randbits (16);
             while ((y > 0157777) || (y & (uint16_t) oddbad));
-            sendword (x, y, "@(Rx)+ pointer");
+            sendword (x, y, psw >> 14, false, "@(Rx)+ pointer");
             return y;
         }
         case 4: {
@@ -897,7 +978,7 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
             uint16_t y;
             do y = randbits (16);
             while ((y > 0157777) || (y & (uint16_t) oddbad));
-            sendword (x, y, "@-(Rn) pointer");
+            sendword (x, y, psw >> 14, false, "@-(Rn) pointer");
             return y;
         }
         case 6: {
@@ -909,7 +990,7 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
                 z = x + y;
             } while ((z > 0157777) || (z & (uint16_t) oddbad));
             gprs[7] += 2;
-            sendword (gprs[7] - 2, y, "index");
+            sendword (gprs[7] - 2, y, psw >> 14, false, "index");
             return x + y;
         }
         case 7: {
@@ -924,8 +1005,8 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
             do p = randbits (16);
             while ((p > 0157777) || (p & (uint16_t) oddbad));   // repeat if not in range
             gprs[7] += 2;                                       // increment before read in case of exception
-            sendword (gprs[7] - 2, y, "index");                 // send random index
-            sendword (z, p, "@x(Rn) pointer");                  // send random pointer
+            sendword (gprs[7] - 2, y, psw >> 14, false, "index");  // send random index
+            sendword (z, p, psw >> 14, false, "@x(Rn) pointer");   // send random pointer
             return p;                                           // return pointer
         }
         default: abort ();
@@ -952,11 +1033,11 @@ dotrap:;
 
         uint16_t newsp = gprs[gprx(6,newps>>14)];   // stack pointer in new processor mode
 
-        sendword (vector,     newpc,  "trap vec pc");
-        sendword (vector | 2, newps,  "trap vec ps");
+        sendword (vector,     newpc,  0, false, "trap vec pc");
+        sendword (vector | 2, newps,  0, false, "trap vec ps");
 
-        recvword (newsp - 2, psw,     "push trap ps");
-        recvword (newsp - 4, gprs[7], "push trap pc");
+        recvword (newsp - 2, psw,     newps >> 14, "push trap ps");
+        recvword (newsp - 4, gprs[7], newps >> 14, "push trap pc");
         gprs[gprx(6,newps>>14)] = newsp - 4;
 
         gprs[7] = newpc;
@@ -980,13 +1061,20 @@ dotrap:;
 // processor is halted, initialize registers and start it up
 void restart ()
 {
-    printf ("restart: asserting halt_rqst_l\n");
+    printf ("restart: apply reset pulse\n");
     vp.halt_rqst_l = 0;
+    vp.RESET = 1;
+    kerchunk ();
+    kerchunk ();
+    vp.RESET = 0;
     kerchunk ();
     kerchunk ();
     if (! vp.halt_grant_h) fatal ("restart: halt not granted\n");
 
-    printf ("restart: initialize registers\n");
+    mmr0 = 0;
+    psw  = 0;
+
+    printf ("restart: initialize gp registers\n");
     for (int i = 0; i < 16; i ++) {
         uint16_t r = randbits (16);
         if ((i == 6) || (i == 7) || (i == 14)) {
@@ -995,6 +1083,21 @@ void restart ()
         }
         writeword (0777700 + i, r);
         gprs[i] = r;
+    }
+
+    printf ("restart: initialize mm registers\n");
+    setpdrw ('W', 7, 0);
+    for (int i = 0; i < 16; i ++) {
+        pars[i] = i * 0123 + 5;
+        pdrs[i] = 0077406;
+    }
+    pars[7] = 007600;   // always map kernel 160000->760000
+
+    for (int i = 0; i < 8; i ++) {
+        writeword (0772300 + i * 2, pdrs[i+0]);     // kernel descriptor
+        writeword (0772340 + i * 2, pars[i+0]);     // kernel address
+        writeword (0777600 + i * 2, pdrs[i+8]);     // user descriptor
+        writeword (0777640 + i * 2, pars[i+8]);     // user address
     }
 
     printf ("restart: negating halt_rqst_l\n");
@@ -1010,16 +1113,35 @@ void writepsw (uint16_t newpsw)
     psw = newpsw;
 }
 
+// verify internal register's contents
+void vfyintreg (uint16_t regva, uint16_t regda)
+{
+    printf ("%12llu0 : TST @#%06o\n", cyclectr, regva);
+    sendfetch (0005737);
+    sendword (gprs[7], regva, psw >> 14, false, "address");
+    gprs[7] += 2;
+    monintrd (regva | 0760000, regda, "contents");
+    psw = (psw & ~ 017) | ((regda & 0100000) ? 010 : 0) | ((regda == 0) ? 004 : 0);
+}
+
 // send opcode word to processor and increment local copy of PC
 void sendfetch (uint16_t data)
 {
-    sendword (gprs[7], data, "opcode");
+    sendword (gprs[7], data, psw >> 14, false, "opcode");
     gprs[7] += 2;
 }
 
 // PDP is reading a word from memory
 // send the value we want it to get
-void sendword (uint16_t virtaddr, uint16_t data, char const *desc)
+//  input:
+//   virtaddr = virtual address PDP is supposedly reading from
+//   data = data value to send to PDP
+//   mode = processor mode used to translate virtaddr to physical address
+//   rmw = false: DATI cycle; true: DATIP cycle
+//  output:
+//   processor stepped to end of cycle
+//   data sent to processor
+void sendword (uint16_t virtaddr, uint16_t data, uint16_t mode, bool rmw, char const *desc)
 {
     printf ("- sendword %06o %06o  %s\n", virtaddr, data, desc);
 
@@ -1028,7 +1150,7 @@ void sendword (uint16_t virtaddr, uint16_t data, char const *desc)
         throw TrapThru (004);
     }
 
-    uint32_t physaddr = virt2phys (virtaddr, false);
+    uint32_t physaddr = virt2phys (virtaddr, rmw, mode);
 
     for (int i = 0; vp.bus_msyn_out_l; i ++) {
         if (i > 200) fatal ("sendword: vp.bus_MSYN did not assert\n");
@@ -1036,7 +1158,8 @@ void sendword (uint16_t virtaddr, uint16_t data, char const *desc)
     }
 
     if ((vp.bus_a_out_l ^ 0777777) != physaddr) fatal ("sendword: expected BUS_A %06o got %06o\n", physaddr, vp.bus_a_out_l ^ 0777777);
-    if (! (vp.bus_c_out_l & 2)) fatal ("sendword: expected BUS_C[1] 0 was 1\n");
+    uint16_t cexpect = rmw ? 1 : 0;
+    if ((vp.bus_c_out_l ^ 3) != cexpect) fatal ("sendword: expected BUS_C %o was %o\n", cexpect, vp.bus_c_out_l ^ 3);
 
     vp.bus_d_in_l = data ^ 0177777;
     vp.bus_ssyn_in_l = 0;
@@ -1051,11 +1174,11 @@ void sendword (uint16_t virtaddr, uint16_t data, char const *desc)
 
 // PDP is reading a byte from memory
 // send the value we want it to get
-void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc)
+void sendbyte (uint16_t virtaddr, uint8_t data, uint16_t mode, bool rmw, char const *desc)
 {
     printf ("- sendbyte %06o %03o  %s\n", virtaddr, data, desc);
 
-    uint32_t physaddr = virt2phys (virtaddr, false);
+    uint32_t physaddr = virt2phys (virtaddr, rmw, mode);
 
     for (int i = 0; vp.bus_msyn_out_l; i ++) {
         if (i > 200) fatal ("sendbyte: vp.bus_MSYN did not assert\n");
@@ -1063,7 +1186,8 @@ void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc)
     }
 
     if ((vp.bus_a_out_l ^ 0777777) != physaddr) fatal ("sendbyte: expected BUS_A %06o got %06o\n", physaddr, vp.bus_a_out_l ^ 0777777);
-    if (! (vp.bus_c_out_l & 2)) fatal ("sendbyte: expected BUS_C[1] 0 was 1\n");
+    uint16_t cexpect = rmw ? 1 : 0;
+    if ((vp.bus_c_out_l ^ 3) != cexpect) fatal ("sendword: expected BUS_C %o was %o\n", cexpect, vp.bus_c_out_l ^ 3);
 
     vp.bus_d_in_l = (((uint16_t) data) << ((physaddr & 1) * 8)) ^ 0177777;
     vp.bus_ssyn_in_l = 0;
@@ -1077,7 +1201,7 @@ void sendbyte (uint16_t virtaddr, uint8_t data, char const *desc)
 }
 
 // receive a word over unibus from the pdp and check its value
-void recvword (uint16_t virtaddr, uint16_t data, char const *desc)
+void recvword (uint16_t virtaddr, uint16_t data, uint16_t mode, char const *desc)
 {
     printf ("- recvword %06o %06o  %s\n", virtaddr, data, desc);
 
@@ -1086,7 +1210,7 @@ void recvword (uint16_t virtaddr, uint16_t data, char const *desc)
         throw TrapThru (004);
     }
 
-    uint32_t physaddr = virt2phys (virtaddr, true);
+    uint32_t physaddr = virt2phys (virtaddr, true, mode);
 
     for (int i = 0; vp.bus_msyn_out_l; i ++) {
         if (i > 200) fatal ("recvword: vp.bus_MSYN did not assert\n");
@@ -1105,11 +1229,11 @@ void recvword (uint16_t virtaddr, uint16_t data, char const *desc)
 }
 
 // receive a byte over unibus from the pdp and check its value
-void recvbyte (uint16_t virtaddr, uint8_t data, char const *desc)
+void recvbyte (uint16_t virtaddr, uint8_t data, uint16_t mode, char const *desc)
 {
     printf ("- recvbyte %06o %03o  %s\n", virtaddr, data, desc);
 
-    uint32_t physaddr = virt2phys (virtaddr, true);
+    uint32_t physaddr = virt2phys (virtaddr, true, mode);
 
     for (int i = 0; vp.bus_msyn_out_l; i ++) {
         if (i > 200) fatal ("recvbyte: vp.bus_MSYN did not assert\n");
@@ -1127,10 +1251,35 @@ void recvbyte (uint16_t virtaddr, uint8_t data, char const *desc)
     vp.bus_ssyn_in_l = 1;
 }
 
-uint32_t virt2phys (uint16_t virtaddr, bool wrt)
+// convert 16-bit virtual address to 18-bit physical address
+uint32_t virt2phys (uint16_t virtaddr, bool wrt, uint16_t mode)
 {
-    uint32_t pa = (virtaddr > 0157777) ? virtaddr | 0600000 : virtaddr;
+    uint32_t pa;
 
+    if (mmr0 & 1) {
+        uint16_t i = ((mode & 1) << 3) | (virtaddr >> 13);                  // par/pdr index
+        uint16_t d = pdrs[i];                                               // descriptor
+        uint16_t a = 0;                                                     // aborts
+        if (! (d & 2)) a |= 1 << 15;                                        // no-access page check
+        if (d & 8) {
+            if (((virtaddr >> 6) & 0177) < ((d >> 8) & 0177)) a |= 1 << 14; // expand downward
+        } else {
+            if (((virtaddr >> 6) & 0177) > ((d >> 8) & 0177)) a |= 1 << 14; // expand upward
+        }
+        if (wrt && ! (d & 4)) a |= 1 << 13;                                 // write-protect
+        if (a != 0) {
+            if ((mmr0 & 0160000) == 0) {
+                mmr0 = a | ((mode & 3) << 5) | ((virtaddr >> 13) << 1) | 1;
+            }
+            throw TrapThru (0250);
+        }
+        if (wrt) setpdrw ('V', i, 1);
+        pa = ((uint32_t) pars[i] << 6) + (virtaddr & 0017777);
+    } else {
+        pa = (virtaddr > 0157777) ? virtaddr | 0600000 : virtaddr;
+    }
+
+    // random instructions are hands-off IO page
     if (pa > 0757777) {
         printf ("virt2phys: bus timeout %06o\n", pa);
         for (int i = 0; vp.bus_msyn_out_l; i ++) {
@@ -1145,6 +1294,111 @@ uint32_t virt2phys (uint16_t virtaddr, bool wrt)
     }
 
     return pa;
+}
+
+void setpdrw (char ident, int index, int value)
+{
+    pdrs[index] = (pdrs[index] & ~ 0100) | (value << 6);
+}
+
+// just stuffed an instruction into processor that causes it to read from an internal register
+// clock the processor through that read and make sure the address, function and data match what we expect
+void monintrd (uint32_t physaddr, uint16_t data, char const *desc)
+{
+    printf ("- monintrd %06o %06o  %s\n", physaddr, data, desc);
+
+    // wait for processor to place address, function out on unibus
+    // meanwhile pass address, function back into processor so internal register can decode them
+    for (int i = 0; vp.bus_msyn_out_l; i ++) {
+        if (i > 200) fatal ("monintrd: vp.bus_MSYN did not assert\n");
+        vp.bus_a_in_l = vp.bus_a_out_l;
+        vp.bus_c_in_l = vp.bus_c_out_l;
+        vp.bus_d_in_l = vp.bus_d_out_l;
+        kerchunk ();
+    }
+
+    // verify the values match what we expect
+    if ((vp.bus_a_out_l ^ 0777777) != physaddr) fatal ("monintrd: expected BUS_A %06o got %06o\n", physaddr, vp.bus_a_out_l ^ 0777777);
+    if ((vp.bus_c_out_l & 2) == 0) fatal ("monintrd: expected BUS_C[1] 1 was 0\n");
+
+    // pass MSYN back into processor so internal register will finialize decoding
+    vp.bus_msyn_in_l = 0;
+
+    // wait for the internal registers to complete the read by ass_serting ssyn
+    for (int i = 0; vp.bus_ssyn_out_l; i ++) {
+        if (vp.bus_msyn_out_l) fatal ("monintrd: vp.bus_MSYN negated while waiting for SSYN\n");
+        if (i > 200) fatal ("monintrd: vp.bus_SSYN did not assert\n");
+        kerchunk ();
+    }
+
+    // verify internal register has contents we expect
+    uint16_t got = vp.bus_d_out_l ^ 0177777;
+    if (got != data) fatal ("monintrd: expected BUS_D %06o got %06o\n", data, got);
+
+    // wait for both MSYN and SSYN to be negated
+    // meanwhile forward data from internal register to the processor
+    for (int i = 0; ! vp.bus_msyn_out_l || ! vp.bus_ssyn_out_l; i ++) {
+        if (i > 200) fatal ("monintrd: vp.bus_MSYN or vp.bus_SSYN did not negate\n");
+        vp.bus_d_in_l    = vp.bus_d_out_l;
+        vp.bus_msyn_in_l = vp.bus_msyn_out_l;
+        vp.bus_ssyn_in_l = vp.bus_ssyn_out_l;
+        kerchunk ();
+    }
+    vp.bus_msyn_in_l = 1;
+    vp.bus_ssyn_in_l = 1;
+
+    // stop forwarding address, function, data
+    vp.bus_a_in_l = 0777777;
+    vp.bus_c_in_l = 3;
+    vp.bus_d_in_l = 0177777;
+}
+
+// just stuffed an instruction into processor that causes it to write to an internal register
+// clock the processor through that write and make sure the address, function and data match what we expect
+void monintwr (uint32_t physaddr, uint16_t data, char const *desc)
+{
+    printf ("- monintwr %06o %06o  %s\n", physaddr, data, desc);
+
+    // wait for processor to place address, function, data out on unibus
+    // meanwhile pass address, function, data back into processor so internal register can decode them
+    for (int i = 0; vp.bus_msyn_out_l; i ++) {
+        if (i > 200) fatal ("monintwr: vp.bus_MSYN did not assert\n");
+        vp.bus_a_in_l = vp.bus_a_out_l;
+        vp.bus_c_in_l = vp.bus_c_out_l;
+        vp.bus_d_in_l = vp.bus_d_out_l;
+        kerchunk ();
+    }
+
+    // verify the values match what we expect
+    if ((vp.bus_a_out_l ^ 0777777) != physaddr) fatal ("monintwr: expected BUS_A %06o got %06o\n", physaddr, vp.bus_a_out_l ^ 0777777);
+    if ((vp.bus_c_out_l ^ 3) != 2) fatal ("monintwr: expected BUS_C 2 was %o\n", vp.bus_c_out_l ^ 3);
+    uint16_t got = vp.bus_d_out_l ^ 0177777;
+    if (got != data) fatal ("monintwr: expected BUS_D %06o got %06o\n", data, got);
+
+    // pass MSYN back into processor so internal register will finialize decoding
+    vp.bus_msyn_in_l = 0;
+
+    // wait for the internal registers to complete the write by asserting ssyn
+    for (int i = 0; vp.bus_ssyn_out_l; i ++) {
+        if (vp.bus_msyn_out_l) fatal ("monintwr: vp.bus_MSYN negated while waiting for SSYN\n");
+        if (i > 200) fatal ("monintwr: vp.bus_SSYN did not assert\n");
+        kerchunk ();
+    }
+
+    // wait for both MSYN and SSYN to be negated
+    for (int i = 0; ! vp.bus_msyn_out_l || ! vp.bus_ssyn_out_l; i ++) {
+        if (i > 200) fatal ("monintwr: vp.bus_MSYN or vp.bus_SSYN did not negate\n");
+        vp.bus_msyn_in_l = vp.bus_msyn_out_l;
+        vp.bus_ssyn_in_l = vp.bus_ssyn_out_l;
+        kerchunk ();
+    }
+    vp.bus_msyn_in_l = 1;
+    vp.bus_ssyn_in_l = 1;
+
+    // stop forwarding address, function, data
+    vp.bus_a_in_l = 0777777;
+    vp.bus_c_in_l = 3;
+    vp.bus_d_in_l = 0177777;
 }
 
 // read word from unibus via dma

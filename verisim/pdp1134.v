@@ -44,7 +44,7 @@ module pdp1134 (
 
     output reg[17:00] bus_a_out_l,
     output reg[1:0] bus_c_out_l,
-    output reg[15:00] bus_d_out_l,
+    output[15:00] bus_d_out_l,
     output reg bus_init_out_l,
     output reg bus_msyn_out_l,
     output reg bus_ssyn_out_l,
@@ -258,6 +258,10 @@ module pdp1134 (
 
     wire[31:00] multstep = { 1'b0, product[31:16] + (srcval[00] ? dstval : 16'b0), product[15:01] };
 
+    // unibus data output
+    reg[15:00] cer_d_out_l, cpu_d_out_l, gpr_d_out_l, mmr_d_out_l, mmv_d_out_l, psw_d_out_l;
+    assign bus_d_out_l = cer_d_out_l & cpu_d_out_l & gpr_d_out_l & mmr_d_out_l & mmv_d_out_l & psw_d_out_l;
+
     // index into mmupars,mmupdrs for unibus access
     //  usr registers: 7776xx
     //  knl registers: 7723xx
@@ -288,7 +292,6 @@ module pdp1134 (
         if (RESET | (~ bus_init_in_l & (state != S_EXRESET))) begin
             bus_a_out_l    <= 18'o777777;
             bus_c_out_l    <= 3;
-            bus_d_out_l    <= 16'o177777;
             bus_msyn_out_l <= 1;
             bus_ssyn_out_l <= 1;
             bus_bg_h       <= 0;
@@ -296,10 +299,18 @@ module pdp1134 (
             bus_npg_h      <= 0;
             halt_grant_h   <= 1;
 
+            cer_d_out_l    <= 16'o177777;
+            cpu_d_out_l    <= 16'o177777;
+            gpr_d_out_l    <= 16'o177777;
+            mmr_d_out_l    <= 16'o177777;
+            mmv_d_out_l    <= 16'o177777;
+            psw_d_out_l    <= 16'o177777;
+
             cpuerr     <= 0;
             getopaddr  <= 0;
             getopbusy  <= 0;
             haltck     <= 1;
+            mmr0       <= 0;
             psw        <= 0;
             reading    <= 0;
             resdelay   <= 0;
@@ -1245,8 +1256,8 @@ module pdp1134 (
                         bus_c_out_l[1] <=    reading;
                         bus_c_out_l[0] <= ~ (reading ? writing : membyte);
                         if (~ reading) begin
-                            bus_d_out_l[15:08] <= ~ (physaddr[00] ? writedata[07:00] : writedata[15:08]);
-                            bus_d_out_l[07:00] <= ~ (physaddr[00] ? writedata[15:08] : writedata[07:00]);
+                            cpu_d_out_l[15:08] <= ~ (physaddr[00] ? writedata[07:00] : writedata[15:08]);
+                            cpu_d_out_l[07:00] <= ~ (physaddr[00] ? writedata[15:08] : writedata[07:00]);
                         end
                         rwstate        <= 3;
                         rwdelay        <= 0;
@@ -1275,7 +1286,7 @@ module pdp1134 (
                         $display ("T_CPUERR: ssyn timeout %06o state %02d", physaddr, state);
                         bus_a_out_l    <= 18'o777777;
                         bus_c_out_l    <= 3;
-                        bus_d_out_l    <= 16'o177777;
+                        cpu_d_out_l    <= 16'o177777;
                         bus_msyn_out_l <= 1;
                         cpuerr[04]     <= 1;
                         state          <= S_ENDINST;
@@ -1312,7 +1323,7 @@ module pdp1134 (
                         if (~ writing) begin
                             bus_a_out_l <= 18'o777777;
                             bus_c_out_l <= 3;
-                            bus_d_out_l <= 16'o177777;
+                            cpu_d_out_l <= 16'o177777;
                         end
                         rwstate <= 0;
                     end
@@ -1320,32 +1331,35 @@ module pdp1134 (
             endcase
         end
 
-        // kernel descriptor registers 772300..16
-        // kernel address registers 772340..56
-        // user descriptor registers 777600..16
-        // user address registers 777640..56
-        if (((~ bus_a_in_l & 18'o777736) == 18'o772300) | ((~ bus_a_in_l & 18'o777736) == 18'o777600)) begin
+        // kernel descriptor registers 772300..16  111 111 010 011 00_ __0
+        // kernel address registers    772340..56  111 111 010 011 10_ __0
+        // user descriptor registers   777600..16  111 111 111 110 00_ __0
+        // user address registers      777640..56  111 111 111 110 10_ __0
+        if (((~ bus_a_in_l & 18'o777720) == 18'o772300) | ((~ bus_a_in_l & 18'o777720) == 18'o777600)) begin
             if (bus_msyn_in_l) begin
-                bus_d_out_l    <= 16'o177777;
+                mmv_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;
             end else begin
                 if (bus_c_in_l[1]) begin
+                    // read register contents
                     if (bus_a_in_l[05]) begin
-                        bus_d_out_l <= ~ mmupdrs[mmuprbi];
+                        mmv_d_out_l <= ~ mmupdrs[mmuprbi] | ~ 16'o077516;
                     end else begin
-                        bus_d_out_l <= ~ mmupars[mmuprbi];
+                        mmv_d_out_l <= ~ mmupars[mmuprbi] | ~ 16'o007777;
                     end
                 end else begin
+                    // write register contents
+                    mmupdrs[mmuprbi][06]            <= 0;   // always clear W bit
                     if (bus_c_in_l[0] | ~ bus_a_in_l[00]) begin
                         if (bus_a_in_l[05]) begin
-                            mmupdrs[mmuprbi][15:08] <= ~ bus_d_in_l[15:08] & 8'o177;
+                            mmupdrs[mmuprbi][14:08] <= ~ bus_d_in_l[14:08];
                         end else begin
-                            mmupars[mmuprbi][15:08] <= ~ bus_d_in_l[15:08];
+                            mmupars[mmuprbi][11:08] <= ~ bus_d_in_l[11:08];
                         end
                     end
                     if (bus_c_in_l[0] |   bus_a_in_l[00]) begin
                         if (bus_a_in_l[05]) begin
-                            mmupdrs[mmuprbi][07:00] <= ~ bus_d_in_l[07:00] & 8'o317;
+                            mmupdrs[mmuprbi][03:01] <= ~ bus_d_in_l[03:01];
                         end else begin
                             mmupars[mmuprbi][07:00] <= ~ bus_d_in_l[07:00];
                         end
@@ -1356,23 +1370,23 @@ module pdp1134 (
         end
 
         // mmr0..mmr2 register access via 777572..777576
-        if (((bus_a_in_l >> 3) == (~ 18'o77757 >> 3)) & (bus_a_in_l[02:01] != 3)) begin
+        if ((~ bus_a_in_l & 18'o777772) == 18'o777572) begin
             if (bus_msyn_in_l) begin
-                bus_d_out_l    <= 16'o177777;
+                mmr_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;
             end else begin
                 if (bus_c_in_l[1]) begin
-                    case (bus_a_in_l[02:01])
-                        2: bus_d_out_l <= ~ mmr0;
-                        0: bus_d_out_l <= ~ mmr2;
+                    case (bus_a_in_l[02])
+                        1: mmr_d_out_l <= ~ mmr0;
+                        0: mmr_d_out_l <= ~ mmr2;
                     endcase
                 end else begin
-                    if (bus_c_in_l[0] | ~ bus_a_in_l[00]) case (bus_a_in_l[02:01])
-                        2: mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
+                    if (bus_c_in_l[0] | ~ bus_a_in_l[00]) case (bus_a_in_l[02])
+                        1: mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
                         0: mmr2[15:08] <= ~ bus_d_in_l[15:08];
                     endcase
-                    if (bus_c_in_l[0] |   bus_a_in_l[00]) case (bus_a_in_l[02:01])
-                        2: mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
+                    if (bus_c_in_l[0] |   bus_a_in_l[00]) case (bus_a_in_l[02])
+                        1: mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
                         0: mmr2[07:00] <= ~ bus_d_in_l[07:00];
                     endcase
                 end
@@ -1383,11 +1397,11 @@ module pdp1134 (
         // register access via 7777rr
         if (halt_grant_h & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
             if (bus_msyn_in_l) begin
-                bus_d_out_l    <= 16'o177777;
+                gpr_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;
             end else begin
                 if (bus_c_in_l[1]) begin
-                    bus_d_out_l <= ~ gprs[~bus_a_in_l[3:0]];
+                    gpr_d_out_l <= ~ gprs[~bus_a_in_l[3:0]];
                 end else begin
                     gprs[~bus_a_in_l[3:0]] <= ~ bus_d_in_l;
                 end
@@ -1402,11 +1416,11 @@ module pdp1134 (
         //  [03] = yellow stack
         if ((bus_a_in_l >> 1) == (~ 18'o777766 >> 1)) begin
             if (bus_msyn_in_l) begin
-                bus_d_out_l    <= 16'o177777;
+                cer_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;
             end else begin
                 if (bus_c_in_l[1]) begin
-                    bus_d_out_l <= ~ cpuerr;
+                    cer_d_out_l <= ~ cpuerr;
                 end else begin
                     if (bus_c_in_l[0] | bus_a_in_l[00]) cpuerr[07:00] <= ~ bus_d_in_l[07:00] & 8'o330;
                 end
@@ -1417,11 +1431,11 @@ module pdp1134 (
         // processor status word access via 777776
         if ((bus_a_in_l >> 1) == (~ 18'o777776 >> 1)) begin
             if (bus_msyn_in_l) begin
-                bus_d_out_l    <= 16'o177777;
+                psw_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;
             end else begin
                 if (bus_c_in_l[1]) begin
-                    bus_d_out_l <= ~ psw;
+                    psw_d_out_l <= ~ psw;
                 end else begin
                     if (bus_c_in_l[0] | ~ bus_a_in_l[00]) psw[15:08] <= ~ bus_d_in_l[15:08];
                     if (bus_c_in_l[0] |   bus_a_in_l[00]) psw[07:00] <= ~ bus_d_in_l[07:00];
