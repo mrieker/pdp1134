@@ -24,16 +24,14 @@ module pdp1134 (
     input CLOCK,
     input RESET,
 
-    input bus_ac_lo_l,
-    input bus_bbsy_l,
-    input[7:4] bus_br_l,
-    input bus_dc_lo_l,
-    input bus_intr_l,
-    input bus_npr_l,
-    input bus_pa_l,
-    input bus_pb_l,
-    input bus_sack_l,
-    input halt_rqst_l,
+    input bus_ac_lo_in_l,
+    input bus_bbsy_in_l,
+    input[7:4] bus_br_in_l,
+    input bus_dc_lo_in_l,
+    input bus_intr_in_l,
+    input bus_npr_in_l,
+    input bus_sack_in_l,
+    input halt_rqst_in_l,
 
     input[17:00] bus_a_in_l,
     input[1:0] bus_c_in_l,
@@ -45,13 +43,14 @@ module pdp1134 (
     output reg[17:00] bus_a_out_l,
     output reg[1:0] bus_c_out_l,
     output[15:00] bus_d_out_l,
+    output reg bus_bbsy_out_l,
     output reg bus_init_out_l,
     output reg bus_msyn_out_l,
     output reg bus_ssyn_out_l,
 
-    output reg[7:4] bus_bg_h,
-    output reg bus_npg_h,
-    output reg halt_grant_h
+    output reg[7:4] bus_bg_out_h,
+    output reg bus_npg_out_h,
+    output reg halt_grant_out_h
 
     ,output reg[5:0] state
     ,output [15:00] r0, r1, r2, r3, r4, r5, r6, r7, ps, r16
@@ -230,10 +229,10 @@ module pdp1134 (
     wire[15:00] getopinc = (byteinstr & ~ getopmode[3] & (getopmode[2:1] != 3)) ? 1 : 2;
     wire[3:0]   getgprx  = gprx (psw[15:14], getopmode[2:0]);
 
-    wire intrqst = (~ bus_br_l[7] & (psw[07:05] < 7)) |
-                   (~ bus_br_l[6] & (psw[07:05] < 6)) |
-                   (~ bus_br_l[5] & (psw[07:05] < 5)) |
-                   (~ bus_br_l[4] & (psw[07:05] < 4));
+    wire intrqst = (~ bus_br_in_l[7] & (psw[07:05] < 7)) |
+                   (~ bus_br_in_l[6] & (psw[07:05] < 6)) |
+                   (~ bus_br_in_l[5] & (psw[07:05] < 5)) |
+                   (~ bus_br_in_l[4] & (psw[07:05] < 4));
 
     reg[15:00] mmupars[15:00];
     reg[15:00] mmupdrs[15:00];
@@ -293,35 +292,36 @@ module pdp1134 (
     // processor main loop
     always @(posedge CLOCK) begin
         if (RESET | (~ bus_init_in_l & (state != S_EXRESET))) begin
-            bus_a_out_l    <= 18'o777777;
-            bus_c_out_l    <= 3;
-            bus_msyn_out_l <= 1;
-            bus_ssyn_out_l <= 1;
-            bus_bg_h       <= 0;
-            bus_init_out_l <= 1;
-            bus_npg_h      <= 0;
-            halt_grant_h   <= 1;
+            bus_a_out_l      <= 18'o777777;
+            bus_c_out_l      <= 3;
+            bus_msyn_out_l   <= 1;
+            bus_ssyn_out_l   <= 1;
+            bus_bg_out_h     <= 0;
+            bus_bbsy_out_l   <= 1;
+            bus_init_out_l   <= 1;
+            bus_npg_out_h    <= 0;
+            halt_grant_out_h <= 1;
 
-            cer_d_out_l    <= 16'o177777;
-            cpu_d_out_l    <= 16'o177777;
-            gpr_d_out_l    <= 16'o177777;
-            mmr_d_out_l    <= 16'o177777;
-            mmv_d_out_l    <= 16'o177777;
-            psw_d_out_l    <= 16'o177777;
+            cer_d_out_l <= 16'o177777;
+            cpu_d_out_l <= 16'o177777;
+            gpr_d_out_l <= 16'o177777;
+            mmr_d_out_l <= 16'o177777;
+            mmv_d_out_l <= 16'o177777;
+            psw_d_out_l <= 16'o177777;
 
-            cpuerr     <= 0;
-            getopaddr  <= 0;
-            haltck     <= 1;
-            memfunc    <= 0;
-            mmr0       <= 0;
-            psw        <= 0;
-            resdelay   <= 0;
-            rwstate    <= 0;
-            state      <= S_HALT;
-            traceck    <= 1;
-            trapping   <= 0;
-            trapvec    <= 0;
-            yellowck   <= 0;
+            cpuerr      <= 0;
+            getopaddr   <= 0;
+            haltck      <= 1;
+            memfunc     <= 0;
+            mmr0        <= 0;
+            psw         <= 0;
+            resdelay    <= 0;
+            rwstate     <= 0;
+            state       <= S_HALT;
+            traceck     <= 1;
+            trapping    <= 0;
+            trapvec     <= 0;
+            yellowck    <= 0;
         end
 
         //////////////////////////////////
@@ -424,8 +424,9 @@ module pdp1134 (
 
                 // hold off if SSYN,BBSY (still busy from an old DMA)
                 2: begin
-                    if (bus_ssyn_in_l & bus_bbsy_l) begin
+                    if (bus_ssyn_in_l & bus_bbsy_in_l) begin
                         bus_a_out_l    <= ~ physaddr;
+                        bus_bbsy_out_l <= 0;
                         bus_c_out_l[1] <= ~  (memfunc == MF_WR);
                         bus_c_out_l[0] <= ~ ((memfunc == MF_WR) ? membyte : (memfunc == MF_RM));
                         if (memfunc == MF_WR) begin
@@ -458,6 +459,7 @@ module pdp1134 (
                     end else if (rwdelay == 1000) begin
                         $display ("T_CPUERR: ssyn timeout %06o state %02d", physaddr, state);
                         bus_a_out_l    <= 18'o777777;
+                        bus_bbsy_out_l <= 1;
                         bus_c_out_l    <= 3;
                         cpu_d_out_l    <= 16'o177777;
                         bus_msyn_out_l <= 1;
@@ -491,11 +493,12 @@ module pdp1134 (
                     if (rwdelay != 8) begin
                         rwdelay <= rwdelay + 1;
                     end else if (bus_ssyn_in_l) begin
-                        bus_a_out_l <= 18'o777777;
-                        bus_c_out_l <= 3;
-                        cpu_d_out_l <= 16'o177777;
-                        memfunc     <= 0;
-                        rwstate     <= 0;
+                        bus_a_out_l    <= 18'o777777;
+                        bus_bbsy_out_l <= 1;
+                        bus_c_out_l    <= 3;
+                        cpu_d_out_l    <= 16'o177777;
+                        memfunc        <= 0;
+                        rwstate        <= 0;
                     end
                 end
             endcase
@@ -608,20 +611,20 @@ module pdp1134 (
         else begin
             case (state)
 
-                // assert halt_grant_h to let front panel know we are halted
-                // wait for halt_rqst_l asserted if not already
+                // assert halt_grant_out_h to let front panel know we are halted
+                // wait for halt_rqst_in_l asserted if not already
                 // ...so we know front panel knows we are halted
                 S_HALT: begin
-                    halt_grant_h <= 1;
-                    if (~ halt_rqst_l) begin
+                    halt_grant_out_h <= 1;
+                    if (~ halt_rqst_in_l) begin
                         state <= S_HALT2;
                     end
                 end
 
-                // wait for front panel to negate halt_rqst_l
+                // wait for front panel to negate halt_rqst_in_l
                 S_HALT2: begin
-                    if (halt_rqst_l) begin
-                        halt_grant_h <= 0;
+                    if (halt_rqst_in_l) begin
+                        halt_grant_out_h <= 0;
                         haltck <= 0;
                         state  <= S_ENDINST;
                     end
@@ -693,7 +696,7 @@ module pdp1134 (
 
                 // wait for interrupt
                 S_EXWAIT: begin
-                    if (psw[4] | ~ halt_rqst_l | intrqst) begin
+                    if (psw[4] | ~ halt_rqst_in_l | intrqst) begin
                         state <= S_ENDINST;
                     end
                 end
@@ -1178,27 +1181,27 @@ module pdp1134 (
 
                     // check halt switch
                     // suppressed first cycle after continuing from halt for single stepping
-                    else if (haltck & ~ halt_rqst_l) begin
+                    else if (haltck & ~ halt_rqst_in_l) begin
                         state <= S_HALT;
                     end
 
                     // check dma
-                    else if (bus_sack_l & ~ bus_npr_l) begin
+                    else if (bus_sack_in_l & ~ bus_npr_in_l) begin
                         state <= S_NPG;
                     end
 
                     // check interrupts
-                    else if (bus_sack_l & ~ bus_br_l[7] & (psw[7:5] < 7)) begin
-                        bus_bg_h[7] <= 1;
+                    else if (bus_sack_in_l & ~ bus_br_in_l[7] & (psw[7:5] < 7)) begin
+                        bus_bg_out_h[7] <= 1;
                         state <= S_INTR;
-                    end else if (bus_sack_l & ~ bus_br_l[6] & (psw[7:5] < 6)) begin
-                        bus_bg_h[6] <= 1;
+                    end else if (bus_sack_in_l & ~ bus_br_in_l[6] & (psw[7:5] < 6)) begin
+                        bus_bg_out_h[6] <= 1;
                         state <= S_INTR;
-                    end else if (bus_sack_l & ~ bus_br_l[5] & (psw[7:5] < 5)) begin
-                        bus_bg_h[5] <= 1;
+                    end else if (bus_sack_in_l & ~ bus_br_in_l[5] & (psw[7:5] < 5)) begin
+                        bus_bg_out_h[5] <= 1;
                         state <= S_INTR;
-                    end else if (bus_sack_l & ~ bus_br_l[4] & (psw[7:5] < 4)) begin
-                        bus_bg_h[4] <= 1;
+                    end else if (bus_sack_in_l & ~ bus_br_in_l[4] & (psw[7:5] < 4)) begin
+                        bus_bg_out_h[4] <= 1;
                         state <= S_INTR;
                     end
 
@@ -1220,8 +1223,8 @@ module pdp1134 (
 
                 // dma requested, stick around until dma finished
                 S_NPG: begin
-                    bus_npg_h <= ~ bus_npr_l;
-                    if (bus_bbsy_l & bus_npr_l & bus_sack_l) begin
+                    bus_npg_out_h <= ~ bus_npr_in_l;
+                    if (bus_bbsy_in_l & bus_npr_in_l & bus_sack_in_l) begin
                         state <= S_ENDINST;
                     end
                 end
@@ -1229,8 +1232,8 @@ module pdp1134 (
                 // something is interrupting, grant has been sent
                 // wait for select acknowledge
                 S_INTR: begin
-                    if (~ bus_sack_l) begin
-                        bus_bg_h  <= 0;
+                    if (~ bus_sack_in_l) begin
+                        bus_bg_out_h  <= 0;
                         intrdelay <= 0;
                         state     <= S_INTR2;
                     end
@@ -1239,7 +1242,7 @@ module pdp1134 (
                 // wait for device to send interrupt vector
                 // then wait 80nS before strobing in the vector
                 S_INTR2: begin
-                    if (~ bus_intr_l) begin
+                    if (~ bus_intr_in_l) begin
                         if (intrdelay != 8) intrdelay <= intrdelay + 1;
                         else begin
                             bus_ssyn_out_l <= 0;
@@ -1251,9 +1254,9 @@ module pdp1134 (
 
                 // wait for interrupting device to release bus
                 S_INTR3: begin
-                    if (bus_intr_l) begin
+                    if (bus_intr_in_l) begin
                         bus_ssyn_out_l <= 1;
-                        if (bus_bbsy_l) begin
+                        if (bus_bbsy_in_l) begin
                             state <= S_ENDINST;
                         end
                     end
@@ -1396,7 +1399,7 @@ module pdp1134 (
         end
 
         // register access via 7777rr
-        if (halt_grant_h & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
+        if (halt_grant_out_h & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
             if (bus_msyn_in_l) begin
                 gpr_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;

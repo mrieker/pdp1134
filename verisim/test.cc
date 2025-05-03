@@ -187,16 +187,14 @@ int main ()
 {
     setlinebuf (stdout);
 
-    vp.bus_ac_lo_l   = 1;
-    vp.bus_bbsy_l    = 1;
-    vp.bus_br_l      = 15;
-    vp.bus_dc_lo_l   = 1;
-    vp.bus_intr_l    = 1;
-    vp.bus_npr_l     = 1;
-    vp.bus_pa_l      = 1;
-    vp.bus_pb_l      = 1;
-    vp.bus_sack_l    = 1;
-    vp.halt_rqst_l   = 1;
+    vp.bus_ac_lo_in_l   = 1;
+    vp.bus_bbsy_in_l    = 1;
+    vp.bus_br_in_l      = 15;
+    vp.bus_dc_lo_in_l   = 1;
+    vp.bus_intr_in_l    = 1;
+    vp.bus_npr_in_l     = 1;
+    vp.bus_sack_in_l    = 1;
+    vp.halt_rqst_in_l   = 1;
 
     vp.bus_a_in_l    = 0777777;
     vp.bus_c_in_l    = 3;
@@ -243,7 +241,7 @@ int main ()
             // maybe request interrupt
             uint16_t irq = randbits (8);
             if (irq < 16) {
-                vp.bus_br_l = irq;
+                vp.bus_br_in_l = irq;
             }
         }
 
@@ -260,15 +258,15 @@ int main ()
                     if (! (psw & 0160000)) {
                         printf ("%12llu0 : HALT\n", cyclectr);
                         sendfetch (0000000);
-                        for (int i = 0; ! vp.halt_grant_h; i ++) {
+                        for (int i = 0; ! vp.halt_grant_out_h; i ++) {
                             if (i > 200) fatal ("did not halt\n");
                             kerchunk ();
                         }
-                        vp.halt_rqst_l = 0;
+                        vp.halt_rqst_in_l = 0;
                         kerchunk ();
                         kerchunk ();
-                        vp.halt_rqst_l = 1;
-                        for (int i = 0; vp.halt_grant_h; i ++) {
+                        vp.halt_rqst_in_l = 1;
+                        for (int i = 0; vp.halt_grant_out_h; i ++) {
                             if (i > 200) fatal ("halt grant stuck on\n");
                             kerchunk ();
                         }
@@ -926,10 +924,10 @@ int main ()
 
             // end-of-instruction traps
             while (true) {
-                     if (((psw & 0340) < 0340) && ! (vp.bus_br_l & 010)) dointreq (7);
-                else if (((psw & 0340) < 0300) && ! (vp.bus_br_l & 004)) dointreq (6);
-                else if (((psw & 0340) < 0240) && ! (vp.bus_br_l & 002)) dointreq (5);
-                else if (((psw & 0340) < 0200) && ! (vp.bus_br_l & 001)) dointreq (4);
+                     if (((psw & 0340) < 0340) && ! (vp.bus_br_in_l & 010)) dointreq (7);
+                else if (((psw & 0340) < 0300) && ! (vp.bus_br_in_l & 004)) dointreq (6);
+                else if (((psw & 0340) < 0240) && ! (vp.bus_br_in_l & 002)) dointreq (5);
+                else if (((psw & 0340) < 0200) && ! (vp.bus_br_in_l & 001)) dointreq (4);
                 else if (! didrtt && (psw & 020)) trapthrough (0014);
                 else break;
             }
@@ -1066,7 +1064,7 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
 void dointreq (uint16_t brlev)
 {
     printf ("dointreq: br level %o\n", brlev);
-    for (int i = 0; ! (vp.bus_bg_h & (1 << (brlev - 4))); i ++) {
+    for (int i = 0; ! (vp.bus_bg_out_h & (1 << (brlev - 4))); i ++) {
         if (i > 200) fatal ("dointreq: did not see BG%o\n", brlev);
         kerchunk ();
     }
@@ -1075,22 +1073,22 @@ void dointreq (uint16_t brlev)
     do vector = randbits (4) * 4;
     while (vector == 0);
 
-    vp.bus_bbsy_l    = 0;
-    vp.bus_br_l     |= 1 << (brlev - 4);
+    vp.bus_bbsy_in_l    = 0;
+    vp.bus_br_in_l     |= 1 << (brlev - 4);
     vp.bus_d_in_l    = ~ vector;
-    vp.bus_intr_l    = 0;
+    vp.bus_intr_in_l    = 0;
     vp.bus_msyn_in_l = 0;
-    vp.bus_sack_l    = 0;
+    vp.bus_sack_in_l    = 0;
     for (int i = 0; vp.bus_ssyn_out_l; i ++) {
         if (i > 200) fatal ("dointreq: did not see SSYN\n");
         kerchunk ();
     }
 
-    vp.bus_bbsy_l    = 1;
+    vp.bus_bbsy_in_l    = 1;
     vp.bus_d_in_l    = 0177777;
-    vp.bus_intr_l    = 1;
+    vp.bus_intr_in_l    = 1;
     vp.bus_msyn_in_l = 1;
-    vp.bus_sack_l    = 1;
+    vp.bus_sack_in_l    = 1;
     for (int i = 0; ! vp.bus_ssyn_out_l; i ++) {
         if (i > 200) fatal ("dointreq: SSYN stuck on\n");
         kerchunk ();
@@ -1138,7 +1136,7 @@ dotrap:;
             goto dotrap;
         }
 
-        for (int i = 0; ! vp.halt_grant_h; i ++) {
+        for (int i = 0; ! vp.halt_grant_out_h; i ++) {
             if (i > 200) fatal ("trapthrough: failed to halt for double trap\n");
             kerchunk ();
         }
@@ -1150,14 +1148,14 @@ dotrap:;
 void restart ()
 {
     printf ("restart: apply reset pulse\n");
-    vp.halt_rqst_l = 0;
+    vp.halt_rqst_in_l = 0;
     vp.RESET = 1;
     kerchunk ();
     kerchunk ();
     vp.RESET = 0;
     kerchunk ();
     kerchunk ();
-    if (! vp.halt_grant_h) fatal ("restart: halt not granted\n");
+    if (! vp.halt_grant_out_h) fatal ("restart: halt not granted\n");
 
     mmr0 = 0;
     psw  = 0;
@@ -1189,8 +1187,8 @@ void restart ()
     }
 
     printf ("restart: negating halt_rqst_l\n");
-    vp.halt_rqst_l = 1;
-    for (int i = 0; vp.halt_grant_h; i ++) {
+    vp.halt_rqst_in_l = 1;
+    for (int i = 0; vp.halt_grant_out_h; i ++) {
         if (i > 200) fatal ("restart: halt grant stuck on\n");
         kerchunk ();
     }
@@ -1497,20 +1495,20 @@ void readword (uint32_t physaddr, uint16_t data)
     printf ("- readword %06o %06o\n", physaddr, data);
 
     // tell pdp we want to do dma cycle
-    vp.bus_npr_l = 0;
+    vp.bus_npr_in_l = 0;
 
     // wait for pdp to say it's ok
-    for (int i = 0; ! vp.bus_npg_h; i ++) {
+    for (int i = 0; ! vp.bus_npg_out_h; i ++) {
         if (i > 200) fatal ("readword: vp.bus_NPG did not assert\n");
         kerchunk ();
     }
 
     // acknowledge selection; drop request; output address and function
-    vp.bus_bbsy_l = 0;
+    vp.bus_bbsy_in_l = 0;
     vp.bus_a_in_l = physaddr ^ 0777777;
     vp.bus_c_in_l = 3;
-    vp.bus_npr_l  = 1;
-    vp.bus_sack_l = 0;
+    vp.bus_npr_in_l  = 1;
+    vp.bus_sack_in_l = 0;
 
     // let address and function soak into bus and decoders
     for (int i = 0; i < 15; i ++) kerchunk ();
@@ -1532,7 +1530,7 @@ void readword (uint32_t physaddr, uint16_t data)
 
     // tell slave we got the data
     vp.bus_msyn_in_l = 1;
-    vp.bus_sack_l = 1;
+    vp.bus_sack_in_l = 1;
 
     // let msyn soak into bus
     for (int i = 0; i < 8; i ++) kerchunk ();
@@ -1545,32 +1543,32 @@ void readword (uint32_t physaddr, uint16_t data)
 
     // drop everything else
     vp.bus_a_in_l = 0777777;
-    vp.bus_bbsy_l = 1;
+    vp.bus_bbsy_in_l = 1;
 }
 
 void writeword (uint32_t physaddr, uint16_t data)
 {
     printf ("- writeword %06o %06o\n", physaddr, data);
 
-    if (! vp.halt_grant_h) {
+    if (! vp.halt_grant_out_h) {
 
         // tell pdp we want to do dma cycle
-        vp.bus_npr_l = 0;
+        vp.bus_npr_in_l = 0;
 
         // wait for pdp to say it's ok
-        for (int i = 0; ! vp.bus_npg_h; i ++) {
+        for (int i = 0; ! vp.bus_npg_out_h; i ++) {
             if (i > 200) fatal ("writeword: vp.bus_NPG did not assert\n");
             kerchunk ();
         }
     }
 
     // acknowledge selection; drop request; output address, data and function
-    vp.bus_bbsy_l = 0;
+    vp.bus_bbsy_in_l = 0;
     vp.bus_a_in_l = physaddr ^ 0777777;
     vp.bus_c_in_l = 1;
     vp.bus_d_in_l = data ^ 0177777;
-    vp.bus_npr_l  = 1;
-    vp.bus_sack_l = 0;
+    vp.bus_npr_in_l  = 1;
+    vp.bus_sack_in_l = 0;
 
     // let address and function soak into bus and decoders
     for (int i = 0; i < 15; i ++) kerchunk ();
@@ -1586,7 +1584,7 @@ void writeword (uint32_t physaddr, uint16_t data)
 
     // tell slave we are removing address and data
     vp.bus_msyn_in_l = 1;
-    vp.bus_sack_l = 1;
+    vp.bus_sack_in_l = 1;
 
     // let msyn soak into bus
     for (int i = 0; i < 8; i ++) kerchunk ();
@@ -1601,7 +1599,7 @@ void writeword (uint32_t physaddr, uint16_t data)
     vp.bus_a_in_l = 0777777;
     vp.bus_c_in_l = 3;
     vp.bus_d_in_l = 0177777;
-    vp.bus_bbsy_l = 1;
+    vp.bus_bbsy_in_l = 1;
 }
 
 // call with clock still low and input signals just changed
@@ -1727,10 +1725,10 @@ void fatal (char const *fmt, ...)
 void dumpstate ()
 {
     printf ("%12llu0:  RESET=%o  state=%02d  R0=%06o R1=%06o R2=%06o R3=%06o R4=%06o R5=%06o R6=%06o R7=%06o PS=%06o R16=%06o\n"
-        "   bus_ac_lo_l=%o bus_bbsy_l=%o bus_br_l=%o%o%o%o bus_dc_lo_l=%o bus_intr_l=%o bus_npr_l=%o bus_pa_l=%o bus_pb_l=%o bus_sack_l=%o halt_rqst_l=%o\n"
+        "   bus_ac_lo_l=%o bus_bbsy_l=%o bus_br_l=%o%o%o%o bus_dc_lo_l=%o bus_intr_l=%o bus_npr_l=%o bus_sack_l=%o halt_rqst_l=%o\n"
         "   bus_a_in_l=%06o bus_c_in_l=%o%o bus_d_in_l=%06o bus_init_in_l=%o bus_msyn_in_l=%o bus_ssyn_in_l=%o\n"
-        "   bus_a_out_l=%06o bus_c_out_l=%o%o bus_d_out_l=%06o bus_init_out_l=%o bus_msyn_out_l=%o bus_ssyn_out_l=%o bus_bg_h=%o%o%o%o bus_npg_h=%o\n"
-        "   halt_grant_h=%o\n\n",
+        "   bus_a_out_l=%06o bus_c_out_l=%o%o bus_d_out_l=%06o bus_init_out_l=%o bus_msyn_out_l=%o bus_ssyn_out_l=%o bus_bg_out_h=%o%o%o%o bus_npg_out_h=%o\n"
+        "   halt_grant_out_h=%o\n\n",
 
                 cyclectr,
                 vp.RESET,
@@ -1746,16 +1744,14 @@ void dumpstate ()
                 vp.ps,
                 vp.r16,
 
-                vp.bus_ac_lo_l,
-                vp.bus_bbsy_l,
-                (vp.bus_br_l >> 3) & 1, (vp.bus_br_l >> 2) & 1, (vp.bus_br_l >> 1) & 1, (vp.bus_br_l >> 0) & 1,
-                vp.bus_dc_lo_l,
-                vp.bus_intr_l,
-                vp.bus_npr_l,
-                vp.bus_pa_l,
-                vp.bus_pb_l,
-                vp.bus_sack_l,
-                vp.halt_rqst_l,
+                vp.bus_ac_lo_in_l,
+                vp.bus_bbsy_in_l,
+                (vp.bus_br_in_l >> 3) & 1, (vp.bus_br_in_l >> 2) & 1, (vp.bus_br_in_l >> 1) & 1, (vp.bus_br_in_l >> 0) & 1,
+                vp.bus_dc_lo_in_l,
+                vp.bus_intr_in_l,
+                vp.bus_npr_in_l,
+                vp.bus_sack_in_l,
+                vp.halt_rqst_in_l,
 
                 vp.bus_a_in_l,
                 (vp.bus_c_in_l >> 1) & 1, (vp.bus_c_in_l >> 0) & 1,
@@ -1771,9 +1767,9 @@ void dumpstate ()
                 vp.bus_msyn_out_l,
                 vp.bus_ssyn_out_l,
 
-                (vp.bus_bg_h >> 3) & 1, (vp.bus_bg_h >> 2) & 1, (vp.bus_bg_h >> 1) & 1, (vp.bus_bg_h >> 0) & 1,
-                vp.bus_npg_h,
-                vp.halt_grant_h);
+                (vp.bus_bg_out_h >> 3) & 1, (vp.bus_bg_out_h >> 2) & 1, (vp.bus_bg_out_h >> 1) & 1, (vp.bus_bg_out_h >> 0) & 1,
+                vp.bus_npg_out_h,
+                vp.halt_grant_out_h);
 }
 
 // format the dd field to a string
