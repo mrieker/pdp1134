@@ -381,30 +381,33 @@ module pdp1134 (
                     // access codes 0,2 mean no access to the page
                     // also, we only do kernel and user modes
                     if (~ pdrentry[01] | (memmode == 1) | (memmode == 2)) begin
-                        mmr0[15]    <= 1;  // abort-non-resident
-                        mmr0[06:05] <= memmode;
-                        mmr0[04]    <= 0;
-                        mmr0[03:01] <= virtaddr[15:13];
-                        state       <= S_ENDINST;
-                        trapvec     <= T_MMUTRAP;
-                    end
-
-                    // access codes 1 means read-only access to the page
-                    else if (~ pdrentry[02] & ((memfunc == MF_RM) | (memfunc == MF_WR))) begin
-                        mmr0[13]    <= 1;  // abort-read-only
-                        mmr0[06:05] <= memmode;
-                        mmr0[04]    <= 0;
-                        mmr0[03:01] <= virtaddr[15:13];
+                        if (mmr0[15:13] == 0) begin
+                            mmr0[15]    <= 1;  // abort-non-resident
+                            mmr0[06:05] <= memmode;
+                            mmr0[03:01] <= virtaddr[15:13];
+                        end
                         state       <= S_ENDINST;
                         trapvec     <= T_MMUTRAP;
                     end
 
                     // check page length violation
                     else if (pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08])) begin
-                        mmr0[14]    <= 1;  // abort-page-length
-                        mmr0[06:05] <= memmode;
-                        mmr0[04]    <= 0;
-                        mmr0[03:01] <= virtaddr[15:13];
+                        if (mmr0[15:13] == 0) begin
+                            mmr0[14]    <= 1;  // abort-page-length
+                            mmr0[06:05] <= memmode;
+                            mmr0[03:01] <= virtaddr[15:13];
+                        end
+                        state       <= S_ENDINST;
+                        trapvec     <= T_MMUTRAP;
+                    end
+
+                    // access codes 1 means read-only access to the page
+                    else if (~ pdrentry[02] & ((memfunc == MF_RM) | (memfunc == MF_WR))) begin
+                        if (mmr0[15:13] == 0) begin
+                            mmr0[13]    <= 1;  // abort-read-only
+                            mmr0[06:05] <= memmode;
+                            mmr0[03:01] <= virtaddr[15:13];
+                        end
                         state       <= S_ENDINST;
                         trapvec     <= T_MMUTRAP;
                     end

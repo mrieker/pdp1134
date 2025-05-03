@@ -815,8 +815,9 @@ int main ()
                 }
 
                 // modify mmu register
+                // must be in kernel mode and PC must point to a usable address so we don't have to worry about faults
                 case 63: {
-                    if (((psw & 0140000) == 0) && (gprs[7] <= 0157770)) {
+                    if (((psw & 0140000) == 0) && (gprs[7] <= 0157777) && ((gprs[7] & 0017777) <= 0017370) && ((gprs[7] & 0017777) >= 0000200)) {
                         uint16_t n = randbits (6);
                         switch (n >> 4) {
 
@@ -857,7 +858,34 @@ int main ()
                             // verify descriptor register contents
                             case 1: {
                                 uint16_t regva = ((n & 8) ? 0177600 : 0172300) + (n & 7) * 2;
-                                vfyintreg (regva, pdrs[n&15]);
+                                // for pdrs[7] or half the time, just verify contents by reading and comparing
+                                if (((n & 15) == 7) || randbits (1)) {
+                                    vfyintreg (regva, pdrs[n&15]);
+                                }
+                                // otherwise, use 1 of 4 descriptors
+                                else {
+                                    static uint16_t const cannedpdrs[] = {
+                                        077406,     // full 4KW read/write access
+                                        077402,     // full 4KW read-only access
+                                        076006,     // missing highest 64W read/write
+                                        000416      // missing lowest 32W read/write
+                                    };
+                                    uint16_t oldpdr = pdrs[n&15];
+                                    uint16_t newpdr = cannedpdrs[randbits(2)];
+                                    uint16_t addend = newpdr - oldpdr;
+                                    printf ("%12llu0 : ADD #%06o,@#%06o\n", cyclectr, addend, regva);
+                                    sendfetch (062737);
+                                    sendword (gprs[7], addend, psw >> 14, false, "addto par value");
+                                    gprs[7] += 2;
+                                    sendword (gprs[7], regva, psw >> 14, false, "pdr address");
+                                    gprs[7] += 2;
+                                    monintrd (regva | 0760000, oldpdr, "old par contents");
+                                    monintwr (regva | 0760000, newpdr, "new par contents");
+                                    setpdrw ('Z', n & 15, 0);          // clear W bit upon writing descriptor register
+                                    if (mmr0 & 1) setpdrw ('Y', 7, 1); // set IO page W bit
+                                    psw = (psw & ~ 017) | ((newpdr & 0100000) ? 010 :0) | ((newpdr == 0) ? 004 : 0) | ((newpdr < oldpdr) ? 001 : 0);
+                                    pdrs[n&15] = newpdr;
+                                }
                                 break;
                             }
 
@@ -1044,7 +1072,7 @@ void dointreq (uint16_t brlev)
     }
 
     uint16_t vector;
-    do vector = randbits (6) * 4;
+    do vector = randbits (4) * 4;
     while (vector == 0);
 
     vp.bus_bbsy_l    = 0;
@@ -1086,7 +1114,6 @@ dotrap:;
         uint16_t newps = randbits (8) & 0357;       // no T bit
         if (randbits (3) == 0) {
             newps |= psw & 0140000;                 // sometimes trap to user mode
-            if (newps & 0140000) allowdouble = true;
         }
         newps |= ((newps | psw) >> 2) & 0030000;    // newps[prevmode] = newps[currmode] | oldps[currmode]
 
@@ -1094,6 +1121,8 @@ dotrap:;
 
         sendword (vector,     newpc,  0, false, "trap vec pc");
         sendword (vector | 2, newps,  0, false, "trap vec ps");
+
+        if (newps & 0140000) allowdouble = true;
 
         recvword (newsp - 2, psw,     newps >> 14, "push trap ps");
         recvword (newsp - 4, gprs[7], newps >> 14, "push trap pc");
@@ -1316,16 +1345,18 @@ uint32_t virt2phys (uint16_t virtaddr, bool wrt, uint16_t mode)
     uint32_t pa;
 
     if (mmr0 & 1) {
-        uint16_t i = ((mode & 1) << 3) | (virtaddr >> 13);                  // par/pdr index
-        uint16_t d = pdrs[i];                                               // descriptor
-        uint16_t a = 0;                                                     // aborts
-        if (! (d & 2)) a |= 1 << 15;                                        // no-access page check
-        if (d & 8) {
-            if (((virtaddr >> 6) & 0177) < ((d >> 8) & 0177)) a |= 1 << 14; // expand downward
-        } else {
-            if (((virtaddr >> 6) & 0177) > ((d >> 8) & 0177)) a |= 1 << 14; // expand upward
+        uint16_t i = ((mode & 1) << 3) | (virtaddr >> 13);                      // par/pdr index
+        uint16_t d = pdrs[i];                                                   // descriptor
+        uint16_t a = 0;                                                         // aborts
+        if (! (d & 2)) a |= 1 << 15;                                            // no-access page check
+        else {
+            if (d & 8) {
+                if (((virtaddr >> 6) & 0177) < ((d >> 8) & 0177)) a |= 1 << 14; // expand downward
+            } else {
+                if (((virtaddr >> 6) & 0177) > ((d >> 8) & 0177)) a |= 1 << 14; // expand upward
+            }
         }
-        if (wrt && ! (d & 4)) a |= 1 << 13;                                 // write-protect
+        if ((a == 0) && wrt && ! (d & 4)) a |= 1 << 13;                         // write-protect
         if (a != 0) {
             if ((mmr0 & 0160000) == 0) {
                 mmr0 = a | ((mode & 3) << 5) | ((virtaddr >> 13) << 1) | 1;
