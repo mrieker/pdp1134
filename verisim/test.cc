@@ -261,7 +261,7 @@ int main ()
                         printf ("%12llu0 : HALT\n", cyclectr);
                         sendfetch (0000000);
                         for (int i = 0; ! vp.halt_grant_h; i ++) {
-                            if (i > 5) fatal ("did not halt\n");
+                            if (i > 200) fatal ("did not halt\n");
                             kerchunk ();
                         }
                         vp.halt_rqst_l = 0;
@@ -269,7 +269,7 @@ int main ()
                         kerchunk ();
                         vp.halt_rqst_l = 1;
                         for (int i = 0; vp.halt_grant_h; i ++) {
-                            if (i > 5) fatal ("halt grant stuck on\n");
+                            if (i > 200) fatal ("halt grant stuck on\n");
                             kerchunk ();
                         }
                     }
@@ -1162,7 +1162,7 @@ void restart ()
     printf ("restart: negating halt_rqst_l\n");
     vp.halt_rqst_l = 1;
     for (int i = 0; vp.halt_grant_h; i ++) {
-        if (i > 5) fatal ("restart: halt grant stuck on\n");
+        if (i > 200) fatal ("restart: halt grant stuck on\n");
         kerchunk ();
     }
 }

@@ -225,8 +225,7 @@ module pdp1134 (
     wire[3:0] srcgprx   = gprx (psw[15:14], instreg[08:06]);
     wire[3:0] srcgprx1  = gprx (psw[15:14], instreg[08:06] | 1);
 
-    reg getopaddr;
-    reg[1:0] getopbusy;
+    reg[2:0] getopaddr;
     reg[5:0] getopmode;
     wire[15:00] getopinc = (byteinstr & ~ getopmode[3] & (getopmode[2:1] != 3)) ? 1 : 2;
     wire[3:0]   getgprx  = gprx (psw[15:14], getopmode[2:0]);
@@ -245,8 +244,8 @@ module pdp1134 (
 
     reg[15:00] parentry, pdrentry, readdata, virtaddr, writedata;
     reg[17:00] physaddr;
-    reg[1:0] memmode;
-    reg membyte, reading, signbit, writing;
+    reg[1:0] memfunc, memmode;
+    reg membyte, signbit;
     reg[2:0] rwstate;
     reg[9:0] rwdelay;
     reg[19:00] resdelay;
@@ -255,6 +254,10 @@ module pdp1134 (
     reg[3:0] counter;
     reg[3:0] intrdelay;
     reg haltck, traceck, trapping, yellowck;
+
+    localparam[1:0] MF_RD = 1;  // do a DATI cycle
+    localparam[1:0] MF_WR = 2;  // do a DATO[B] cycle
+    localparam[1:0] MF_RM = 3;  // do a DATIP cycle
 
     wire[31:00] multstep = { 1'b0, product[31:16] + (srcval[00] ? dstval : 16'b0), product[15:01] };
 
@@ -308,20 +311,298 @@ module pdp1134 (
 
             cpuerr     <= 0;
             getopaddr  <= 0;
-            getopbusy  <= 0;
             haltck     <= 1;
+            memfunc    <= 0;
             mmr0       <= 0;
             psw        <= 0;
-            reading    <= 0;
             resdelay   <= 0;
             rwstate    <= 0;
             state      <= S_HALT;
             traceck    <= 1;
             trapping   <= 0;
             trapvec    <= 0;
-            writing    <= 0;
             yellowck   <= 0;
-        end else begin
+        end
+
+        //////////////////////////////////
+        //  LOWEST LEVEL STATE MACHINE  //
+        //////////////////////////////////
+
+        // being active blocks higher level state machines
+
+        // read from or write to unibus
+        //  input:
+        //   membyte   = 0: word; 1: byte
+        //   memfunc   = MF_RD  do a DATI cycle
+        //               MF_WR  do a DATO[B] cycle
+        //               MF_RM  do a DATIP cycle
+        //   memmode   = processor mode for va->pa translation
+        //   virtaddr  = virtual address being accessed
+        //   writedata = write data for write cycles
+        //  output:
+        //   memfunc   = cleared to 0 when cycle complete
+        //   readdata  = read data for read cycles
+        //  other:
+        //   jams state = S_ENDINST with trapvec set if error
+        else if (memfunc != 0) begin
+            if (trapvec != 0) begin
+                memfunc <= 0;
+                rwstate <= 0;
+            end else case (rwstate)
+
+                // getting started
+                0: begin
+
+                    // check for accessing word at an odd address
+                    if (~ membyte & virtaddr[00]) begin
+                        $display ("T_CPUERR: odd address %06o state %02d", virtaddr, state);
+                        cpuerr[06] <= 1;
+                        state      <= S_ENDINST;
+                        trapvec    <= T_CPUERR;
+                    end
+
+                    // if mmu enabled, read page registers then check access
+                    else if (mmr0[00]) begin
+                        parentry   <= mmupars[mmuprxi];
+                        pdrentry   <= mmupdrs[mmuprxi];
+                        rwstate    <= 1;
+                    end
+
+                    // mmu disabled, compute physical address then start access
+                    else begin
+                        physaddr   <= { { 2 { virtaddr[15] & virtaddr[14] & virtaddr[13] } }, virtaddr };
+                        rwstate    <= 2;
+                    end
+                end
+
+                // check page access
+                1: begin
+
+                    // access codes 0,2 mean no access to the page
+                    // also, we only do kernel and user modes
+                    if (~ pdrentry[01] | (memmode == 1) | (memmode == 2)) begin
+                        mmr0[15]    <= 1;  // abort-non-resident
+                        mmr0[06:05] <= memmode;
+                        mmr0[04]    <= 0;
+                        mmr0[03:01] <= virtaddr[15:13];
+                        state       <= S_ENDINST;
+                        trapvec     <= T_MMUTRAP;
+                    end
+
+                    // access codes 1 means read-only access to the page
+                    else if (~ pdrentry[02] & ((memfunc == MF_RM) | (memfunc == MF_WR))) begin
+                        mmr0[13]    <= 1;  // abort-read-only
+                        mmr0[06:05] <= memmode;
+                        mmr0[04]    <= 0;
+                        mmr0[03:01] <= virtaddr[15:13];
+                        state       <= S_ENDINST;
+                        trapvec     <= T_MMUTRAP;
+                    end
+
+                    // check page length violation
+                    else if (pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08])) begin
+                        mmr0[14]    <= 1;  // abort-page-length
+                        mmr0[06:05] <= memmode;
+                        mmr0[04]    <= 0;
+                        mmr0[03:01] <= virtaddr[15:13];
+                        state       <= S_ENDINST;
+                        trapvec     <= T_MMUTRAP;
+                    end
+
+                    // mmu allows access
+                    else begin
+                        rwstate <= 2;               // continue on doing memory access
+                        if ((memfunc == MF_RM) | (memfunc == MF_WR)) mmupdrs[mmuprxi][06] <= 1;
+                    end
+
+                    // compute physical address
+                    physaddr <= { parentry[11:00] + { 5'b0, virtaddr[12:06] }, virtaddr[05:00] };
+                end
+
+                // hold off if SSYN,BBSY (still busy from an old DMA)
+                2: begin
+                    if (bus_ssyn_in_l & bus_bbsy_l) begin
+                        bus_a_out_l    <= ~ physaddr;
+                        bus_c_out_l[1] <= ~  (memfunc == MF_WR);
+                        bus_c_out_l[0] <= ~ ((memfunc == MF_WR) ? membyte : (memfunc == MF_RM));
+                        if (memfunc == MF_WR) begin
+                            cpu_d_out_l[15:08] <= ~ (physaddr[00] ? writedata[07:00] : writedata[15:08]);
+                            cpu_d_out_l[07:00] <= ~ (physaddr[00] ? writedata[15:08] : writedata[07:00]);
+                        end
+                        rwstate        <= 3;
+                        rwdelay        <= 0;
+                    end
+                end
+
+                // give 150nS for signals to flow out the bus and be decoded
+                3: begin
+                    if (rwdelay == 15) rwstate <= 4;
+                        else rwdelay <= rwdelay + 1;
+                end
+
+                // assert MSYN to say it's all valid now
+                4: begin
+                    bus_msyn_out_l <= 0;
+                    rwdelay        <= 0;
+                    rwstate        <= 5;
+                end
+
+                // wait up to 10uS for SSYN meaning the slave did it
+                5: begin
+                    if (~ bus_ssyn_in_l) begin
+                        rwdelay        <= 0;
+                        rwstate        <= 6;
+                    end else if (rwdelay == 1000) begin
+                        $display ("T_CPUERR: ssyn timeout %06o state %02d", physaddr, state);
+                        bus_a_out_l    <= 18'o777777;
+                        bus_c_out_l    <= 3;
+                        cpu_d_out_l    <= 16'o177777;
+                        bus_msyn_out_l <= 1;
+                        cpuerr[04]     <= 1;
+                        state          <= S_ENDINST;
+                        trapvec        <= T_CPUERR;
+                    end else begin
+                        rwdelay        <= rwdelay + 1;
+                    end
+                end
+
+                // wait 150nS for read data
+                // complete write immediately
+                6: begin
+                    if ((memfunc == MF_WR) | (rwdelay == 15)) begin
+                        if ((memfunc == MF_RM) | (memfunc == MF_RD)) begin
+                            readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
+                            readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
+                        end
+                        bus_msyn_out_l <= 1;
+                        rwstate        <= 7;
+                        rwdelay        <= 0;
+                    end else begin
+                        rwdelay        <= rwdelay + 1;
+                    end
+                end
+
+                // let address, data and function linger for 80nS after dropping MSYN
+                // also wait for slave to drop SSYN
+                7: begin
+                    if (rwdelay != 8) begin
+                        rwdelay <= rwdelay + 1;
+                    end else if (bus_ssyn_in_l) begin
+                        bus_a_out_l <= 18'o777777;
+                        bus_c_out_l <= 3;
+                        cpu_d_out_l <= 16'o177777;
+                        memfunc     <= 0;
+                        rwstate     <= 0;
+                    end
+                end
+            endcase
+        end
+
+        ///////////////////////////////
+        //  MID-LEVEL STATE MACHINE  //
+        ///////////////////////////////
+
+        // being active blocks higher level state machines
+
+        // get non-register operand address
+        //  input:
+        //   getopaddr = 1 : start computing
+        //   getopmode = 6-bit operand address mode & register
+        //   getopinc  = amount to increment/decrement register by for modes 2,3,4,5
+        //  output:
+        //   getopaddr = 0 : address computed
+        //   virtaddr  = operand address
+        else if (getopaddr != 0) begin
+            if (trapvec != 0) begin
+                getopaddr <= 0;
+            end case (getopmode[5:3])
+
+                // simple indirect - use registers contents as address
+                1: begin
+                    getopaddr <= 0;
+                    virtaddr  <= gprs[getgprx];
+                end
+
+                // autoincrement possibly with indirect
+                2, 3: begin
+                    case (getopaddr)
+                        1: begin
+                            gprs[getgprx] <= gprs[getgprx] + getopinc;
+                            virtaddr      <= gprs[getgprx];
+                            if (getopmode[3]) begin
+                                getopaddr <= 2;
+                                membyte   <= 0;
+                                memfunc   <= MF_RD;
+                                memmode   <= psw[15:14];
+                            end else begin
+                                getopaddr <= 0;
+                            end
+                        end
+                        2: begin
+                            getopaddr <= 0;
+                            virtaddr  <= readdata;
+                        end
+                    endcase
+                end
+
+                // autodecrement possibly with indirect
+                4, 5: begin
+                    case (getopaddr)
+                        1: begin
+                            gprs[getgprx] <= gprs[getgprx] - getopinc;
+                            virtaddr      <= gprs[getgprx] - getopinc;
+                            if (getopmode[3]) begin
+                                getopaddr <= 2;
+                                membyte   <= 0;
+                                memfunc   <= MF_RD;
+                                memmode   <= psw[15:14];
+                            end else begin
+                                getopaddr <= 0;
+                            end
+                        end
+                        2: begin
+                            getopaddr <= 0;
+                            virtaddr  <= readdata;
+                        end
+                    endcase
+                end
+
+                // indexed possibly with indirect
+                6, 7: begin
+                    case (getopaddr)
+                        1: begin
+                            getopaddr <= 2;
+                            gprs[7]   <= gprs[7] + 2;
+                            membyte   <= 0;
+                            memfunc   <= MF_RD;
+                            memmode   <= psw[15:14];
+                            virtaddr  <= gprs[7];
+                        end
+                        2: begin
+                            virtaddr <= readdata + gprs[getgprx];
+                            if (getopmode[3]) begin
+                                getopaddr <= 3;
+                                membyte   <= 0;
+                                memfunc   <= MF_RD;
+                                memmode   <= psw[15:14];
+                            end else begin
+                                getopaddr <= 0;
+                            end
+                        end
+                        3: begin
+                            getopaddr <= 0;
+                            virtaddr  <= readdata;
+                        end
+                    endcase
+                end
+            endcase
+        end
+
+        ///////////////////////////////////
+        //  HIGHEST LEVEL STATE MACHINE  //
+        ///////////////////////////////////
+
+        else begin
             case (state)
 
                 // assert halt_grant_h to let front panel know we are halted
@@ -346,8 +627,8 @@ module pdp1134 (
                 // start reading the instruction from memory
                 S_FETCH: begin
                     membyte  <= 0;
+                    memfunc  <= MF_RD;
                     memmode  <= psw[15:14];
-                    reading  <= 1;
                     state    <= S_FETCH2;
                     virtaddr <= gprs[7];
                     yellowck <= 0;
@@ -356,8 +637,8 @@ module pdp1134 (
                     end
                 end
 
-                // wait for instruction from memory
-                S_FETCH2: if (~ reading) begin
+                // got instruction from memory, save and decode
+                S_FETCH2: begin
                     gprs[7] <= gprs[7] + 2;
                     instreg <= readdata;
                     state   <= S_DECODE;
@@ -432,13 +713,13 @@ module pdp1134 (
                     gprs[7]       <= gprs[5];
                     gprs[cspgprx] <= gprs[7] + { 9'b0, instreg[05:00], 1'b0 } + 2;
                     membyte       <= 0;
+                    memfunc       <= MF_RD;
                     memmode       <= psw[15:14];
-                    reading       <= 1;
                     state         <= S_EXMARK2;
                     virtaddr      <= gprs[7] + { 9'b0, instreg[05:00], 1'b0 };
                 end
 
-                S_EXMARK2: if (~ reading) begin
+                S_EXMARK2: begin
                     gprs[5]       <= readdata;
                     state         <= S_ENDINST;
                 end
@@ -480,20 +761,16 @@ module pdp1134 (
                 // wait for source operand address to be calculated
                 // then start reading source operand value
                 S_WAITSRC: begin
-                    if (~ getopaddr) begin
-                        membyte <= byteinstr;
-                        memmode <= psw[15:14];
-                        reading <= 1;
-                        state   <= S_WAITSRC2;
-                    end
+                    membyte <= byteinstr;
+                    memfunc <= MF_RD;
+                    memmode <= psw[15:14];
+                    state   <= S_WAITSRC2;
                 end
 
                 // wait for source operand value to be read from memory
                 S_WAITSRC2: begin
-                    if (~ reading) begin
-                        srcval <= byteinstr ? { readdata[7:0], 8'b0 } : readdata;
-                        state  <= S_GETDST;
-                    end
+                    srcval <= byteinstr ? { readdata[7:0], 8'b0 } : readdata;
+                    state  <= S_GETDST;
                 end
 
                 // start getting destination operand
@@ -508,49 +785,43 @@ module pdp1134 (
                     end
                 end
 
-                // wait for destination operand address to be calculated
+                // destination operand address now available
                 S_WAITDST: begin
-                    if (~ getopaddr) begin
-                        if (iJMP) begin
-                            gprs[7]   <= virtaddr;              // put dst address in PC
-                            state     <= S_ENDINST;             // end of instruction
-                        end
-                        else if (iJSR) begin
-                            gprs[cspgprx] <= gprs[cspgprx] - 2; // decrement current stack pointer
-                            membyte   <= 0;                     // doing word-sized mem op
-                            memmode   <= psw[15:14];            // current mode mem op
-                            readdata  <= virtaddr;              // save dst address where where it will be safe
-                            state     <= S_EXECJSR;             // finish JSR next
-                            virtaddr  <= gprs[cspgprx] - 2;     // address to write to
-                            writedata <= gprs[srcgprx];         // save source register to stack
-                            writing   <= 1;                     // start writing to memory
-                        end
-                        else if (iMFPID) state <= S_EXMFPI;     // MFPI/MFPD
-                        else if (iMTPID) state <= S_EXMTPI;     // MTPI/MTPD
-                        else begin
-                            membyte   <= byteinstr;
-                            memmode   <= psw[15:14];
-                            reading   <= needtoreaddst;
-                            writing   <= needtoreaddst & needtowritedst;
-                            state     <= S_WAITDST2;
-                        end
+                    if (iJMP) begin
+                        gprs[7]   <= virtaddr;              // put dst address in PC
+                        state     <= S_ENDINST;             // end of instruction
+                    end
+                    else if (iJSR) begin
+                        gprs[cspgprx] <= gprs[cspgprx] - 2; // decrement current stack pointer
+                        membyte   <= 0;                     // doing word-sized mem op
+                        memfunc   <= MF_WR;                 // start writing to memory
+                        memmode   <= psw[15:14];            // current mode mem op
+                        readdata  <= virtaddr;              // save dst address where where it will be safe
+                        state     <= S_EXECJSR;             // finish JSR next
+                        virtaddr  <= gprs[cspgprx] - 2;     // address to write to
+                        writedata <= gprs[srcgprx];         // save source register to stack
+                    end
+                    else if (iMFPID) state <= S_EXMFPI;     // MFPI/MFPD
+                    else if (iMTPID) state <= S_EXMTPI;     // MTPI/MTPD
+                    else begin
+                        membyte   <= byteinstr;
+                        if (needtoreaddst &   needtowritedst) memfunc <= MF_RM;
+                        if (needtoreaddst & ~ needtowritedst) memfunc <= MF_RD;
+                        memmode   <= psw[15:14];
+                        state     <= S_WAITDST2;
                     end
                 end
 
-                // wait for destination operand value to be read from memory
+                // destination operand value has been read from memory
                 S_WAITDST2: begin
-                    if (~ reading) begin
-                        dstval <= byteinstr ? { readdata[7:0], 8'b0 } : readdata;
-                        state  <= S_EXECDD;
-                    end
+                    dstval <= byteinstr ? { readdata[7:0], 8'b0 } : readdata;
+                    state  <= S_EXECDD;
                 end
 
                 // do arithmetic to compute new destination value
                 //    dstval = old dst value if any (byte value in top 8 bits, bottom 8 bits zero)
                 //    srcval = src value if any (byte value in top 8 bits, bottom 8 bits zero)
                 //  virtaddr = dst virtual address if any
-                //   writing = 1 if read/modify/write (~5 cycles before write starts)
-                //             0 if read-only or write-only dst
                 S_EXECDD: begin
                          if (iMUL)   state <= S_EXMUL;     // MUL
                     else if (iDIV)   state <= S_EXDIV;     // DIV
@@ -590,7 +861,7 @@ module pdp1134 (
                     end
                 end
 
-                // start writing destination value to register or memory
+                // write destination value to register or start writing to memory
                 S_EXECDD2: begin
                     if (needtowritedst) begin
                         if (instreg[05:03] == 0) begin
@@ -602,13 +873,13 @@ module pdp1134 (
                                 gprs[dstgprx] <= result;
                             end
                         end else begin
+                            memfunc   <= MF_WR;
                             writedata <= byteinstr ? { 8'b0, result[15:08] } : result;
-                            writing   <= 1;
                         end
                     end
                     state <= S_EXECDD3;
                 end
-                S_EXECDD3: if (~ writing) begin
+                S_EXECDD3: begin
                     if (iSWAB) begin
                         psw[03:00] <= { result[07], result[07:00] == 0, 2'b00 };
                     end else begin
@@ -637,53 +908,49 @@ module pdp1134 (
                 // wait for old register contents pushed on stack
                 // then save return address and set PC = jumped-to address
                 S_EXECJSR: begin
-                    if (~ writing) begin
-                        if (instreg[08:06] != 7) begin
-                            gprs[srcgprx] <= gprs[7];
-                        end
-                        gprs[7] <= readdata;
-                        state   <= S_ENDINST;
+                    if (instreg[08:06] != 7) begin
+                        gprs[srcgprx] <= gprs[7];
                     end
+                    gprs[7] <= readdata;
+                    state   <= S_ENDINST;
                 end
 
                 S_EXECRTS: begin
                     gprs[cspgprx] <= gprs[cspgprx] + 2;
                     membyte  <= 0;
+                    memfunc  <= MF_RD;
                     memmode  <= psw[15:14];
-                    reading  <= 1;
                     state    <= S_EXECRTS2;
                     virtaddr <= gprs[cspgprx];
                 end
                 S_EXECRTS2: begin
-                    if (~ reading) begin
-                        if (instreg[02:00] != 7) begin
-                            gprs[7] <= gprs[dstgprx];
-                        end
-                        gprs[dstgprx] <= readdata;
+                    if (instreg[02:00] != 7) begin
+                        gprs[7] <= gprs[dstgprx];
                     end
+                    gprs[dstgprx] <= readdata;
                 end
 
                 // start reading new PC from stack
                 S_EXRTIT: begin
                     membyte   <= 0;
+                    memfunc   <= MF_RD;
                     memmode   <= psw[15:14];
-                    reading   <= 1;
                     state     <= S_EXRTIT2;
                     virtaddr  <= gprs[cspgprx];
                 end
 
                 // start reading new PS from stack
-                S_EXRTIT2: if (~ reading) begin
+                S_EXRTIT2: begin
                     membyte   <= 0;
+                    memfunc   <= MF_RD;
                     memmode   <= psw[15:14];
-                    reading   <= 1;
                     srcval    <= readdata;
                     state     <= S_EXRTIT3;
                     virtaddr  <= gprs[cspgprx] + 2;
                 end
 
                 // update old SP, PC, PS
-                S_EXRTIT3: if (~ reading) begin
+                S_EXRTIT3: begin
                     gprs[cspgprx] <= gprs[cspgprx] + 4;
                     gprs[7]    <= srcval;
                     psw[15:14] <= psw[15:14] | readdata[15:14];
@@ -846,22 +1113,22 @@ module pdp1134 (
                         readdata <= gprs[gprx(psw[13:12],instreg[02:00])];
                     end else begin
                         membyte <= 0;
+                        memfunc <= MF_RD;
                         memmode <= psw[13:12];
-                        reading <= 1;
                     end
                     state <= S_EXMFPI2;
                 end
-                S_EXMFPI2: if (~ reading) begin
+                S_EXMFPI2: begin
                     gprs[cspgprx] <= gprs[cspgprx] - 2;
                     membyte       <= 0;
+                    memfunc       <= MF_WR;
                     memmode       <= psw[15:14];
                     state         <= S_EXMFPI3;
                     virtaddr      <= gprs[cspgprx] - 2;
                     writedata     <= readdata;
-                    writing       <= 1;
                     yellowck      <= 1;
                 end
-                S_EXMFPI3: if (~ writing) begin
+                S_EXMFPI3: begin
                     state         <= S_ENDINST;
                 end
 
@@ -871,37 +1138,30 @@ module pdp1134 (
                     dstval        <= virtaddr;              // save addr in prev space
                     gprs[cspgprx] <= gprs[cspgprx] + 2;     // increment stack pointer
                     membyte       <= 0;                     // do word-sized mem op
+                    memfunc       <= MF_RD;                 // start reading memory
                     memmode       <= psw[15:14];            // access current addr space
                     state         <= S_EXMTPI2;             // do step 2 next
                     virtaddr      <= gprs[cspgprx];         // access top-of-stack word
-                    reading       <= 1;                     // start reading memory
                 end
-                S_EXMTPI2: if (~ reading) begin
+                S_EXMTPI2: begin
                     if (instreg[05:03] == 0) begin
                         gprs[gprx(psw[13:12],instreg[02:00])] <= readdata;
                         state     <= S_ENDINST;
                     end else begin
                         membyte   <= 0;
+                        memfunc   <= MF_WR;
                         memmode   <= psw[13:12];
                         state     <= S_EXMTPI3;
                         virtaddr  <= dstval;
                         writedata <= readdata;
-                        writing   <= 1;
                     end
                 end
-                S_EXMTPI3: if (~ writing) begin
+                S_EXMTPI3: begin
                     state         <= S_ENDINST;
                 end
 
                 // end of instruction, figure out what to do next
                 S_ENDINST: begin
-
-                    // in case we got here via trapping from one of these
-                    getopaddr <= 0;
-                    getopbusy <= 0;
-                    reading   <= 0;
-                    rwstate   <= 0;
-                    writing   <= 0;
 
                     // do traps caused by instruction before checking halt switch
                     if (trapvec != 0) begin
@@ -941,13 +1201,13 @@ module pdp1134 (
 
                     // check instruction trace
                     else if (traceck & psw[4]) begin
-                        state      <= S_TRAP;
-                        trapvec    <= T_BPTRACE;
+                        state   <= S_TRAP;
+                        trapvec <= T_BPTRACE;
                     end
 
                     // nothing special, fetch next instruction
                     else begin
-                        state <= S_FETCH;
+                        state   <= S_FETCH;
                     end
 
                     // always enable halt and trace checking
@@ -1007,49 +1267,50 @@ module pdp1134 (
                     end else begin
                         // didn't trap from doing a trap, do a trap
                         membyte    <= 0;
+                        memfunc    <= MF_RD;
                         memmode    <= 0;
-                        reading    <= 1;
                         state      <= S_TRAP2;
                         trapping   <= 1;
+                        trapvec    <= 0;
                         virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
                         yellowck   <= 0;
                     end
                 end
 
                 // - start reading new PS into dstval
-                S_TRAP2: if (~ reading) begin
-                    membyte    <= 0;
-                    memmode    <= 0;
-                    reading    <= 1;
-                    srcval     <= readdata;
-                    state      <= S_TRAP3;
-                    virtaddr   <= { 8'b0, trapvec[7:2], 2'b10 };
+                S_TRAP2: begin
+                    membyte      <= 0;
+                    memfunc      <= MF_RD;
+                    memmode      <= 0;
+                    srcval       <= readdata;
+                    state        <= S_TRAP3;
+                    virtaddr[01] <= 1;
                 end
 
                 // - start pushing old PS onto new stack
-                S_TRAP3: if (~ reading) begin
+                S_TRAP3: begin
                     dstval     <= readdata;
                     membyte    <= 0;
+                    memfunc    <= MF_WR;
                     memmode    <= readdata[15:14];
                     state      <= S_TRAP4;
                     trapping   <= readdata[15:14] == 0;
                     virtaddr   <= gprs[gprx(readdata[15:14],6)] - 2;
                     writedata  <= psw;
-                    writing    <= 1;
                 end
 
                 // - start pushing old PC onto new stack
-                S_TRAP4: if (~ writing) begin
+                S_TRAP4: begin
                     membyte    <= 0;
+                    memfunc    <= MF_WR;
                     memmode    <= dstval[15:14];
                     state      <= S_TRAP5;
                     virtaddr   <= gprs[gprx(dstval[15:14],6)] - 4;
                     writedata  <= gprs[7];
-                    writing    <= 1;
                 end
 
                 // - activate new PC and PS
-                S_TRAP5: if (~ writing) begin
+                S_TRAP5: begin
                     gprs[7]    <= srcval;
                     gprs[gprx(dstval[15:14],6)] <= gprs[gprx(dstval[15:14],6)] - 4;
                     psw[15:14] <= dstval[15:14];
@@ -1057,7 +1318,6 @@ module pdp1134 (
                     psw[11:00] <= dstval[11:00] & 12'o0377;
                     state      <= S_ENDINST;
                     trapping   <= 0;
-                    trapvec    <= 0;
                 end
 
                 // hang if invalid state
@@ -1065,274 +1325,9 @@ module pdp1134 (
             endcase
         end
 
-        // get non-register operand address
-        //  input:
-        //   getopaddr = 1 : start computing
-        //   getopmode = 6-bit operand address mode & register
-        //   getopinc  = amount to increment/decrement register by for modes 2,3,4,5
-        //  output:
-        //   getopaddr = 0 : address computed
-        //   virtaddr  = operand address
-        if (getopaddr) begin
-            case (getopmode[5:3])
-
-                // simple indirect - use registers contents as address
-                1: begin
-                    getopaddr <= 0;
-                    virtaddr  <= gprs[getgprx];
-                end
-
-                // autoincrement possibly with indirect
-                2, 3: begin
-                    case (getopbusy)
-                        0: begin
-                            gprs[getgprx] <= gprs[getgprx] + getopinc;
-                            virtaddr      <= gprs[getgprx];
-                            if (getopmode[3]) begin
-                                getopbusy <= 1;
-                                membyte   <= 0;
-                                memmode   <= psw[15:14];
-                                reading   <= 1;
-                            end else begin
-                                getopaddr <= 0;
-                            end
-                        end
-                        1: if (~ reading) begin
-                            getopaddr <= 0;
-                            getopbusy <= 0;
-                            virtaddr  <= readdata;
-                        end
-                    endcase
-                end
-
-                // autodecrement possibly with indirect
-                4, 5: begin
-                    case (getopbusy)
-                        0: begin
-                            gprs[getgprx] <= gprs[getgprx] - getopinc;
-                            virtaddr      <= gprs[getgprx] - getopinc;
-                            if (getopmode[3]) begin
-                                getopbusy <= 1;
-                                membyte   <= 0;
-                                memmode   <= psw[15:14];
-                                reading   <= 1;
-                            end else begin
-                                getopaddr <= 0;
-                            end
-                        end
-                        1: if (~ reading) begin
-                            getopaddr <= 0;
-                            getopbusy <= 0;
-                            virtaddr  <= readdata;
-                        end
-                    endcase
-                end
-
-                // indexed possibly with indirect
-                6, 7: begin
-                    case (getopbusy)
-                        0: begin
-                            getopbusy <= 1;
-                            gprs[7]   <= gprs[7] + 2;
-                            membyte   <= 0;
-                            memmode   <= psw[15:14];
-                            reading   <= 1;
-                            virtaddr  <= gprs[7];
-                        end
-                        1: if (~ reading) begin
-                            virtaddr <= readdata + gprs[getgprx];
-                            if (getopmode[3]) begin
-                                getopbusy <= 2;
-                                membyte   <= 0;
-                                memmode   <= psw[15:14];
-                                reading   <= 1;
-                            end else begin
-                                getopaddr <= 0;
-                                getopbusy <= 0;
-                            end
-                        end
-                        2: if (~ reading) begin
-                            getopaddr <= 0;
-                            getopbusy <= 0;
-                            virtaddr  <= readdata;
-                        end
-                    endcase
-                end
-            endcase
-        end
-
-        // read from or write to unibus
-        //  input:
-        //   membyte   = 0: word; 1: byte
-        //   memmode   = processor mode for va->pa translation
-        //   reading   = set to 1 to start read cycle
-        //   virtaddr  = virtual address being accessed
-        //   writing   = set to 1 to start write cycle
-        //   writedata = write data for write cycles
-        //  output:
-        //   reading,writing = cleared to 0 when cycle complete
-        //   readdata = read data for read cycles
-        //  other:
-        //   set both reading,writing for read/modify/write cycle
-        //     reading clears when read data available
-        //     70nS to compute write data into writing
-        //     writing clears when write cycle complete
-        //   jams state = S_ENDINST with trapvec set if error
-        if (RESET) begin
-            rwstate <= 0;
-        end else if (reading | writing) begin
-            case (rwstate)
-
-                // getting started
-                0: begin
-
-                    // check for accessing word at an odd address
-                    if (~ membyte & virtaddr[00]) begin
-                        $display ("T_CPUERR: odd address %06o state %02d", virtaddr, state);
-                        cpuerr[06] <= 1;
-                        state      <= S_ENDINST;
-                        trapvec    <= T_CPUERR;
-                    end
-
-                    // if mmu enabled, read page registers then check access
-                    else if (mmr0[00]) begin
-                        parentry   <= mmupars[mmuprxi];
-                        pdrentry   <= mmupdrs[mmuprxi];
-                        rwstate    <= 1;
-                    end
-
-                    // mmu disabled, compute physical address then start access
-                    else begin
-                        physaddr   <= { { 2 { virtaddr[15] & virtaddr[14] & virtaddr[13] } }, virtaddr };
-                        rwstate    <= 2;
-                    end
-                end
-
-                // check page access
-                1: begin
-
-                    // access codes 0,2 mean no access to the page
-                    // also, we only do kernel and user modes
-                    if (~ pdrentry[01] | (memmode == 1) | (memmode == 2)) begin
-                        mmr0[15]    <= 1;  // abort-non-resident
-                        mmr0[06:05] <= memmode;
-                        mmr0[04]    <= 0;
-                        mmr0[03:01] <= virtaddr[15:13];
-                        state       <= S_ENDINST;
-                        trapvec     <= T_MMUTRAP;
-                    end
-
-                    // access codes 1 means read-only access to the page
-                    else if (~ pdrentry[02] & writing) begin
-                        mmr0[13]    <= 1;  // abort-read-only
-                        mmr0[06:05] <= memmode;
-                        mmr0[04]    <= 0;
-                        mmr0[03:01] <= virtaddr[15:13];
-                        state       <= S_ENDINST;
-                        trapvec     <= T_MMUTRAP;
-                    end
-
-                    // check page length violation
-                    else if (pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08])) begin
-                        mmr0[14]    <= 1;  // abort-page-length
-                        mmr0[06:05] <= memmode;
-                        mmr0[04]    <= 0;
-                        mmr0[03:01] <= virtaddr[15:13];
-                        state       <= S_ENDINST;
-                        trapvec     <= T_MMUTRAP;
-                    end
-
-                    // mmu allows access
-                    else begin
-                        rwstate  <= 2;              // continue on doing memory access
-                        if (writing) mmupdrs[mmuprxi][06] <= 1;
-                    end
-
-                    // compute physical address
-                    physaddr <= { parentry[11:00] + { 5'b0, virtaddr[12:06] }, virtaddr[05:00] };
-                end
-
-                // hold off if NPR (DMA being requested) or SSYN,BBSY (still busy from an old DMA)
-                2: begin
-                    if (bus_npr_l & bus_ssyn_in_l & bus_bbsy_l) begin
-                        bus_a_out_l    <= ~ physaddr;
-                        bus_c_out_l[1] <=    reading;
-                        bus_c_out_l[0] <= ~ (reading ? writing : membyte);
-                        if (~ reading) begin
-                            cpu_d_out_l[15:08] <= ~ (physaddr[00] ? writedata[07:00] : writedata[15:08]);
-                            cpu_d_out_l[07:00] <= ~ (physaddr[00] ? writedata[15:08] : writedata[07:00]);
-                        end
-                        rwstate        <= 3;
-                        rwdelay        <= 0;
-                    end
-                end
-
-                // give 150nS for signals to flow out the bus and be decoded
-                3: begin
-                    if (rwdelay == 15) rwstate <= 4;
-                        else rwdelay <= rwdelay + 1;
-                end
-
-                // assert MSYN to say it's all valid now
-                4: begin
-                    bus_msyn_out_l <= 0;
-                    rwdelay        <= 0;
-                    rwstate        <= 5;
-                end
-
-                // wait up to 10uS for SSYN meaning the slave did it
-                5: begin
-                    if (~ bus_ssyn_in_l) begin
-                        rwdelay        <= 0;
-                        rwstate        <= 6;
-                    end else if (rwdelay == 1000) begin
-                        $display ("T_CPUERR: ssyn timeout %06o state %02d", physaddr, state);
-                        bus_a_out_l    <= 18'o777777;
-                        bus_c_out_l    <= 3;
-                        cpu_d_out_l    <= 16'o177777;
-                        bus_msyn_out_l <= 1;
-                        cpuerr[04]     <= 1;
-                        state          <= S_ENDINST;
-                        trapvec        <= T_CPUERR;
-                    end else begin
-                        rwdelay        <= rwdelay + 1;
-                    end
-                end
-
-                // wait 150nS for read data
-                // complete write immediately
-                6: begin
-                    if (~ reading | (rwdelay == 15)) begin
-                        if (reading) begin
-                            readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
-                            readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
-                        end
-                        bus_msyn_out_l <= 1;
-                        reading        <= 0;
-                        rwstate        <= 7;
-                        rwdelay        <= 0;
-                        writing        <= writing & reading;
-                    end else begin
-                        rwdelay        <= rwdelay + 1;
-                    end
-                end
-
-                // let address, data and function linger for 80nS after dropping MSYN
-                // also wait for slave to drop SSYN
-                7: begin
-                    if (rwdelay != 8) begin
-                        rwdelay <= rwdelay + 1;
-                    end else if (bus_ssyn_in_l) begin
-                        if (~ writing) begin
-                            bus_a_out_l <= 18'o777777;
-                            bus_c_out_l <= 3;
-                            cpu_d_out_l <= 16'o177777;
-                        end
-                        rwstate <= 0;
-                    end
-                end
-            endcase
-        end
+        ///////////////////////
+        //  SLAVE REGISTERS  //
+        ///////////////////////
 
         // kernel descriptor registers 772300..16  111 111 010 011 00_ __0
         // kernel address registers    772340..56  111 111 010 011 10_ __0
