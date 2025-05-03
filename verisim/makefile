@@ -1,4 +1,9 @@
 
+default: last16k test
+
+last16k: last16k.c
+	cc -O2 -o last16k last16k.c
+
 test: test.o obj_dir/Vpdp1134__ALL.a
 	g++ -g -o test test.o obj_dir/Vpdp1134__ALL.a
 

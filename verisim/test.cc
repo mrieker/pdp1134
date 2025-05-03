@@ -158,6 +158,7 @@ uint16_t curgprx (uint16_t r) { return gprx (r, psw >> 14); }
 uint16_t genranddd (bool word, uint16_t ss);
 void vfyintreg (uint16_t regva, uint16_t regda);
 uint16_t sendfetchdd (uint16_t dd, bool word);
+void dointreq (uint16_t brlev);
 void trapthrough (uint16_t vector);
 void restart ();
 void writepsw (uint16_t newpsw);
@@ -238,10 +239,17 @@ int main ()
                     gprs[0] ,gprs[1] ,gprs[2] ,gprs[3] ,gprs[4] ,gprs[5] ,gprs[6] ,gprs[7], psw, gprs[016]);
             printf ("  MMR0=%06o PAR7=%06o PDR7=%06o\n", mmr0, pars[7], pdrs[7]);
             printf ("- - - - - - - - - - - - - - - - - - - -\n");
+
+            // maybe request interrupt
+            uint16_t irq = randbits (8);
+            if (irq < 16) {
+                vp.bus_br_l = irq;
+            }
         }
 
         // generate random opcode and send to processor
         if ((mmr0 & 0160000) == 0) mmr2 = gprs[7];
+        bool didrtt = false;
         didsomething = false;
         uint8_t select = randbits (6);
         try {
@@ -249,7 +257,7 @@ int main ()
 
                 // HALT
                 case  0: {
-                    if (! (psw & 0160000)) {    ////
+                    if (! (psw & 0160000)) {
                         printf ("%12llu0 : HALT\n", cyclectr);
                         sendfetch (0000000);
                         for (int i = 0; ! vp.halt_grant_h; i ++) {
@@ -270,14 +278,15 @@ int main ()
 
                 // RTI/RTT
                 case  1: {
-                    uint16_t opcode = randbits (1) ? 0000006 : 0000002;
-                    printf ("%12llu0 : %s\n", cyclectr, opcode & 4 ? "RTT" : "RTI");
+                    didrtt = randbits (1);
+                    uint16_t opcode = didrtt ? 0000006 : 0000002;
+                    printf ("%12llu0 : %s\n", cyclectr, didrtt ? "RTT" : "RTI");
                     sendfetch (opcode);
                     uint16_t newpc;
                     do newpc = randbits (15) * 2;
                     while (newpc > 0157770);
                     uint16_t newps = randbits (4);          // NZVC
-                    ////if (randbits (6) == 0) newps |= 020;    // Trace
+                    if (randbits (4) == 0) newps |= 020;    // Trace
                     newps |= randbits (3) << 5;             // priority
                     if (randbits (2) == 0) {
                         newps |= 0170000;                   // currmode = prevmode = USER
@@ -884,6 +893,19 @@ int main ()
         } catch (TrapThru &tt) {
             trapthrough (tt.vector);
         }
+
+        if (didsomething) {
+
+            // end-of-instruction traps
+            while (true) {
+                     if (((psw & 0340) < 0340) && ! (vp.bus_br_l & 010)) dointreq (7);
+                else if (((psw & 0340) < 0300) && ! (vp.bus_br_l & 004)) dointreq (6);
+                else if (((psw & 0340) < 0240) && ! (vp.bus_br_l & 002)) dointreq (5);
+                else if (((psw & 0340) < 0200) && ! (vp.bus_br_l & 001)) dointreq (4);
+                else if (! didrtt && (psw & 020)) trapthrough (0014);
+                else break;
+            }
+        }
     }
     return 0;
 }
@@ -1013,10 +1035,47 @@ uint16_t sendfetchdd (uint16_t dd, bool word)
     }
 }
 
+void dointreq (uint16_t brlev)
+{
+    printf ("dointreq: br level %o\n", brlev);
+    for (int i = 0; ! (vp.bus_bg_h & (1 << (brlev - 4))); i ++) {
+        if (i > 200) fatal ("dointreq: did not see BG%o\n", brlev);
+        kerchunk ();
+    }
+
+    uint16_t vector;
+    do vector = randbits (6) * 4;
+    while (vector == 0);
+
+    vp.bus_bbsy_l    = 0;
+    vp.bus_br_l     |= 1 << (brlev - 4);
+    vp.bus_d_in_l    = ~ vector;
+    vp.bus_intr_l    = 0;
+    vp.bus_msyn_in_l = 0;
+    vp.bus_sack_l    = 0;
+    for (int i = 0; vp.bus_ssyn_out_l; i ++) {
+        if (i > 200) fatal ("dointreq: did not see SSYN\n");
+        kerchunk ();
+    }
+
+    vp.bus_bbsy_l    = 1;
+    vp.bus_d_in_l    = 0177777;
+    vp.bus_intr_l    = 1;
+    vp.bus_msyn_in_l = 1;
+    vp.bus_sack_l    = 1;
+    for (int i = 0; ! vp.bus_ssyn_out_l; i ++) {
+        if (i > 200) fatal ("dointreq: SSYN stuck on\n");
+        kerchunk ();
+    }
+
+    trapthrough (vector);
+}
+
 // verify the processor doing a trap sequence through the given vector
 // supply random vector contents
 void trapthrough (uint16_t vector)
 {
+    printf ("trapthrough: vector %03o\n", vector);
 dotrap:;
     bool allowdouble = false;
     try {

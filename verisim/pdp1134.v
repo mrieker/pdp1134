@@ -911,9 +911,6 @@ module pdp1134 (
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;
-                    end else if (traceck & psw[4]) begin
-                        state      <= S_TRAP;
-                        trapvec    <= T_BPTRACE;
                     end
 
                     // check halt switch
@@ -940,6 +937,12 @@ module pdp1134 (
                     end else if (bus_sack_l & ~ bus_br_l[4] & (psw[7:5] < 4)) begin
                         bus_bg_h[4] <= 1;
                         state <= S_INTR;
+                    end
+
+                    // check instruction trace
+                    else if (traceck & psw[4]) begin
+                        state      <= S_TRAP;
+                        trapvec    <= T_BPTRACE;
                     end
 
                     // nothing special, fetch next instruction
