@@ -41,7 +41,7 @@ module swlight (
     output ac_lo_out_h,
     output reg bbsy_out_h,
     output reg[1:0] c_out_h,
-    output reg[15:00] d_out_h,
+    output[15:00] d_out_h,
     output dc_lo_out_h,
     output hltrq_out_h,
     output init_out_h,
@@ -59,7 +59,10 @@ module swlight (
     reg[17:00] dmaaddr;
     wire halted;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C2002 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    reg[15:00] dma_d_out_h, swr_d_out_h;
+    assign d_out_h = dma_d_out_h | swr_d_out_h;
+
+    assign armrdata = (armraddr == 0) ? 32'h534C2003 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? { enable, haltreq, halted, stepreq, businit, aclow, dclow, 25'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
@@ -89,10 +92,11 @@ module swlight (
             a_out_h     <= 0;
             bbsy_out_h  <= 0;
             c_out_h     <= 0;
-            d_out_h     <= 0;
+            dma_d_out_h <= 0;
             msyn_out_h  <= 0;
             npr_out_h   <= 0;
             sack_out_h  <= 0;
+            swr_d_out_h <= 0;
             ssyn_out_h  <= 0;
         end
 
@@ -111,7 +115,7 @@ module swlight (
                 3: if (dmastate == 0) begin
                     dmaaddr  <= armwdata[17:00];
                     dmactrl  <= armwdata[27:26];
-                    dmastate <= { 2'b0, armwdata[28] };
+                    dmastate <= { 2'b0, armwdata[29] };
                 end
                 4: if (dmastate == 0) begin
                     dmadata  <= armwdata[15:00];
@@ -119,22 +123,22 @@ module swlight (
             endcase
         end
 
-        // pdp or something else is accessing a register
+        // something on unibus is accessing a register
         else if (~ msyn_in_h) begin
-            d_out_h    <= 0;
-            ssyn_out_h <= 0;
+            swr_d_out_h <= 0;
+            ssyn_out_h  <= 0;
         end else if (enable & (a_in_h[17:01] == 18'o777570 >> 1) & ~ ssyn_out_h) begin
             ssyn_out_h <= 1;
             if (c_in_h[1]) begin
                 if (~ c_in_h[0] |   a_in_h[00]) lights[15:08] <= d_in_h[15:08];
                 if (~ c_in_h[0] | ~ a_in_h[00]) lights[07:00] <= d_in_h[07:00];
             end else begin
-                d_out_h <= switches;
+                swr_d_out_h <= switches;
             end
         end
 
-        // dma transaction
-        else case (dmastate)
+        // dma transaction initiated by arm processor
+        case (dmastate)
 
             0: dmadelay <= 0;
 
@@ -165,11 +169,11 @@ module swlight (
             // send address, control and maybe data out
             // if reading, d_out_h must be 0 so it doesn't stomp on incoming data
             2: begin
-                a_out_h  <= dmaaddr;
-                c_out_h  <= dmactrl;
-                d_out_h  <= dmactrl[1] ? dmadata : 0;
-                dmadelay <= 0;
-                dmastate <= 3;
+                a_out_h     <= dmaaddr;
+                c_out_h     <= dmactrl;
+                dma_d_out_h <= dmactrl[1] ? dmadata : 0;
+                dmadelay    <= 0;
+                dmastate    <= 3;
             end
 
             // wait 150nS deskew/decode before sending msyn out
@@ -217,11 +221,11 @@ module swlight (
                 if (dmadelay[3:0] != 15) begin
                     dmadelay   <= dmadelay + 1;
                 end else begin
-                    a_out_h    <= 0;
-                    bbsy_out_h <= 0;
-                    c_out_h    <= 0;
-                    d_out_h    <= 0;
-                    dmastate   <= 0;
+                    a_out_h     <= 0;
+                    bbsy_out_h  <= 0;
+                    c_out_h     <= 0;
+                    dma_d_out_h <= 0;
+                    dmastate    <= 0;
                 end
             end
         endcase

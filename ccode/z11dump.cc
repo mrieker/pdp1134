@@ -194,7 +194,7 @@ int main (int argc, char **argv)
             printf ("     man_br_out_h=%02o     dmx_br_in_h=%02o        dev_br_h=%02o%s",   FIELD(Z_RB,b_br_out_h),     FIELD(Z_RE,e_br_in_h),     FIELD(Z_RE,e_br_out_h),     eol);
             printf ("      man_c_out_h=%o       dmx_c_in_h=%o          dev_c_h=%o%s",       FIELD(Z_RB,b_c_out_h),      FIELD(Z_RE,e_c_in_h),      FIELD(Z_RE,e_c_out_h),      eol);
             printf ("      man_d_out_h=%06o  dmx_d_in_h=%06o     dev_d_h=%06o%s",           FIELD(Z_RA,a_d_out_h),      FIELD(Z_RG,g_d_in_h),      FIELD(Z_RG,g_d_out_h),      eol);
-            printf ("                          hltgr_in_l=%o%s",                                                        FIELD(Z_RC,c_hltgr_in_l),                              eol);
+            printf ("                          hltgr_in_l=%o      dev_hltgr_l=%o%s",                                    FIELD(Z_RC,c_hltgr_in_l),  FIELD(Z_RD,d_hltgr_out_l),  eol);
             printf ("  man_hltrq_out_h=%o   dmx_hltrq_in_h=%o      dev_hltrq_h=%o%s",       FIELD(Z_RA,a_hltrq_out_h),  FIELD(Z_RE,e_hltrq_in_h),  FIELD(Z_RD,d_hltrq_out_h),  eol);
             printf ("   man_init_out_h=%o        init_in_h=%o       dev_init_h=%o%s",       FIELD(Z_RA,a_init_out_h),   FIELD(Z_RC,c_init_in_h),   FIELD(Z_RD,d_init_out_h),   eol);
             printf ("   man_intr_out_h=%o        intr_in_h=%o       dev_intr_h=%o%s",       FIELD(Z_RA,a_intr_out_h),   FIELD(Z_RC,c_intr_in_h),   FIELD(Z_RD,d_intr_out_h),   eol);

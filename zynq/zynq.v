@@ -270,6 +270,7 @@ module Zynq (
     reg dev_ac_lo_h;
     reg dev_bbsy_h;
     reg dev_dc_lo_h;
+    reg dev_hltgr_l;
     reg dev_hltrq_h;
     reg dev_init_h;
     reg dev_intr_h;
@@ -364,25 +365,24 @@ module Zynq (
         rsel2_h,
         rsel3_h,
 
-        turnedon ? dev_ac_lo_h : ac_lo_in_h,   // power supply indicating AC failure
-        turnedon ? dev_bbsy_h  : bbsy_in_h,    // pdp or real rl11 using bus
-        turnedon ? dev_dc_lo_h : dc_lo_in_h,   // power supply indicating DC failure
-        turnedon ? dev_hltgr_l : hltgr_in_l,   // pdp is halted
-        turnedon ? dev_init_h  : init_in_h,    // pdp doing RESET
-        turnedon ? dev_intr_h  : intr_in_h,    // real rl11 is sending int vector to pdp
-        turnedon ? dev_msyn_h  : msyn_in_h,    // pdp or rl11 is mastering cycle
-        turnedon ? dev_npg_l   : npg_in_l,     // pdp is granting dma
-        turnedon ? dev_sack_h  : sack_in_h,    // real rl11 is acknowledging grant
-        turnedon ? dev_ssyn_h  : ssyn_in_h,    // real rl11 slave or real mem completed transfer
-        turnedon ? dev_bg_l    : bg_in_l       // bus grant inputs
+        ac_lo_in_h,   // power supply indicating AC failure
+        bbsy_in_h,    // pdp or real rl11 using bus
+        dc_lo_in_h,   // power supply indicating DC failure
+        hltgr_in_l,   // pdp is halted
+        init_in_h,    // pdp doing RESET
+        intr_in_h,    // real rl11 is sending int vector to pdp
+        msyn_in_h,    // pdp or rl11 is mastering cycle
+        npg_in_l,     // pdp is granting dma
+        sack_in_h,    // real rl11 is acknowledging grant
+        ssyn_in_h,    // real rl11 slave or real mem completed transfer
+        bg_in_l       // bus grant inputs
     };
 
     wire[31:00] regctld = {
-        1'b0,
-
         dev_ac_lo_h,    // control outputs
         dev_bbsy_h,
         dev_dc_lo_h,
+        dev_hltgr_l,
         dev_hltrq_h,
         dev_init_h,
         dev_intr_h,
@@ -549,7 +549,7 @@ module Zynq (
         .ssyn_out_h (lm_ssyn_out_h));
 
     // switches and lights
-    wire sl_ac_lo_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
+    wire sl_ac_lo_out_h, sl_bbsy_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
     wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
     wire[1:0] sl_c_out_h;
     wire[15:00] sl_d_out_h;
@@ -576,6 +576,7 @@ module Zynq (
 
         .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
         .ac_lo_out_h (sl_ac_lo_out_h),
+        .bbsy_out_h  (sl_bbsy_out_h),   //>> front panel is using the bus
         .c_out_h     (sl_c_out_h),      //>> control from front panel to read or write memory or device register
         .d_out_h     (sl_d_out_h),      //>> data being written to pdp/sim/memory or data being read from switch register
         .dc_lo_out_h (sl_dc_lo_out_h),
@@ -723,7 +724,7 @@ module Zynq (
 
     wire[17:00] wor_a_h     = man_a_out_h     | sl_a_out_h;
     wire        wor_ac_lo_h = man_ac_lo_out_h;
-    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h;
+    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
     wire[1:0]   wor_c_h     = man_c_out_h     | sl_c_out_h;
     wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | sl_d_out_h | tt0_d_out_h;
@@ -766,6 +767,7 @@ module Zynq (
             dev_c_h     <= dmx_c_in_h;
             dev_d_h     <= dmx_d_in_h;
             dev_dc_lo_h <= syn_dc_lo_in_h;
+            dev_hltgr_l <= syn_hltgr_in_l;
             dev_hltrq_h <= dmx_hltrq_in_h;
             dev_init_h  <= syn_init_in_h;
             dev_intr_h  <= syn_intr_in_h;
@@ -802,6 +804,7 @@ module Zynq (
             dev_c_h     <= wor_c_h;
             dev_d_h     <= wor_d_h;
             dev_dc_lo_h <= wor_dc_lo_h;
+            dev_hltgr_l <= ~ sim_hltgr_out_h;
             dev_hltrq_h <= wor_hltrq_h;
             dev_init_h  <= wor_init_h;
             dev_intr_h  <= wor_intr_h;
@@ -875,7 +878,7 @@ module Zynq (
                 // check trigger condition
                 ////if (rsel1_h & muxc) begin   // - hltrq_in_h
                 ////if (~ hltgr_in_l) begin
-                if (dev_npr_h | dev_bbsy_h) begin   // - a_in_h[06]
+                if (slarmwrite) begin
                     ilaarmed <= 0;
                 end
             end

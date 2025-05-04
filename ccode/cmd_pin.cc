@@ -102,6 +102,7 @@ static PinDef const pindefs[] = {
     { "ac_lo_out_h",     DEV_11, Z_RD, d_ac_lo_out_h, 0, false },
     { "bbsy_out_h",      DEV_11, Z_RD, d_bbsy_out_h,  0, false },
     { "dc_lo_out_h",     DEV_11, Z_RD, d_dc_lo_out_h, 0, false },
+    { "hltgr_out_l",     DEV_11, Z_RD, d_hltgr_out_l, 0, false },
     { "hltrq_out_h",     DEV_11, Z_RD, d_hltrq_out_h, 0, false },
     { "init_out_h",      DEV_11, Z_RD, d_init_out_h,  0, false },
     { "intr_out_h",      DEV_11, Z_RD, d_intr_out_h,  0, false },
