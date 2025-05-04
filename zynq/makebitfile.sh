@@ -3,6 +3,7 @@
 #  use vivado to create .bit file from .v and .vhd files
 #
 cd `dirname $0`
+./getsim.sh
 rm -f pdp1134.runs/*/runme.log
 rm -f pdp1134.runs/impl_1/myboard_wrapper.bit
 /tools/Xilinx/Vivado/2018.3/bin/vivado -mode batch -source makebitfile.tcl

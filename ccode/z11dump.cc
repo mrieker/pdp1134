@@ -187,7 +187,7 @@ int main (int argc, char **argv)
             uint32_t rsel3 = FIELD (Z_RC, c_rsel3_h);
 
             // zynq.v register dump
-            printf ("VERSION=%08X 11  fpgamode=%o  FM_%s%s", z11s[0], fpgamode, fmstrs[fpgamode], eol);
+            printf ("VERSION=%08X 11  fpgamode=%o  FM_%s  debug=%08X%s", z11s[0], fpgamode, fmstrs[fpgamode], z11s[8], eol);
             printf ("      man_a_out_h=%06o  dmx_a_in_h=%06o     dev_a_h=%06o%s",           FIELD(Z_RB,b_a_out_h),      FIELD(Z_RF,f_a_in_h),      FIELD(Z_RD,d_a_out_h),      eol);
             printf ("   man_bbsy_out_h=%o        bbsy_in_h=%o       dev_bbsy_h=%o%s",       FIELD(Z_RA,a_bbsy_out_h),   FIELD(Z_RC,c_bbsy_in_h),   FIELD(Z_RD,d_bbsy_out_h),   eol);
             printf ("     man_bg_out_l=%02o         bg_in_l=%02o        dev_bg_l=%02o%s",   FIELD(Z_RB,b_bg_out_l),     FIELD(Z_RC,c_bg_in_l),     FIELD(Z_RE,e_bg_out_l),     eol);

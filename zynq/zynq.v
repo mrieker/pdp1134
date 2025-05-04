@@ -110,7 +110,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314008;
+    localparam VERSION = 32'h31314009;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -132,6 +132,8 @@ module Zynq (
     localparam FM_SIM  = 1;     // simulating - still acts as grant jumper to outside world
     localparam FM_REAL = 2;     // real - connected to outside signals
     localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
+
+    wire[31:00] regctlh = 0;    // debug display in z11dump
 
     // master reset of FPGA when turned off
     // use for all resets except arm register access (so it can turn resetting off)
@@ -442,6 +444,7 @@ module Zynq (
         (readaddr        == 10'b0000000101) ? regctle     :
         (readaddr        == 10'b0000000110) ? regctlf     :
         (readaddr        == 10'b0000000111) ? regctlg     :
+        (readaddr        == 10'b0000001000) ? regctlh     :
         (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, 4'b0, ilaindex } :
         (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
         (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
@@ -713,6 +716,7 @@ module Zynq (
     //  generate internal bus signals  //
     /////////////////////////////////////
 
+    // manual overrides from arm processor
     wire[17:00] man_a_out_h     = regctlb[17:00];
     wire        man_ac_lo_out_h = regctla[28];
     wire        man_bbsy_out_h  = regctla[27];
@@ -730,20 +734,21 @@ module Zynq (
     wire        man_sack_out_h  = regctla[17];
     wire        man_ssyn_out_h  = regctla[16];
 
-    wire[17:00] wor_a_h     = man_a_out_h     | sl_a_out_h;
+    // wired-or of internal device outputs
+    wire[17:00] wor_a_h     = man_a_out_h     | ~ sim_a_out_l    | sl_a_out_h;
     wire        wor_ac_lo_h = man_ac_lo_out_h;
-    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h | sl_bbsy_out_h;
+    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
-    wire[1:0]   wor_c_h     = man_c_out_h     | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | sl_d_out_h | tt0_d_out_h;
+    wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l    | sl_c_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h       | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
     wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l | sl_init_out_h;
-    wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h  | irq5_intr_out_h | irq6_intr_out_h | irq7_intr_out_h;
-    wire        wor_msyn_h  = man_msyn_out_h  | sl_msyn_out_h;
+    wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h  | irq5_intr_out_h  | irq6_intr_out_h | irq7_intr_out_h;
+    wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
-    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    wire        wor_ssyn_h  = man_ssyn_out_h  | lm_ssyn_out_h    | sl_ssyn_out_h   | tt0_ssyn_out_h;
+    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | lm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | tt0_ssyn_out_h;
 
     always @(*) begin
         if (regctla[31:30] == FM_REAL) begin
