@@ -110,7 +110,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314007;
+    localparam VERSION = 32'h31314008;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -132,6 +132,10 @@ module Zynq (
     localparam FM_SIM  = 1;     // simulating - still acts as grant jumper to outside world
     localparam FM_REAL = 2;     // real - connected to outside signals
     localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
+
+    // master reset of FPGA when turned off
+    // use for all resets except arm register access (so it can turn resetting off)
+    wire mastereset = ~ RESET_N | (regctla[31:00] == FM_OFF);
 
     /////////////////////////////////////////////////////////////////
     //  synchronize and demultiplex signals coming in from unibus  //
@@ -177,7 +181,7 @@ module Zynq (
     assign rsel3_h  = muxcount[5:4] == 3;
 
     always @(posedge CLOCK) begin
-        if (~ RESET_N) begin
+        if (mastereset) begin
             muxcount <= 8;
         end else begin
 
@@ -307,7 +311,7 @@ module Zynq (
 
     sim1134 siminst (
         .CLOCK (CLOCK),
-        .RESET (~ RESET_N | ~ simmode),
+        .RESET (mastereset),
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -531,7 +535,7 @@ module Zynq (
 
     lilmem lminst (
         .CLOCK (CLOCK),
-        .RESET (~ RESET_N),
+        .RESET (mastereset),
 
         .armraddr (readaddr[3:2]),
         .armrdata (lmarmrdata),
@@ -557,7 +561,7 @@ module Zynq (
 
     swlight slinst (
         .CLOCK (CLOCK),
-        .RESET (~ RESET_N),
+        .RESET (mastereset),
 
         .armraddr (readaddr[4:2]),
         .armrdata (slarmrdata),
@@ -595,7 +599,7 @@ module Zynq (
 
     dl11 tt0inst (
         .CLOCK (CLOCK),
-        .RESET (~ RESET_N),
+        .RESET (mastereset),
 
         .armraddr (readaddr[3:2]),
         .armrdata (tt0armrdata),
@@ -635,12 +639,13 @@ module Zynq (
 
     intctl irq4inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_h),
+        .RESET (mastereset),
 
         .intvec (intvec4),
 
         .bbsy_in_h (dev_bbsy_h),
         .bg_in_l   (dev_bg_l[4]),
+        .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
         .ssyn_in_h (dev_ssyn_h),
 
@@ -652,12 +657,13 @@ module Zynq (
 
     intctl irq5inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_h),
+        .RESET (mastereset),
 
         .intvec (intvec5),
 
         .bbsy_in_h (dev_bbsy_h),
         .bg_in_l   (dev_bg_l[5]),
+        .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
         .ssyn_in_h (dev_ssyn_h),
 
@@ -669,12 +675,13 @@ module Zynq (
 
     intctl irq6inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_h),
+        .RESET (mastereset),
 
         .intvec (intvec6),
 
         .bbsy_in_h (dev_bbsy_h),
         .bg_in_l   (dev_bg_l[6]),
+        .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
         .ssyn_in_h (dev_ssyn_h),
 
@@ -686,12 +693,13 @@ module Zynq (
 
     intctl irq7inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_h),
+        .RESET (mastereset),
 
         .intvec (intvec7),
 
         .bbsy_in_h (dev_bbsy_h),
         .bg_in_l   (dev_bg_l[7]),
+        .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
         .ssyn_in_h (dev_ssyn_h),
 
@@ -806,7 +814,7 @@ module Zynq (
             dev_dc_lo_h <= wor_dc_lo_h;
             dev_hltgr_l <= ~ sim_hltgr_out_h;
             dev_hltrq_h <= wor_hltrq_h;
-            dev_init_h  <= wor_init_h;
+            dev_init_h  <= wor_init_h | mastereset;
             dev_intr_h  <= wor_intr_h;
             dev_msyn_h  <= wor_msyn_h;
             dev_npg_l   <= ~ sim_npg_out_h;
@@ -829,7 +837,7 @@ module Zynq (
     reg[3:0] ilacount, iladivid;
 
     always @(posedge CLOCK) begin
-        if (~ RESET_N) begin
+        if (mastereset) begin
             ilaarmed <= 0;
             ilaafter <= 0;
             ilacount <= 0;

@@ -78,17 +78,17 @@ module swlight (
     assign npg_out_l   = npr_out_h ? 1 : npg_in_l;
 
     always @(posedge CLOCK) begin
-        if (RESET) begin
-            aclow       <= 0;
-            businit     <= 0;
-            dclow       <= 0;
-            dmastate    <= 0;
-            enable      <= 0;
-            haltreq     <= 0;
-            haltstate   <= 0;
-            stepreq     <= 0;
-        end
         if (init_in_h) begin
+            if (RESET) begin
+                aclow     <= 0;
+                businit   <= 0;
+                dclow     <= 0;
+                enable    <= 0;
+                haltreq   <= 0;
+                haltstate <= 0;
+                stepreq   <= 0;
+            end
+            dmastate    <= 0;
             a_out_h     <= 0;
             bbsy_out_h  <= 0;
             c_out_h     <= 0;

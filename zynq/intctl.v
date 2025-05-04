@@ -21,7 +21,6 @@
 // handle bus request / bus grant for a single level
 
 //  input:
-//   RESET  = includes bus init
 //   intvec = 1 : no interrupt being requested
 //         else : interrupt vector (must be 32-vut aligned)
 
@@ -32,6 +31,7 @@ module intctl (
 
     input bbsy_in_h,
     input bg_in_l,
+    input init_in_h,
     input sack_in_h,
     input ssyn_in_h,
 
@@ -46,7 +46,7 @@ module intctl (
     reg[2:0] intdelay;
 
     always @(posedge CLOCK) begin
-        if (RESET) begin
+        if (init_in_h) begin
             bbsy_out_h <= 0;
             br_out_h   <= 0;
             d_out_h    <= 0;
