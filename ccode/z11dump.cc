@@ -57,6 +57,8 @@ struct XMemRange {
     uint16_t hiaddr;
 };
 
+static char const *const fmstrs[] = { FMSTRS };
+
 static bool volatile exitflag;
 static char stdoutbuf[8000];
 
@@ -179,30 +181,29 @@ int main (int argc, char **argv)
         if (! oncemode) printf (ESC_HOMEC);
 
         if (xmemranges == NULL) {
+            uint32_t fpgamode = FIELD (Z_RA, a_fpgamode);
+            uint32_t rsel1 = FIELD (Z_RC, c_rsel1_h);
+            uint32_t rsel2 = FIELD (Z_RC, c_rsel2_h);
+            uint32_t rsel3 = FIELD (Z_RC, c_rsel3_h);
 
             // zynq.v register dump
-            printf ("VERSION=%08X 11%s", z11s[0], eol);
-            printf ("  fpgamode=%o%s",                                                                            FIELD(Z_RA,a_fpgamode),                                eol);
-            printf ("      a_out_h=%06o     a_in_h=%06o     a_out_h=%06o%s",          FIELD(Z_RB,b_a_out_h),      FIELD(Z_RF,f_a_in_h),      FIELD(Z_RD,d_a_out_h),      eol);
-            printf ("  ac_lo_out_h=%o      ac_lo_in_h=%o%s",                          FIELD(Z_RA,a_ac_lo_out_h),  FIELD(Z_RC,c_ac_lo_in_h),                              eol);
-            printf ("   bbsy_out_h=%o       bbsy_in_h=%o       bbsy_out_h=%o%s",      FIELD(Z_RA,a_bbsy_out_h),   FIELD(Z_RC,c_bbsy_in_h),   FIELD(Z_RD,d_bbsy_out_h),   eol);
-            printf ("     bg_out_l=%02o        bg_in_l=%02o        bg_out_l=%02o%s",  FIELD(Z_RB,b_bg_out_l),     FIELD(Z_RC,c_bg_in_l),     FIELD(Z_RE,e_bg_out_l),     eol);
-            printf ("     br_out_h=%02o        br_in_h=%02o        br_out_h=%02o%s",  FIELD(Z_RB,b_br_out_h),     FIELD(Z_RE,e_br_in_h),     FIELD(Z_RE,e_br_out_h),     eol);
-            printf ("      c_out_h=%o          c_in_h=%o          c_out_h=%o%s",      FIELD(Z_RB,b_c_out_h),      FIELD(Z_RE,e_c_in_h),      FIELD(Z_RE,e_c_out_h),      eol);
-            printf ("      d_out_h=%06o     d_in_h=%06o     d_out_h=%06o%s",          FIELD(Z_RA,a_d_out_h),      FIELD(Z_RG,g_d_in_h),      FIELD(Z_RG,g_d_out_h),      eol);
-            printf ("  dc_lo_out_h=%o      dc_lo_in_h=%o%s",                          FIELD(Z_RA,a_dc_lo_out_h),  FIELD(Z_RC,c_dc_lo_in_h),                              eol);
-            printf ("                     hltgr_in_l=%o%s",                                                       FIELD(Z_RC,c_hltgr_in_l),                              eol);
-            printf ("  hltrq_out_h=%o      hltrq_in_h=%o      hltrq_out_h=%o%s",      FIELD(Z_RA,a_hltrq_out_h),  FIELD(Z_RE,e_hltrq_in_h),  FIELD(Z_RD,d_hltrq_out_h),  eol);
-            printf ("   init_out_h=%o       init_in_h=%o       init_out_h=%o%s",      FIELD(Z_RA,a_init_out_h),   FIELD(Z_RC,c_init_in_h),   FIELD(Z_RD,d_init_out_h),   eol);
-            printf ("   intr_out_h=%o       intr_in_h=%o       intr_out_h=%o%s",      FIELD(Z_RA,a_intr_out_h),   FIELD(Z_RC,c_intr_in_h),   FIELD(Z_RD,d_intr_out_h),   eol);
-            printf ("   msyn_out_h=%o       msyn_in_h=%o       msyn_out_h=%o%s",      FIELD(Z_RA,a_msyn_out_h),   FIELD(Z_RC,c_msyn_in_h),   FIELD(Z_RD,d_msyn_out_h),   eol);
-            printf ("    npg_out_l=%o        npg_in_l=%o        npg_out_l=%o%s",      FIELD(Z_RA,a_npg_out_l),    FIELD(Z_RC,c_npg_in_l),    FIELD(Z_RD,d_npg_out_l),    eol);
-            printf ("    npr_out_h=%o        npr_in_h=%o        npr_out_h=%o%s",      FIELD(Z_RA,a_npr_out_h),    FIELD(Z_RE,e_npr_in_h),    FIELD(Z_RD,d_npr_out_h),    eol);
-            printf ("     pa_out_h=%o         pa_in_h=%o         pa_out_h=%o%s",      FIELD(Z_RA,a_pa_out_h),     FIELD(Z_RE,e_pa_in_h),     FIELD(Z_RD,d_pa_out_h),     eol);
-            printf ("     pb_out_h=%o         pb_in_h=%o         pb_out_h=%o%s",      FIELD(Z_RA,a_pb_out_h),     FIELD(Z_RE,e_pb_in_h),     FIELD(Z_RD,d_pb_out_h),     eol);
-            printf ("   sack_out_h=%o       sack_in_h=%o       sack_out_h=%o%s",      FIELD(Z_RA,a_sack_out_h),   FIELD(Z_RC,c_sack_in_h),   FIELD(Z_RD,d_sack_out_h),   eol);
-            printf ("   ssyn_out_h=%o       ssyn_in_h=%o       ssyn_out_h=%o%s",      FIELD(Z_RA,a_ssyn_out_h),   FIELD(Z_RC,c_ssyn_in_h),   FIELD(Z_RD,d_ssyn_out_h),   eol);
-            printf ("       rsel_h=%o             mux=%05o  rsel1,2,3_h=%o,%o,%o%s",  FIELD(Z_RB,b_rsel_h),       (z11s[Z_RC]>>17)&32767,    FIELD(Z_RC,c_rsel1_h), FIELD(Z_RC,c_rsel2_h), FIELD(Z_RC,c_rsel3_h), eol);
+            printf ("VERSION=%08X 11  fpgamode=%o  FM_%s%s", z11s[0], fpgamode, fmstrs[fpgamode], eol);
+            printf ("      man_a_out_h=%06o  dmx_a_in_h=%06o     dev_a_h=%06o%s",           FIELD(Z_RB,b_a_out_h),      FIELD(Z_RF,f_a_in_h),      FIELD(Z_RD,d_a_out_h),      eol);
+            printf ("   man_bbsy_out_h=%o        bbsy_in_h=%o       dev_bbsy_h=%o%s",       FIELD(Z_RA,a_bbsy_out_h),   FIELD(Z_RC,c_bbsy_in_h),   FIELD(Z_RD,d_bbsy_out_h),   eol);
+            printf ("     man_bg_out_l=%02o         bg_in_l=%02o        dev_bg_l=%02o%s",   FIELD(Z_RB,b_bg_out_l),     FIELD(Z_RC,c_bg_in_l),     FIELD(Z_RE,e_bg_out_l),     eol);
+            printf ("     man_br_out_h=%02o     dmx_br_in_h=%02o        dev_br_h=%02o%s",   FIELD(Z_RB,b_br_out_h),     FIELD(Z_RE,e_br_in_h),     FIELD(Z_RE,e_br_out_h),     eol);
+            printf ("      man_c_out_h=%o       dmx_c_in_h=%o          dev_c_h=%o%s",       FIELD(Z_RB,b_c_out_h),      FIELD(Z_RE,e_c_in_h),      FIELD(Z_RE,e_c_out_h),      eol);
+            printf ("      man_d_out_h=%06o  dmx_d_in_h=%06o     dev_d_h=%06o%s",           FIELD(Z_RA,a_d_out_h),      FIELD(Z_RG,g_d_in_h),      FIELD(Z_RG,g_d_out_h),      eol);
+            printf ("                          hltgr_in_l=%o%s",                                                        FIELD(Z_RC,c_hltgr_in_l),                              eol);
+            printf ("  man_hltrq_out_h=%o   dmx_hltrq_in_h=%o      dev_hltrq_h=%o%s",       FIELD(Z_RA,a_hltrq_out_h),  FIELD(Z_RE,e_hltrq_in_h),  FIELD(Z_RD,d_hltrq_out_h),  eol);
+            printf ("   man_init_out_h=%o        init_in_h=%o       dev_init_h=%o%s",       FIELD(Z_RA,a_init_out_h),   FIELD(Z_RC,c_init_in_h),   FIELD(Z_RD,d_init_out_h),   eol);
+            printf ("   man_intr_out_h=%o        intr_in_h=%o       dev_intr_h=%o%s",       FIELD(Z_RA,a_intr_out_h),   FIELD(Z_RC,c_intr_in_h),   FIELD(Z_RD,d_intr_out_h),   eol);
+            printf ("   man_msyn_out_h=%o        msyn_in_h=%o       dev_msyn_h=%o%s",       FIELD(Z_RA,a_msyn_out_h),   FIELD(Z_RC,c_msyn_in_h),   FIELD(Z_RD,d_msyn_out_h),   eol);
+            printf ("    man_npg_out_l=%o         npg_in_l=%o        dev_npg_l=%o%s",       FIELD(Z_RA,a_npg_out_l),    FIELD(Z_RC,c_npg_in_l),    FIELD(Z_RD,d_npg_out_l),    eol);
+            printf ("    man_npr_out_h=%o     dmx_npr_in_h=%o        dev_npr_h=%o%s",       FIELD(Z_RA,a_npr_out_h),    FIELD(Z_RE,e_npr_in_h),    FIELD(Z_RD,d_npr_out_h),    eol);
+            printf ("   man_sack_out_h=%o        sack_in_h=%o       dev_sack_h=%o%s",       FIELD(Z_RA,a_sack_out_h),   FIELD(Z_RC,c_sack_in_h),   FIELD(Z_RD,d_sack_out_h),   eol);
+            printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o%s",       FIELD(Z_RA,a_ssyn_out_h),   FIELD(Z_RC,c_ssyn_in_h),   FIELD(Z_RD,d_ssyn_out_h),   eol);
+            printf ("       man_rsel_h=%o      rsel1,2,3_h=%o,%o,%o          mux=%05o%s",   FIELD(Z_RB,b_rsel_h),       rsel1, rsel2, rsel3,       (z11s[Z_RC]>>17)&32767,     eol);
 
             for (int i = 0; i < 1024;) {
                 uint32_t idver = z11s[i];

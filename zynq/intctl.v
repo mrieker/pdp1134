@@ -42,21 +42,36 @@ module intctl (
     output reg intr_out_h,
     output reg sack_out_h);
 
-    assign bg_out_l = br_out_h ? 1 : bg_in_l;
+    assign bg_out_l = br_out_h | bg_in_l;
+    reg[2:0] intdelay;
 
     always @(posedge CLOCK) begin
         if (RESET) begin
             bbsy_out_h <= 0;
             br_out_h   <= 0;
             d_out_h    <= 0;
+            intdelay   <= 0;
             intr_out_h <= 0;
             sack_out_h <= 0;
         end else begin
-            if (~ intvec[0] & ~ sack_out_h & ~ intr_out_h & ~ br_out_h) begin
-                br_out_h   <= 1;
-            end else if (br_out_h & ~ bg_in_l & ~ sack_in_h) begin
-                br_out_h   <= 0;
-                sack_out_h <= 1;
+            // see if something requesting interrupt and we haven't requested interrupt
+            // also make sure grant not being given to something downstream so we don't
+            // ...steal its grant after it has possibly seen it
+            if (~ intvec[0] & ~ sack_out_h & ~ intr_out_h & ~ br_out_h & bg_in_l) begin
+                br_out_h <= 1;
+                intdelay <= 0;
+            end
+            // see if our request is being granted
+            // deglitch grant in case something upstream requested at same time we did
+            else if (br_out_h) begin
+                if (bg_in_l) begin
+                    intdelay   <= 0;
+                end else if (intdelay != 4) begin
+                    intdelay   <= intdelay + 1;
+                end else begin
+                    br_out_h   <= 0;
+                    sack_out_h <= 1;
+                end
             end else if (sack_out_h & ~ bbsy_in_h & bg_in_l & ~ ssyn_in_h) begin
                 if (~ intvec[0]) begin
                     bbsy_out_h <= 1;

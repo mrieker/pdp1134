@@ -47,10 +47,13 @@
 #define a_bbsy_out_h  (1U << 27)
 #define a_ac_lo_out_h (1U << 28)
 #define a_fpgamode    (3U << 30)
+
 #define FM_OFF  0U    // reset FPGA and disconnect from bus
 #define FM_SIM  1U    // simulated CPU, ignores PDP-11/34, disconnected from bus
 #define FM_REAL 2U    // normal mode, assumes PDP-11/34 present
 #define FM_MAN  3U    // manual control of all bus lines
+
+#define FMSTRS "OFF", "SIM", "REAL", "MAN"
 
 #define b_a_out_h     (0777777U << 0)
 #define b_c_out_h     (3U << 18)

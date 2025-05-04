@@ -79,8 +79,8 @@ module Zynq (
     output reg msyn_out_h,
     output reg npg_out_l,
     output reg npr_out_h,
-    output reg pa_out_h,
-    output reg pb_out_h,
+    output pa_out_h,
+    output pb_out_h,
     output reg sack_out_h,
     output reg ssyn_out_h,
 
@@ -110,7 +110,7 @@ module Zynq (
     input         saxi_WVALID);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314006;
+    localparam VERSION = 32'h31314007;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -122,70 +122,20 @@ module Zynq (
     reg[11:00] ilaafter, ilaindex;
     reg ilaarmed;
 
-    ////////////////////////////
-    //  internal bus signals  //
-    ////////////////////////////
+    // we don't do anything with these
+    assign pa_out_h = 0;
+    assign pb_out_h = 0;
 
-    // _in_ signals: FM_OFF,FM_MAN: zeroes; FM_SIM: from simulator; FM_REAL: from unibus
-    // _out_ signals: FM_OFF,FM_MAN: ignored; FM_SIM: to simulator; FM_REAL: to unibus
+    // regctla[31:30] determine overall FPGA mode
+    reg[31:00] regctla, regctlb;
+    localparam FM_OFF  = 0;     // FPGA 'off' - acts as a grant jumper card
+    localparam FM_SIM  = 1;     // simulating - still acts as grant jumper to outside world
+    localparam FM_REAL = 2;     // real - connected to outside signals
+    localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
 
-    reg dev_ac_lo_in_h;
-    reg dev_bbsy_in_h;
-    reg dev_dc_lo_in_h;
-    reg dev_hltgr_in_l;
-    reg dev_hltrq_in_h;
-    reg dev_intr_in_h;
-    reg dev_init_in_h;
-    reg dev_msyn_in_h;
-    reg dev_msyn_out_h;
-    reg dev_npg_in_l;
-    reg dev_npg_out_l;
-    reg dev_npr_out_h;
-    reg dev_sack_in_h;
-    reg dev_ssyn_in_h;
-
-    wire dev_ac_lo_out_h;
-    wire dev_dc_lo_out_h;
-    wire dev_hltrq_out_h;
-    wire dev_init_out_h;
-
-    reg[1:0] dev_c_in_h;
-    reg[1:0] dev_c_out_h;
-    reg[7:4] dev_bg_in_l;
-    reg[15:00] dev_d_in_h;
-    reg[17:00] dev_a_in_h;
-    reg[17:00] dev_a_out_h;
-
-    wire dev_bbsy_out_h;
-    wire dev_intr_out_h;
-    wire dev_sack_out_h;
-    wire dev_ssyn_out_h;
-    wire[7:4] dev_bg_out_l;
-    wire[7:4] dev_br_out_h;
-    wire[15:00] dev_d_out_h;
-
-    /////////////////////////////////////////////////////////////
-    //  signals coming out of simulator going to internal bus  //
-    /////////////////////////////////////////////////////////////
-
-    reg sim_ac_lo_in_h;
-    reg sim_bbsy_in_h;
-    reg sim_dc_lo_in_h;
-    reg sim_hltgr_in_l;
-    reg sim_init_in_h;
-    reg sim_intr_in_h;
-    reg sim_msyn_in_h;
-    reg sim_npg_in_l;
-    reg sim_sack_in_h;
-    reg sim_ssyn_in_h;
-    reg[1:0] sim_c_in_h;
-    reg[7:4] sim_bg_in_l;
-    reg[15:00] sim_d_in_h;
-    reg[17:00] sim_a_in_h;
-
-    ///////////////////////////////////////
-    //  demultiplex signals from unibus  //
-    ///////////////////////////////////////
+    /////////////////////////////////////////////////////////////////
+    //  synchronize and demultiplex signals coming in from unibus  //
+    /////////////////////////////////////////////////////////////////
 
     // synchronize non-multiplexed signals to fpga clock
     // - worst-case delay of 20nS
@@ -209,7 +159,7 @@ module Zynq (
 
     // input demux signal latches
     // - loaded from mux pins every 150nS
-    reg dmx_hltrq_in_h, dmx_npr_in_h, dmx_pa_in_h, dmx_pb_in_h;
+    reg dmx_hltrq_in_h, dmx_npr_in_h;
     reg[1:0] dmx_c_in_h;
     reg[7:4] dmx_br_in_h;
     reg[17:00] dmx_a_in_h;
@@ -238,10 +188,8 @@ module Zynq (
 
                 // all soaked in, clock into corresponding flipflops
                 if (rsel1_h) begin
-                    dmx_pa_in_h    <= muxa;
                     dmx_d_in_h[11] <= muxb;
                     dmx_hltrq_in_h <= muxc;
-                    dmx_pb_in_h    <= muxd;
                     dmx_d_in_h[15] <= muxe;
                     dmx_d_in_h[14] <= muxf;
                     dmx_d_in_h[13] <= muxh;
@@ -311,167 +259,89 @@ module Zynq (
         end
     end
 
-    //////////////////////////////////
-    //  send signals out to unibus  //
-    //////////////////////////////////
+    ////////////////////////////
+    //  internal bus signals  //
+    ////////////////////////////
 
-    // - hi-Z if OFF or SIM mode
-    //   internal bus forwarded to unibus if REAL mode
-    //   arm registers forwarded to unibus if MAN mode
+    // wired-and/or of signals from all devices
+    // includes unibus whenever in FM_REAL mode
+    // includes simulator whenever in FM_SIM mode
 
-    reg[31:00] regctla, regctlb;
+    reg dev_ac_lo_h;
+    reg dev_bbsy_h;
+    reg dev_dc_lo_h;
+    reg dev_hltrq_h;
+    reg dev_init_h;
+    reg dev_intr_h;
+    reg dev_msyn_h;
+    reg dev_npg_l;
+    reg dev_npr_h;
+    reg dev_sack_h;
+    reg dev_ssyn_h;
 
-    localparam FM_OFF  = 0;
-    localparam FM_SIM  = 1;
-    localparam FM_REAL = 2;
-    localparam FM_MAN  = 3;
+    reg[1:0] dev_c_h;
+    reg[7:4] dev_bg_l;
+    reg[7:4] dev_br_h;
+    reg[15:00] dev_d_h;
+    reg[17:00] dev_a_h;
 
-    always @(*) begin
-        case (regctla[31:30])
+    /////////////////////////////////////////////////////////////
+    //  signals coming out of simulator going to internal bus  //
+    /////////////////////////////////////////////////////////////
 
-            // FM_OFF, FM_SIM
-            // - hi-Z all outputs to unibus except forward grant signals on
-            // - input muxes shut off
-            FM_OFF, FM_SIM: begin
-                a_out_h     <= 0;           // sending 0V to gates opens the transistors
-                ac_lo_out_h <= 0;
-                bbsy_out_h  <= 0;
-                bg_out_l    <= bg_in_l;     // act as grant jumper card when shut off
-                br_out_h    <= 0;
-                c_out_h     <= 0;
-                d_out_h     <= 0;
-                dc_lo_out_h <= 0;
-                hltrq_out_h <= 0;
-                init_out_h  <= 0;
-                intr_out_h  <= 0;
-                msyn_out_h  <= 0;
-                npg_out_l   <= npg_in_l;
-                npr_out_h   <= 0;
-                pa_out_h    <= 0;
-                pb_out_h    <= 0;
-                sack_out_h  <= 0;
-                ssyn_out_h  <= 0;
-            end
+    // zeroes when not in FM_SIM mode
 
-            // FM_REAL - forward internal signals out onto unibus
-            FM_REAL: begin
-                a_out_h     <= dev_a_out_h;
-                ac_lo_out_h <= dev_ac_lo_out_h;
-                bbsy_out_h  <= dev_bbsy_out_h;
-                bg_out_l    <= dev_bg_out_l;
-                br_out_h    <= dev_br_out_h;
-                c_out_h     <= dev_c_out_h;
-                d_out_h     <= dev_d_out_h;
-                dc_lo_out_h <= dev_dc_lo_out_h;
-                hltrq_out_h <= dev_hltrq_out_h;
-                init_out_h  <= dev_init_out_h;
-                intr_out_h  <= dev_intr_out_h;
-                msyn_out_h  <= dev_msyn_out_h;
-                npg_out_l   <= dev_npg_out_l;
-                npr_out_h   <= dev_npr_out_h;
-                pa_out_h    <= 0;
-                pb_out_h    <= 0;
-                sack_out_h  <= dev_sack_out_h;
-                ssyn_out_h  <= dev_ssyn_out_h;
-            end
+    wire simmode = regctla[31:30] == FM_SIM;
 
-            // FM_MAN - signals come from arm registers
-            // - for the grants, =0 passes grant, =1 blocks grant
-            FM_MAN: begin
-                a_out_h     <= regctlb[17:00];
-                ac_lo_out_h <= regctla[28];
-                bbsy_out_h  <= regctla[27];
-                bg_out_l    <= regctlb[27:24] | bg_in_l;
-                br_out_h    <= regctlb[23:20];
-                c_out_h     <= regctlb[19:18];
-                d_out_h     <= regctla[15:00];
-                dc_lo_out_h <= regctla[26];
-                hltrq_out_h <= regctla[25];
-                init_out_h  <= regctla[24];
-                intr_out_h  <= regctla[23];
-                msyn_out_h  <= regctla[22];
-                npg_out_l   <= regctla[21]    | npg_in_l;
-                npr_out_h   <= regctla[20];
-                pa_out_h    <= regctla[19];
-                pb_out_h    <= regctla[18];
-                sack_out_h  <= regctla[17];
-                ssyn_out_h  <= regctla[16];
-            end
-        endcase
-    end
+    wire[17:00] sim_a_out_l;
+    wire[1:0] sim_c_out_l;
+    wire[15:00] sim_d_out_l;
+    wire sim_bbsy_out_l;
+    wire sim_init_out_l;
+    wire sim_msyn_out_l;
+    wire sim_ssyn_out_l;
+    wire[7:4] sim_bg_out_h;
+    wire sim_npg_out_h;
+    wire sim_hltgr_out_h;
 
-    //////////////////////////////////////////
-    //  get input signals for internal bus  //
-    //////////////////////////////////////////
+    sim1134 siminst (
+        .CLOCK (CLOCK),
+        .RESET (~ RESET_N | ~ simmode),
 
-    // - zeroes if OFF or MAN
-    //   from simulator if SIM
-    //   from real unibus if REAL
+        .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
+        .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
+        .bus_br_in_l      (~ dev_br_h),         //<< some device is requesting an interrupt
+        .bus_dc_lo_in_l   (~ dev_dc_lo_h),      //<< power supply telling cpu it is off
+        .bus_intr_in_l    (~ dev_intr_h),       //<< some device telling cpu it is passing interrupt vector
+        .bus_npr_in_l     (~ dev_npr_h),        //<< some device requesting dma cycle
+        .bus_sack_in_l    (~ dev_sack_h),       //<< some device acknowledging bg/npg/hltgr signal
+        .halt_rqst_in_l   (~ dev_hltrq_h),      //<< some device is requesting cpu to halt
 
-    always @(*) begin
-        case (regctla[31:30])
+        .bus_a_in_l       (~ dev_a_h),          //<< some device passing address of cpu internal register to cpu
+        .bus_c_in_l       (~ dev_c_h),          //<< some device passing function for cpu internal register to cpu
+        .bus_d_in_l       (~ dev_d_h),          //<< some device passing data to be written to cpu internal register
+        .bus_init_in_l    (~ dev_init_h),       //<< bus is being initialized
+        .bus_msyn_in_l    (~ dev_msyn_h),       //<< some device is accessing a cpu internal register
+        .bus_ssyn_in_l    (~ dev_ssyn_h),       //<< some device has completed a device register read or write
 
-            // FM_OFF, FM_MAN - zeroes on internal bus
-            FM_OFF, FM_MAN: begin
-                dev_a_in_h     <= 0;
-                dev_ac_lo_in_h <= 0;
-                dev_bbsy_in_h  <= 0;
-                dev_bg_in_l    <= 15;
-                dev_c_in_h     <= 0;
-                dev_d_in_h     <= 0;
-                dev_dc_lo_in_h <= 0;
-                dev_hltgr_in_l <= 1;
-                dev_init_in_h  <= ~ RESET_N;
-                dev_intr_in_h  <= 0;
-                dev_msyn_in_h  <= 0;
-                dev_npg_in_l   <= 1;
-                dev_sack_in_h  <= 0;
-                dev_ssyn_in_h  <= 0;
-            end
+        .bus_a_out_l      (sim_a_out_l),        //>> cpu is passing address to memory and devices
+        .bus_c_out_l      (sim_c_out_l),        //>> cpu is passing function to memory and devices
+        .bus_d_out_l      (sim_d_out_l),        //>> cpu is passing write data to memory and devices, or passing read data from cpu internal register
+        .bus_bbsy_out_l   (sim_bbsy_out_l),     //>> cpu is busy using the bus as a master
+        .bus_init_out_l   (sim_init_out_l),     //>> cpu is resetting the bus (RESET instruction)
+        .bus_msyn_out_l   (sim_msyn_out_l),     //>> cpu is accessing memory or device register
+        .bus_ssyn_out_l   (sim_ssyn_out_l),     //>> cpu has completed a cpu internal register read or write
 
-            // FM_SIM - forward inputs from simulator to internal bus
-            FM_SIM: begin
-                dev_a_in_h     <= sim_a_in_h;
-                dev_ac_lo_in_h <= sim_ac_lo_in_h;
-                dev_bbsy_in_h  <= sim_bbsy_in_h;
-                dev_bg_in_l    <= sim_bg_in_l;
-                dev_c_in_h     <= sim_c_in_h;
-                dev_d_in_h     <= sim_d_in_h;
-                dev_dc_lo_in_h <= sim_dc_lo_in_h;
-                dev_hltgr_in_l <= sim_hltgr_in_l;
-                dev_init_in_h  <= sim_init_in_h | ~ RESET_N;
-                dev_intr_in_h  <= sim_intr_in_h;
-                dev_msyn_in_h  <= sim_msyn_in_h;
-                dev_npg_in_l   <= sim_npg_in_l;
-                dev_sack_in_h  <= sim_sack_in_h;
-                dev_ssyn_in_h  <= sim_ssyn_in_h;
-            end
-
-            // FM_REAL - forward inputs from unibus to internal bus
-            FM_REAL: begin
-                dev_a_in_h     <= dmx_a_in_h;       // demultiplexed
-                dev_ac_lo_in_h <= syn_ac_lo_in_h;   // syncd to fpga clock
-                dev_bbsy_in_h  <= syn_bbsy_in_h;
-                dev_bg_in_l    <= syn_bg_in_l;
-                dev_c_in_h     <= dmx_c_in_h;
-                dev_d_in_h     <= dmx_d_in_h;
-                dev_dc_lo_in_h <= syn_dc_lo_in_h;
-                dev_hltgr_in_l <= syn_hltgr_in_l;
-                dev_init_in_h  <= syn_init_in_h | ~ RESET_N;
-                dev_intr_in_h  <= syn_intr_in_h;
-                dev_msyn_in_h  <= del_msyn_in_h;    // delayed until 3 demux cycles complete
-                dev_npg_in_l   <= syn_npg_in_l;
-                dev_sack_in_h  <= syn_sack_in_h;
-                dev_ssyn_in_h  <= syn_ssyn_in_h;
-            end
-        endcase
-    end
+        .bus_bg_out_h     (sim_bg_out_h),       //>> cpu is granting an interrupt request
+        .bus_npg_out_h    (sim_npg_out_h),      //>> cpu is granting a dma request
+        .halt_grant_out_h (sim_hltgr_out_h)     //>> cpu is granting an halt request
+    );
 
     ///////////////////////////////////////////////////////
     //  give arm direct read-only access to unibus pins  //
     ///////////////////////////////////////////////////////
 
-    wire simmode = regctla[31:30] == FM_SIM;
+    wire turnedon = regctla[31:30] != FM_OFF;
 
     wire[31:00] regctlc = {
         muxa,               // multiplexed inputs
@@ -494,38 +364,36 @@ module Zynq (
         rsel2_h,
         rsel3_h,
 
-        simmode ? sim_ac_lo_in_h : ac_lo_in_h,  // control inputs
-        simmode ? sim_bbsy_in_h  : bbsy_in_h,
-        simmode ? sim_dc_lo_in_h : dc_lo_in_h,
-        simmode ? sim_hltgr_in_l : hltgr_in_l,
-        simmode ? sim_init_in_h  : init_in_h,
-        simmode ? sim_intr_in_h  : intr_in_h,
-        simmode ? sim_msyn_in_h  : msyn_in_h,
-        simmode ? sim_npg_in_l   : npg_in_l,
-        simmode ? sim_sack_in_h  : sack_in_h,
-        simmode ? sim_ssyn_in_h  : ssyn_in_h,
-
-        simmode ? sim_bg_in_l    : bg_in_l      // bus grant inputs
+        turnedon ? dev_ac_lo_h : ac_lo_in_h,   // power supply indicating AC failure
+        turnedon ? dev_bbsy_h  : bbsy_in_h,    // pdp or real rl11 using bus
+        turnedon ? dev_dc_lo_h : dc_lo_in_h,   // power supply indicating DC failure
+        turnedon ? dev_hltgr_l : hltgr_in_l,   // pdp is halted
+        turnedon ? dev_init_h  : init_in_h,    // pdp doing RESET
+        turnedon ? dev_intr_h  : intr_in_h,    // real rl11 is sending int vector to pdp
+        turnedon ? dev_msyn_h  : msyn_in_h,    // pdp or rl11 is mastering cycle
+        turnedon ? dev_npg_l   : npg_in_l,     // pdp is granting dma
+        turnedon ? dev_sack_h  : sack_in_h,    // real rl11 is acknowledging grant
+        turnedon ? dev_ssyn_h  : ssyn_in_h,    // real rl11 slave or real mem completed transfer
+        turnedon ? dev_bg_l    : bg_in_l       // bus grant inputs
     };
 
     wire[31:00] regctld = {
         1'b0,
 
-        dev_ac_lo_out_h,    // control outputs
-        dev_bbsy_out_h,
-        dev_dc_lo_out_h,
-        dev_hltrq_out_h,
-        dev_init_out_h,
-        dev_intr_out_h,
-        dev_msyn_out_h,
-        dev_npg_out_l,
-        dev_npr_out_h,
-            pa_out_h,
-            pb_out_h,
-        dev_sack_out_h,
-        dev_ssyn_out_h,
+        dev_ac_lo_h,    // control outputs
+        dev_bbsy_h,
+        dev_dc_lo_h,
+        dev_hltrq_h,
+        dev_init_h,
+        dev_intr_h,
+        dev_msyn_h,
+        dev_npg_l,
+        dev_npr_h,
+        2'b0,
+        dev_sack_h,
+        dev_ssyn_h,
 
-        dev_a_out_h         // address bus outputs
+        dev_a_h         // address bus outputs
     };
 
     wire[31:00] regctle = {
@@ -533,27 +401,26 @@ module Zynq (
 
         muxcount,
 
-        simmode ? 1'b0       : dmx_npr_in_h,
-        simmode ? 1'b0       : dmx_pa_in_h,
-        simmode ? 1'b0       : dmx_pb_in_h,
-        simmode ? 1'b0       : dmx_hltrq_in_h,
+        dmx_npr_in_h,
+        2'b0,
+        dmx_hltrq_in_h,
 
-        simmode ? sim_c_in_h : dmx_c_in_h,
-        dev_c_out_h,        // control bus outputs
+        dmx_c_in_h,
+        dev_c_h,            // control bus outputs
 
-        simmode ? 1'b0       : dmx_br_in_h,
-        dev_br_out_h,       // bus request outputs
-        dev_bg_out_l        // bus grant outputs
+        dmx_br_in_h,
+        dev_br_h,           // bus request outputs
+        dev_bg_l            // bus grant outputs
     };
 
     wire[31:00] regctlf = {
         14'b0,
-        simmode ? sim_a_in_h : dmx_a_in_h
+        dmx_a_in_h
     };
 
     wire[31:00] regctlg = {
-        simmode ? sim_d_in_h : dmx_d_in_h,
-        dev_d_out_h         // data bus outputs
+        dmx_d_in_h,
+        dev_d_h             // data bus outputs
     };
 
     /////////////////////////////////////
@@ -574,16 +441,16 @@ module Zynq (
         (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, 4'b0, ilaindex } :
         (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
         (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
-        (readaddr[11:04] ==  8'b00001000)   ? lmarmrdata  :
-        (readaddr[11:04] ==  8'b00001001)   ? slarmrdata  :
-        (readaddr[11:04] ==  8'b00001010)   ? tt0armrdata :
+        (readaddr[11:05] ==  8'b0000100)    ? slarmrdata  :
+        (readaddr[11:04] ==  8'b00001010)   ? lmarmrdata  :
+        (readaddr[11:04] ==  8'b00001011)   ? tt0armrdata :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
-    wire lmarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001000);
-    wire slarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001001);
-    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001010);
+    wire slarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000100);
+    wire lmarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001010);
+    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001011);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -594,7 +461,13 @@ module Zynq (
             saxi_WREADY  <= 0;                              // we are not ready to accept write data
             saxi_BVALID  <= 0;                              // we are not acknowledging any write
 
-            regctla[31:0] <= FM_OFF;                        // FM_OFF disconnect from bus
+            regctla[31:30] <= FM_OFF;                       // FM_OFF disconnect from bus
+            regctla[29:22] <= 0;
+            regctla[21]    <= 1'b1;                         // man_npg_out_l
+            regctla[20:00] <= 0;
+            regctlb[31:28] <= 0;
+            regctlb[27:24] <= 4'b1111;                      // man_bg_out_l
+            regctlb[23:00] <= 0;
 
         end else begin
 
@@ -648,9 +521,9 @@ module Zynq (
         end
     end
 
-    ///////////////
-    //  devices  //
-    ///////////////
+    ////////////////////////
+    //  internal devices  //
+    ////////////////////////
 
     // little memory
     wire lm_ssyn_out_h;
@@ -666,43 +539,53 @@ module Zynq (
         .armwdata (saxi_WDATA),
         .armwrite (lmarmwrite),
 
-        .a_in_h (dev_a_in_h),
-        .c_in_h (dev_c_in_h),
-        .d_in_h (dev_d_in_h),
-        .init_in_h (dev_init_in_h),
-        .msyn_in_h (dev_msyn_in_h),
+        .a_in_h (dev_a_h),
+        .c_in_h (dev_c_h),
+        .d_in_h (dev_d_h),
+        .init_in_h (dev_init_h),
+        .msyn_in_h (dev_msyn_h),
 
         .d_out_h (lm_d_out_h),
         .ssyn_out_h (lm_ssyn_out_h));
 
     // switches and lights
-    wire sl_sack_out_h, sl_ssyn_out_h;
+    wire sl_ac_lo_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
+    wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
+    wire[1:0] sl_c_out_h;
     wire[15:00] sl_d_out_h;
+    wire[17:00] sl_a_out_h;
 
     swlight slinst (
         .CLOCK (CLOCK),
         .RESET (~ RESET_N),
 
-        .armraddr (readaddr[3:2]),
+        .armraddr (readaddr[4:2]),
         .armrdata (slarmrdata),
-        .armwaddr (writeaddr[3:2]),
+        .armwaddr (writeaddr[4:2]),
         .armwdata (saxi_WDATA),
         .armwrite (slarmwrite),
 
-        .a_in_h (dev_a_in_h),
-        .c_in_h (dev_c_in_h),
-        .d_in_h (dev_d_in_h),
-        .hltgr_in_l (dev_hltgr_in_l),
-        .init_in_h (dev_init_in_h),
-        .msyn_in_h (dev_msyn_in_h),
+        .a_in_h      (dev_a_h),         //<< address from pdp/sim to read switch register or write light register
+        .c_in_h      (dev_c_h),         //<< control code from pdp/sim to read switch register or write light register
+        .d_in_h      (dev_d_h),         //<< data from pdp/sim to write to light register or data being read from real memory or device
+        .hltgr_in_l  (dev_hltgr_l),     //<< halt grant from pdp/sim indicating it has halted
+        .init_in_h   (dev_init_h),      //<< bus init signal from pdp/sim for RESET instruction
+        .msyn_in_h   (dev_msyn_h),      //<< signal from pdp/sim when reading/writing switch/light register
+        .npg_in_l    (dev_npg_l),       //<< pdp/sim says it is ok to do a DMA transfer
+        .ssyn_in_h   (dev_ssyn_h),      //<< signal from pdp/sim/device indicating data transfer complete
 
-        .ac_lo_out_h (dev_ac_lo_out_h),
-        .d_out_h (sl_d_out_h),
-        .dc_lo_out_h (dev_dc_lo_out_h),
-        .hltrq_out_h (dev_hltrq_out_h),
-        .init_out_h (dev_init_out_h),
-        .sack_out_h (sl_sack_out_h),
-        .ssyn_out_h (sl_ssyn_out_h));
+        .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
+        .ac_lo_out_h (sl_ac_lo_out_h),
+        .c_out_h     (sl_c_out_h),      //>> control from front panel to read or write memory or device register
+        .d_out_h     (sl_d_out_h),      //>> data being written to pdp/sim/memory or data being read from switch register
+        .dc_lo_out_h (sl_dc_lo_out_h),
+        .hltrq_out_h (sl_hltrq_out_h),  //>> halt switch on requesting pdp/sim to halt
+        .init_out_h  (sl_init_out_h),   //>> initialize button being pressed to reset everything
+        .msyn_out_h  (sl_msyn_out_h),   //>> memory cycle being performed by front panel
+        .npg_out_l   (sl_npg_out_l),    //>> pass dma grant signal along
+        .npr_out_h   (sl_npr_out_h),    //>> request use of bus for dma transfer
+        .sack_out_h  (sl_sack_out_h),   //>> acknowledge selection to pdp/sim
+        .ssyn_out_h  (sl_ssyn_out_h));  //>> switch register or light register transfer complete
 
     // console tty
     wire tt0intreq, tt0_ssyn_out_h;
@@ -722,11 +605,11 @@ module Zynq (
         .intreq (tt0intreq),
         .intvec (tt0intvec),
 
-        .a_in_h (dev_a_in_h),
-        .c_in_h (dev_c_in_h),
-        .d_in_h (dev_d_in_h),
-        .init_in_h (dev_init_in_h),
-        .msyn_in_h (dev_msyn_in_h),
+        .a_in_h (dev_a_h),
+        .c_in_h (dev_c_h),
+        .d_in_h (dev_d_h),
+        .init_in_h (dev_init_h),
+        .msyn_in_h (dev_msyn_h),
 
         .d_out_h (tt0_d_out_h),
         .ssyn_out_h (tt0_ssyn_out_h));
@@ -734,6 +617,8 @@ module Zynq (
     /////////////////////////////
     //  interrupt controllers  //
     /////////////////////////////
+
+    // generate interrupt request cycles from simple request/vector lines from internal devices
 
     wire[7:0] intvec4 = tt0intreq ? tt0intvec : 1;
     wire[7:0] intvec5 = 1;
@@ -744,89 +629,189 @@ module Zynq (
     wire irq5_bbsy_out_h, irq5_intr_out_h, irq5_sack_out_h;
     wire irq6_bbsy_out_h, irq6_intr_out_h, irq6_sack_out_h;
     wire irq7_bbsy_out_h, irq7_intr_out_h, irq7_sack_out_h;
+    wire[7:4] irq_br_out_h;
     wire[15:00] irq4_d_out_h, irq5_d_out_h, irq6_d_out_h, irq7_d_out_h;
 
     intctl irq4inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_in_h),
+        .RESET (dev_init_h),
 
         .intvec (intvec4),
 
-        .bbsy_in_h (dev_bbsy_in_h),
-        .bg_in_l   (dev_bg_in_l[4]),
-        .sack_in_h (dev_sack_in_h),
-        .ssyn_in_h (dev_ssyn_in_h),
+        .bbsy_in_h (dev_bbsy_h),
+        .bg_in_l   (dev_bg_l[4]),
+        .sack_in_h (dev_sack_h),
+        .ssyn_in_h (dev_ssyn_h),
 
         .bbsy_out_h (irq4_bbsy_out_h),
-        .bg_out_l   (dev_bg_out_l[4]),
-        .br_out_h   (dev_br_out_h[4]),
+        .br_out_h   (irq_br_out_h[4]),
         .d_out_h    (irq4_d_out_h),
         .intr_out_h (irq4_intr_out_h),
         .sack_out_h (irq4_sack_out_h));
 
     intctl irq5inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_in_h),
+        .RESET (dev_init_h),
 
         .intvec (intvec5),
 
-        .bbsy_in_h (dev_bbsy_in_h),
-        .bg_in_l   (dev_bg_in_l[5]),
-        .sack_in_h (dev_sack_in_h),
-        .ssyn_in_h (dev_ssyn_in_h),
+        .bbsy_in_h (dev_bbsy_h),
+        .bg_in_l   (dev_bg_l[5]),
+        .sack_in_h (dev_sack_h),
+        .ssyn_in_h (dev_ssyn_h),
 
         .bbsy_out_h (irq5_bbsy_out_h),
-        .bg_out_l   (dev_bg_out_l[5]),
-        .br_out_h   (dev_br_out_h[5]),
+        .br_out_h   (irq_br_out_h[5]),
         .d_out_h    (irq5_d_out_h),
         .intr_out_h (irq5_intr_out_h),
         .sack_out_h (irq5_sack_out_h));
 
     intctl irq6inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_in_h),
+        .RESET (dev_init_h),
 
         .intvec (intvec6),
 
-        .bbsy_in_h (dev_bbsy_in_h),
-        .bg_in_l   (dev_bg_in_l[6]),
-        .sack_in_h (dev_sack_in_h),
-        .ssyn_in_h (dev_ssyn_in_h),
+        .bbsy_in_h (dev_bbsy_h),
+        .bg_in_l   (dev_bg_l[6]),
+        .sack_in_h (dev_sack_h),
+        .ssyn_in_h (dev_ssyn_h),
 
         .bbsy_out_h (irq6_bbsy_out_h),
-        .bg_out_l   (dev_bg_out_l[6]),
-        .br_out_h   (dev_br_out_h[6]),
+        .br_out_h   (irq_br_out_h[6]),
         .d_out_h    (irq6_d_out_h),
         .intr_out_h (irq6_intr_out_h),
         .sack_out_h (irq6_sack_out_h));
 
     intctl irq7inst (
         .CLOCK (CLOCK),
-        .RESET (dev_init_in_h),
+        .RESET (dev_init_h),
 
         .intvec (intvec7),
 
-        .bbsy_in_h (dev_bbsy_in_h),
-        .bg_in_l   (dev_bg_in_l[7]),
-        .sack_in_h (dev_sack_in_h),
-        .ssyn_in_h (dev_ssyn_in_h),
+        .bbsy_in_h (dev_bbsy_h),
+        .bg_in_l   (dev_bg_l[7]),
+        .sack_in_h (dev_sack_h),
+        .ssyn_in_h (dev_ssyn_h),
 
         .bbsy_out_h (irq7_bbsy_out_h),
-        .bg_out_l   (dev_bg_out_l[7]),
-        .br_out_h   (dev_br_out_h[7]),
+        .br_out_h   (irq_br_out_h[7]),
         .d_out_h    (irq7_d_out_h),
         .intr_out_h (irq7_intr_out_h),
         .sack_out_h (irq7_sack_out_h));
 
-    ////////////////////////////////////////
-    //  aggregate all bus output signals  //
-    ////////////////////////////////////////
+    /////////////////////////////////////
+    //  generate internal bus signals  //
+    /////////////////////////////////////
 
-    assign dev_bbsy_out_h = irq4_bbsy_out_h | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h;
-    assign dev_d_out_h    = irq4_d_out_h    | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | sl_d_out_h | tt0_d_out_h;
-    assign dev_intr_out_h = irq4_intr_out_h | irq5_intr_out_h | irq6_intr_out_h | irq7_intr_out_h;
-    assign dev_sack_out_h = irq4_sack_out_h | irq5_sack_out_h | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    assign dev_ssyn_out_h = lm_ssyn_out_h   | sl_ssyn_out_h   | tt0_ssyn_out_h;
+    wire[17:00] man_a_out_h     = regctlb[17:00];
+    wire        man_ac_lo_out_h = regctla[28];
+    wire        man_bbsy_out_h  = regctla[27];
+    wire[7:4]   man_bg_out_l    = regctlb[27:24];
+    wire[7:4]   man_br_out_h    = regctlb[23:20];
+    wire[1:0]   man_c_out_h     = regctlb[19:18];
+    wire[15:00] man_d_out_h     = regctla[15:00];
+    wire        man_dc_lo_out_h = regctla[26];
+    wire        man_hltrq_out_h = regctla[25];
+    wire        man_init_out_h  = regctla[24];
+    wire        man_intr_out_h  = regctla[23];
+    wire        man_msyn_out_h  = regctla[22];
+    wire        man_npg_out_l   = regctla[21];
+    wire        man_npr_out_h   = regctla[20];
+    wire        man_sack_out_h  = regctla[17];
+    wire        man_ssyn_out_h  = regctla[16];
+
+    wire[17:00] wor_a_h     = man_a_out_h     | sl_a_out_h;
+    wire        wor_ac_lo_h = man_ac_lo_out_h;
+    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h | irq6_bbsy_out_h | irq7_bbsy_out_h;
+    wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
+    wire[1:0]   wor_c_h     = man_c_out_h     | sl_c_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h    | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h | sl_d_out_h | tt0_d_out_h;
+    wire        wor_dc_lo_h = man_dc_lo_out_h;
+    wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
+    wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l | sl_init_out_h;
+    wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h  | irq5_intr_out_h | irq6_intr_out_h | irq7_intr_out_h;
+    wire        wor_msyn_h  = man_msyn_out_h  | sl_msyn_out_h;
+    wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
+    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | lm_ssyn_out_h    | sl_ssyn_out_h   | tt0_ssyn_out_h;
+
+    always @(*) begin
+        if (regctla[31:30] == FM_REAL) begin
+
+            // send internally generated signals out to unibus
+            a_out_h     <= wor_a_h;
+            ac_lo_out_h <= wor_ac_lo_h;
+            bbsy_out_h  <= wor_bbsy_h;
+            bg_out_l    <= wor_br_h | syn_bg_in_l;
+            br_out_h    <= wor_br_h;
+            c_out_h     <= wor_c_h;
+            d_out_h     <= wor_d_h;
+            dc_lo_out_h <= wor_dc_lo_h;
+            hltrq_out_h <= wor_hltrq_h;
+            init_out_h  <= wor_init_h;
+            intr_out_h  <= wor_intr_h;
+            msyn_out_h  <= wor_msyn_h;
+            npg_out_l   <= wor_npr_h | syn_npg_in_l;
+            npr_out_h   <= wor_npr_h;
+            sack_out_h  <= wor_sack_h;
+            ssyn_out_h  <= wor_ssyn_h;
+
+            // receive those same signals back, wire-and/ored with unibus signals
+            // delayed a bit as they loop through external transistors then back in through synchronizers / demultiplexors
+            dev_a_h     <= dmx_a_in_h;
+            dev_ac_lo_h <= syn_ac_lo_in_h;
+            dev_bbsy_h  <= syn_bbsy_in_h;
+            dev_bg_l    <= syn_bg_in_l;
+            dev_c_h     <= dmx_c_in_h;
+            dev_d_h     <= dmx_d_in_h;
+            dev_dc_lo_h <= syn_dc_lo_in_h;
+            dev_hltrq_h <= dmx_hltrq_in_h;
+            dev_init_h  <= syn_init_in_h;
+            dev_intr_h  <= syn_intr_in_h;
+            dev_msyn_h  <= del_msyn_in_h;
+            dev_npg_l   <= syn_npg_in_l;
+            dev_npr_h   <= dmx_npr_in_h;
+            dev_sack_h  <= syn_sack_in_h;
+            dev_ssyn_h  <= syn_ssyn_in_h;
+        end else begin
+
+            // hi-Z all the transistors going out to unibus
+            // except pass grant signals through
+            a_out_h     <= 0;
+            ac_lo_out_h <= 0;
+            bg_out_l    <= bg_in_l;
+            bbsy_out_h  <= 0;
+            c_out_h     <= 0;
+            d_out_h     <= 0;
+            dc_lo_out_h <= 0;
+            hltrq_out_h <= 0;
+            init_out_h  <= 0;
+            intr_out_h  <= 0;
+            msyn_out_h  <= 0;
+            npg_out_l   <= npg_in_l;
+            npr_out_h   <= 0;
+            sack_out_h  <= 0;
+            ssyn_out_h  <= 0;
+
+            // loop signals directly back to device inputs
+            dev_a_h     <= wor_a_h;
+            dev_ac_lo_h <= wor_ac_lo_h;
+            dev_bbsy_h  <= wor_bbsy_h;
+            dev_bg_l    <= ~ sim_bg_out_h;
+            dev_c_h     <= wor_c_h;
+            dev_d_h     <= wor_d_h;
+            dev_dc_lo_h <= wor_dc_lo_h;
+            dev_hltrq_h <= wor_hltrq_h;
+            dev_init_h  <= wor_init_h;
+            dev_intr_h  <= wor_intr_h;
+            dev_msyn_h  <= wor_msyn_h;
+            dev_npg_l   <= ~ sim_npg_out_h;
+            dev_npr_h   <= wor_npr_h;
+            dev_sack_h  <= wor_sack_h;
+            dev_ssyn_h  <= wor_ssyn_h;
+        end
+    end
 
     /////////////////////////////////
     //  integrated logic analyzer  //
@@ -864,23 +849,23 @@ module Zynq (
                 // capture signals while before trigger and for ilaafter cycles thereafter
                 if (ilaarmed | (ilaafter != 0)) begin
                     ilaarray[ilaindex] <= {
-                        dmx_a_in_h,      // dev_a_in_h,
-                            ac_lo_in_h,  // dev_ac_lo_in_h,
-                            bbsy_in_h,   // dev_bbsy_in_h,
-                            bg_in_l,     // dev_bg_in_l,
-                        dmx_br_in_h,     // dev_br_in_h,
-                        dmx_c_in_h,      // dev_c_in_h,
-                        dmx_d_in_h,      // dev_d_in_h,
-                            dc_lo_in_h,  // dev_dc_lo_in_h,
-                            hltgr_in_l,  // dev_hltgr_in_l,
-                        dmx_hltrq_in_h,  // dev_hltrq_in_h,
-                            init_in_h,   // dev_init_in_h,
-                            intr_in_h,   // dev_intr_in_h,
-                            msyn_in_h,   // dev_msyn_in_h,
-                            npg_in_l,    // dev_npg_in_l,
-                        dmx_npr_in_h,    // dev_npr_in_h,
-                            sack_in_h,   // dev_sack_in_h,
-                            ssyn_in_h    // dev_ssyn_in_h
+                        dev_a_h,        //38
+                        dev_ac_lo_h,    //37
+                        dev_bbsy_h,     //36
+                        dev_bg_l,       //32
+                        dev_br_h,       //28
+                        dev_c_h,        //26
+                        dev_d_h,        //10
+                        dev_dc_lo_h,    //09
+                        dev_hltgr_l,    //08
+                        dev_hltrq_h,    //07
+                        dev_init_h,     //06
+                        dev_intr_h,     //05
+                        dev_msyn_h,     //04
+                        dev_npg_l,      //03
+                        dev_npr_h,      //02
+                        dev_sack_h,     //01
+                        dev_ssyn_h      //00
                     };
 
                     ilaindex <= ilaindex + 1;
@@ -890,7 +875,7 @@ module Zynq (
                 // check trigger condition
                 ////if (rsel1_h & muxc) begin   // - hltrq_in_h
                 ////if (~ hltgr_in_l) begin
-                if (rsel3_h & muxf) begin   // - a_in_h[06]
+                if (dev_npr_h | dev_bbsy_h) begin   // - a_in_h[06]
                     ilaarmed <= 0;
                 end
             end

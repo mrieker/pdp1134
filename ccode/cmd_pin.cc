@@ -141,6 +141,12 @@ static PinDef const pindefs[] = {
     { "sl_stepreq",      DEV_SL, 2,    0x10000000,    0, true  },
     { "sl_businit",      DEV_SL, 2,    0x08000000,    0, true  },
 
+    { "sl_dmastate",     DEV_SL, 3,    0xE0000000,    0, true  },
+    { "sl_dmafail",      DEV_SL, 3,    0x10000000,    0, false },
+    { "sl_dmactrl",      DEV_SL, 3,    0x0C000000,    0, true  },
+    { "sl_dmaaddr",      DEV_SL, 3,    0x0003FFFF,    0, true  },
+    { "sl_dmadata",      DEV_SL, 4,    0x0800FFFF,    0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 

@@ -19,6 +19,7 @@ myboard/myboard_ooc.xdc
 myboard/sim
 myboard/synth
 myboard/ui
+sim1134.v
 vivado*.jou
 vivado*.log
 vivado*.str
