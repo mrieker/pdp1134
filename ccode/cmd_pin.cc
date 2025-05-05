@@ -41,8 +41,9 @@ struct PinDef {
 #define DEV_11 0
 #define DEV_LM 1
 #define DEV_SL 2
+#define DEV_DL 3
 
-static uint32_t volatile *devs[3];
+static uint32_t volatile *devs[4];
 
 static PinDef const pindefs[] = {
 
@@ -148,6 +149,12 @@ static PinDef const pindefs[] = {
     { "sl_dmaaddr",      DEV_SL, 3,    0x0003FFFF,    0, true  },
     { "sl_dmadata",      DEV_SL, 4,    0x0800FFFF,    0, true  },
 
+    { "dl_rcsr",         DEV_DL, 1,    0x0000FFFF,    0, true  },
+    { "dl_rbuf",         DEV_DL, 1,    0xFFFF0000,    0, true  },
+    { "dl_xcsr",         DEV_DL, 2,    0x0000FFFF,    0, true  },
+    { "dl_xbuf",         DEV_DL, 2,    0xFFFF0000,    0, true  },
+    { "dl_enable",       DEV_DL, 3,    0x80000000,    0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 
@@ -175,6 +182,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         devs[DEV_11] = z11page->findev ("11", NULL, NULL, false);
         devs[DEV_LM] = z11page->findev ("LM", NULL, NULL, false);
         devs[DEV_SL] = z11page->findev ("SL", NULL, NULL, false);
+        devs[DEV_DL] = z11page->findev ("DL", NULL, NULL, false);
 #if 000
         // get pointer to the 32K-word ram
         // maps each 12-bit word into low 12 bits of 32-bit word

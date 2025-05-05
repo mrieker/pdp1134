@@ -62,7 +62,7 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C2003 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C2004 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? { enable, haltreq, halted, stepreq, businit, aclow, dclow, 25'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
@@ -229,5 +229,17 @@ module swlight (
                 end
             end
         endcase
+
+        // single stepper
+        // - stop requesting processor to halt
+        // - as soon as it starts back up, request halt
+        if (stepreq) begin
+            if (! halted) begin
+                haltreq <= 1;
+                stepreq <= 0;
+            end else begin
+                haltreq <= 0;
+            end
+        end
     end
 endmodule
