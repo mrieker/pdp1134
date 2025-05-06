@@ -36,13 +36,13 @@ uint32_t Z11Page::mypid = getpid ();
 
 Z11Page::Z11Page ()
 {
-    extmemptr = NULL;
+    bigmemptr = NULL;
     zynqpage = NULL;
     zynqptr = NULL;
 
     cmemat = NULL;
     xmemat = NULL;
-    extmemat = NULL;
+    bigmemat = NULL;
 
     zynqfd = open ("/proc/zynqpdp11", O_RDWR);
     if (zynqfd < 0) {
@@ -62,15 +62,15 @@ Z11Page::Z11Page ()
 Z11Page::~Z11Page ()
 {
     if (zynqptr != NULL) munmap (zynqptr, 4096);
-    if (extmemptr != NULL) munmap (extmemptr, 0x20000);
+    if (bigmemptr != NULL) munmap (bigmemptr, 0x20000);
     close (zynqfd);
     zynqpage = NULL;
     zynqptr = NULL;
-    extmemptr = NULL;
+    bigmemptr = NULL;
     zynqfd = -1;
     cmemat = NULL;
     xmemat = NULL;
-    extmemat = NULL;
+    bigmemat = NULL;
 }
 
 // find a device in the Z11 page
@@ -106,18 +106,17 @@ uint32_t volatile *Z11Page::findev (char const *id, bool (*entry) (void *param, 
     return NULL;
 }
 
-// get a pointer to the 32K-word memory chip in the FPGA
-// this mapping is created by extmemmap.v
-uint32_t volatile *Z11Page::extmem ()
+// get a pointer to the 256K-byte memory shared with the FPGA bigmem.v module
+uint32_t volatile *Z11Page::bigmem ()
 {
-    if (extmemptr == NULL) {
-        extmemptr = mmap (NULL, 0x20000, PROT_READ | PROT_WRITE, MAP_SHARED, zynqfd, 0x20000);
-        if (extmemptr == MAP_FAILED) {
-            fprintf (stderr, "Z11Page::extmem: error mmapping /proc/zynqpdp11: %m\n");
+    if (bigmemptr == NULL) {
+        bigmemptr = mmap (NULL, 256*1024, PROT_READ | PROT_WRITE, MAP_SHARED, zynqfd, 4096);
+        if (bigmemptr == MAP_FAILED) {
+            fprintf (stderr, "Z11Page::bigmem: error mmapping /proc/zynqpdp11: %m\n");
             ABORT ();
         }
     }
-    return (uint32_t volatile *) extmemptr;
+    return (uint32_t volatile *) bigmemptr;
 }
 
 // lock a sub-device

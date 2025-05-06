@@ -39,7 +39,7 @@ struct PinDef {
 };
 
 #define DEV_11 0
-#define DEV_LM 1
+#define DEV_BM 1
 #define DEV_SL 2
 #define DEV_DL 3
 
@@ -131,9 +131,12 @@ static PinDef const pindefs[] = {
     { "d_in_h",          DEV_11, Z_RG, g_d_in_h,      0, false },
     { "d_out_h",         DEV_11, Z_RG, g_d_out_h,     0, false },
 
-    { "lm_addr",         DEV_LM, 1,    07777,         0, true  },
-    { "lm_data",         DEV_LM, 2,    0177777,       0, true  },
-    { "lm_enab",         DEV_LM, 3,    0x80000000,    0, true  },
+    { "bm_enablo",       DEV_BM, 1,    0xFFFFFFFF,    0, true  },
+    { "bm_enabhi",       DEV_BM, 2,    0x3FFFFFFF,    0, true  },
+    { "bm_armfunc",      DEV_BM, 3,    0xE0000000,    0, true  },
+    { "bm_armaddr",      DEV_BM, 3,    0x0003FFFF,    0, true  },
+    { "bm_delay",        DEV_BM, 4,    0xE0000000,    0, false },
+    { "bm_armdata",      DEV_BM, 4,    0x0000FFFF,    0, true  },
 
     { "sl_switches",     DEV_SL, 1,    0x0000FFFF,    0, true  },
     { "sl_lights",       DEV_SL, 1,    0xFFFF0000,    0, false },
@@ -180,7 +183,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         // access the zynq io page and find devices thereon
         z11page = new Z11Page ();
         devs[DEV_11] = z11page->findev ("11", NULL, NULL, false);
-        devs[DEV_LM] = z11page->findev ("LM", NULL, NULL, false);
+        devs[DEV_BM] = z11page->findev ("BM", NULL, NULL, false);
         devs[DEV_SL] = z11page->findev ("SL", NULL, NULL, false);
         devs[DEV_DL] = z11page->findev ("DL", NULL, NULL, false);
 #if 000
@@ -312,11 +315,11 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
             int val;
             int rc  = Tcl_GetIntFromObj (interp, objv[i], &val);
             if (rc != TCL_OK) return rc;
-            if ((val < 0) || ((uint32_t) val >= 1ULL << width)) {
+            if ((uint32_t) val >= 1ULL << width) {
                 Tcl_SetResultF (interp, "value 0%o too big for %s", val, name);
                 return TCL_ERROR;
             }
-            *ptr = (*ptr & ~ mask) | val * (mask & - mask);
+            *ptr = (*ptr & ~ mask) | ((uint32_t) val) * (mask & - mask);
         } else {
             uint32_t val = (*ptr & mask) / (mask & - mask);
             gotvals[ngotvals++] = Tcl_NewIntObj (val);

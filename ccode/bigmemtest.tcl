@@ -1,39 +1,42 @@
 
-# simple test for lilmem.v
+# simple test for bigmem.v
 # ...and dma section of swlight.v
 
 proc octal {n} {
     return [format "%06o" $n]
 }
 
-# simulator mode, halt processor, enable swlight, lilmem
+# simulator mode, halt processor, enable swlight, bigmem
 pin set fpgamode 1
 pin set sl_enable 1
 pin set sl_haltreq 1
 pin get sl_halted
-pin set lm_enab 1
+pin set bm_enablo 0xFFFFFFFF bm_enabhi 0x3FFFFFFF
+
+set loaddr 0
+set hiaddr 0757777
 
 for {set pass 1} {$pass <= 5} {incr pass} {
 
-    # write random numbers to lilmem
+    # write random numbers to bigmem
     puts "pass $pass.A"
-    for {set addr 0} {$addr < 4096} {incr addr 2} {
+    for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r [expr {int (rand () * 0200000)}]
         set rands($addr) $r
-        pin set lm_addr $addr set lm_data $r
+        pin set bm_armaddr $addr bm_armdata $r bm_armfunc 3
     }
 
-    # readback lilmem and verify
-    for {set addr 0} {$addr < 4096} {incr addr 2} {
+    # readback bigmem and verify
+    for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r $rands($addr)
-        set m [pin set lm_addr $addr get lm_data]
+        set m [pin set bm_armaddr $addr bm_armfunc 4 get bm_armdata]
         if {$m != $r} {
-            puts "lm [octal $addr] readback [octal $m] should be [octal $r]"
+            puts "bm [octal $addr] readback [octal $m] should be [octal $r]"
         }
     }
 
     # readback via swlight.v and verify
-    for {set addr 0} {$addr < 4096} {incr addr 2} {
+    for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r $rands($addr)
         set m [pin set sl_dmaaddr $addr sl_dmactrl 0 sl_dmastate 1 get sl_dmadata]
         if {$m != $r} {
@@ -41,25 +44,25 @@ for {set pass 1} {$pass <= 5} {incr pass} {
         }
     }
 
-    # write random numbers via swlight.v to lilmem
+    # write random numbers via swlight.v to bigmem
     puts "pass $pass.B"
-    for {set addr 0} {$addr < 4096} {incr addr 2} {
+    for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r [expr {int (rand () * 0200000)}]
         set rands($addr) $r
         pin set sl_dmaaddr $addr sl_dmactrl 2 set sl_dmadata $r sl_dmastate 1
     }
 
-    # readback lilmem and verify
-    for {set addr 0} {$addr < 4096} {incr addr 2} {
+    # readback bigmem and verify
+    for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r $rands($addr)
-        set m [pin set lm_addr $addr get lm_data]
+        set m [pin set bm_armaddr $addr bm_armfunc 4 get bm_armdata]
         if {$m != $r} {
-            puts "lm [octal $addr] readback [octal $m] should be [octal $r]"
+            puts "bm [octal $addr] readback [octal $m] should be [octal $r]"
         }
     }
 
     # readback via swlight.v and verify
-    for {set addr 0} {$addr < 4096} {incr addr 2} {
+    for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r $rands($addr)
         set m [pin set sl_dmaaddr $addr sl_dmactrl 0 sl_dmastate 1 get sl_dmadata]
         if {$m != $r} {

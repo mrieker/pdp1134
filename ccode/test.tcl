@@ -65,7 +65,7 @@ proc wrword {addr data} {
 # test to increment R0
 # prints R0 every 100mS
 proc test1 {} {
-    pin set fpgamode 0 fpgamode 1 lm_enab 1
+    pin set fpgamode 0 fpgamode 1 bm_enablo 1
     pin set sl_enable 1 sl_haltreq 1 man_hltrq_out_h 0
     wrword 0100 05200           ;# 0100: INC R0
     wrword 0102 0776            ;# 0102: BR .-2
@@ -81,7 +81,7 @@ proc test1 {} {
 # test to print to TTY
 # increments R0 and prints
 proc test2 {} {
-    pin set fpgamode 0 fpgamode 1 lm_enab 1
+    pin set fpgamode 0 fpgamode 1 bm_enablo 1
     pin set sl_haltreq 1 man_hltrq_out_h 0
     pin set dl_enable 1
     wrword 0100 0005200         ;# 0100: INC R0

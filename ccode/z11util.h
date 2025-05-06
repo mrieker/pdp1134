@@ -32,7 +32,7 @@ struct Z11Page {
     Z11Page ();
     virtual ~Z11Page ();
     uint32_t volatile *findev (char const *id, bool (*entry) (void *param, uint32_t volatile *dev), void *param, bool lockit, bool killit = false);
-    uint32_t volatile *extmem ();
+    uint32_t volatile *bigmem ();
     void locksubdev (uint32_t volatile *start, int nwords, bool killit);
 
     uint32_t dmacycle (uint32_t cm, uint32_t cm2);
@@ -43,10 +43,10 @@ struct Z11Page {
 private:
     int zynqfd;
     uint32_t volatile *cmemat;
-    uint32_t volatile *extmemat;
+    uint32_t volatile *bigmemat;
     uint32_t volatile *xmemat;
     uint32_t volatile *zynqpage;
-    void *extmemptr;
+    void *bigmemptr;
     void *zynqptr;
 
     static uint32_t mypid;

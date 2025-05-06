@@ -90,6 +90,12 @@ module Zynq (
     output reg[1:0]   c_out_h,  // control bus outputs
     output reg[15:00] d_out_h,  // data bus outputs
 
+    output[16:00] extmemaddr,
+    output[17:00] extmemdout,
+    input[17:00]  extmemdin,
+    output        extmemenab,
+    output[1:0]   extmemwena,
+
     // arm processor memory bus interface (AXI)
     // we are a slave for accessing the control registers (read and write)
     input[11:00]  saxi_ARADDR,
@@ -107,7 +113,8 @@ module Zynq (
     output reg    saxi_RVALID,
     input[31:00]  saxi_WDATA,
     output reg    saxi_WREADY,
-    input         saxi_WVALID);
+    input         saxi_WVALID
+);
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
     localparam VERSION = 32'h31314009;
@@ -433,7 +440,7 @@ module Zynq (
     //  arm reading/writing registers  //
     /////////////////////////////////////
 
-    wire[31:00] lmarmrdata, slarmrdata, tt0armrdata;
+    wire[31:00] bmarmrdata, slarmrdata, tt0armrdata;
 
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION     :
@@ -448,16 +455,16 @@ module Zynq (
         (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, 4'b0, ilaindex } :
         (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
         (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
-        (readaddr[11:05] ==  8'b0000100)    ? slarmrdata  :
-        (readaddr[11:04] ==  8'b00001010)   ? lmarmrdata  :
-        (readaddr[11:04] ==  8'b00001011)   ? tt0armrdata :
+        (readaddr[11:05] ==  8'b0000100)    ? bmarmrdata  :
+        (readaddr[11:05] ==  8'b0000101)    ? slarmrdata  :
+        (readaddr[11:04] ==  8'b00001100)   ? tt0armrdata :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
-    wire slarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000100);
-    wire lmarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001010);
-    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001011);
+    wire bmarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000100);
+    wire slarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000101);
+    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001100);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -532,19 +539,19 @@ module Zynq (
     //  internal devices  //
     ////////////////////////
 
-    // little memory
-    wire lm_ssyn_out_h;
-    wire[15:00] lm_d_out_h;
+    // big memory
+    wire bm_ssyn_out_h;
+    wire[15:00] bm_d_out_h;
 
-    lilmem lminst (
+    bigmem bminst (
         .CLOCK (CLOCK),
         .RESET (mastereset),
 
-        .armraddr (readaddr[3:2]),
-        .armrdata (lmarmrdata),
-        .armwaddr (writeaddr[3:2]),
+        .armraddr (readaddr[4:2]),
+        .armrdata (bmarmrdata),
+        .armwaddr (writeaddr[4:2]),
         .armwdata (saxi_WDATA),
-        .armwrite (lmarmwrite),
+        .armwrite (bmarmwrite),
 
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
@@ -552,8 +559,15 @@ module Zynq (
         .init_in_h (dev_init_h),
         .msyn_in_h (dev_msyn_h),
 
-        .d_out_h (lm_d_out_h),
-        .ssyn_out_h (lm_ssyn_out_h));
+        .d_out_h (bm_d_out_h),
+        .ssyn_out_h (bm_ssyn_out_h),
+
+        .extmemaddr (extmemaddr),
+        .extmemdout (extmemdout),
+        .extmemdin  (extmemdin),
+        .extmemenab (extmemenab),
+        .extmemwena (extmemwena)
+    );
 
     // switches and lights
     wire sl_ac_lo_out_h, sl_bbsy_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
@@ -740,7 +754,7 @@ module Zynq (
     wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
     wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l    | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | lm_d_out_h       | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
     wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l | sl_init_out_h;
@@ -748,7 +762,7 @@ module Zynq (
     wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
     wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    wire        wor_ssyn_h  = man_ssyn_out_h  | lm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | tt0_ssyn_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | tt0_ssyn_out_h;
 
     always @(*) begin
         if (regctla[31:30] == FM_REAL) begin
@@ -847,54 +861,60 @@ module Zynq (
             ilaafter <= 0;
             ilacount <= 0;
             iladivid <= 0;
-        end else if (ilacount != iladivid) begin
-            ilacount <= ilacount + 1;
-        end else begin
+        end else if (armwrite & (writeaddr == 10'b0000010001)) begin
+
+            // arm processor is writing control register
+            ilaarmed <= saxi_WDATA[31];
+            ilaafter <= saxi_WDATA[27:16];
+            iladivid <= saxi_WDATA[15:12];
+            ilaindex <= saxi_WDATA[11:00];
+            ilardata <= ilaarray[saxi_WDATA[11:00]];
             ilacount <= 0;
 
-            if (armwrite & (writeaddr == 10'b0000010001)) begin
-
-                // arm processor is writing control register
-                ilaarmed <= saxi_WDATA[31];
-                ilaafter <= saxi_WDATA[27:16];
-                iladivid <= saxi_WDATA[15:12];
-                ilaindex <= saxi_WDATA[11:00];
-                ilardata <= ilaarray[saxi_WDATA[11:00]];
+        // capture signals while before trigger and for ilaafter*(idivid+1) cycles thereafter
+        end else if (ilaarmed | (ilaafter != 0)) begin
+            if (ilacount != 0) begin
+                ilacount <= ilacount - 1;
             end else begin
+                ilacount <= iladivid;
 
-                // capture signals while before trigger and for ilaafter cycles thereafter
-                if (ilaarmed | (ilaafter != 0)) begin
-                    ilaarray[ilaindex] <= {
-                        dev_a_h,        //38
-                        dev_ac_lo_h,    //37
-                        dev_bbsy_h,     //36
-                        dev_bg_l,       //32
-                        dev_br_h,       //28
-                        dev_c_h,        //26
-                        dev_d_h,        //10
-                        dev_dc_lo_h,    //09
-                        dev_hltgr_l,    //08
-                        dev_hltrq_h,    //07
-                        dev_init_h,     //06
-                        dev_intr_h,     //05
-                        dev_msyn_h,     //04
-                        dev_npg_l,      //03
-                        dev_npr_h,      //02
-                        dev_sack_h,     //01
-                        dev_ssyn_h      //00
-                    };
+                ilaarray[ilaindex] <= {
+                    extmemenab,     //55
+                    extmemwena,     //53
+                    extmemaddr,     //36
+                    extmemdout,     //18
+                    extmemdin       //00
+/***
+                    dev_a_h,        //38
+                    dev_ac_lo_h,    //37
+                    dev_bbsy_h,     //36
+                    dev_bg_l,       //32
+                    dev_br_h,       //28
+                    dev_c_h,        //26
+                    dev_d_h,        //10
+                    dev_dc_lo_h,    //09
+                    dev_hltgr_l,    //08
+                    dev_hltrq_h,    //07
+                    dev_init_h,     //06
+                    dev_intr_h,     //05
+                    dev_msyn_h,     //04
+                    dev_npg_l,      //03
+                    dev_npr_h,      //02
+                    dev_sack_h,     //01
+                    dev_ssyn_h      //00
+***/
+                };
 
-                    ilaindex <= ilaindex + 1;
-                    if (~ ilaarmed) ilaafter <= ilaafter - 1;
-                end
-
-                // check trigger condition
-                ////if (rsel1_h & muxc) begin   // - hltrq_in_h
-                ////if (~ hltgr_in_l) begin
-                if (slarmwrite) begin
-                    ilaarmed <= 0;
-                end
+                ilaindex <= ilaindex + 1;
+                if (~ ilaarmed) ilaafter <= ilaafter - 1;
             end
+        end
+
+        // check trigger condition
+        ////if (rsel1_h & muxc) begin   // - hltrq_in_h
+        ////if (~ hltgr_in_l) begin
+        else if (bmarmwrite) begin
+            ilaarmed <= 0;
         end
     end
 endmodule
