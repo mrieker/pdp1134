@@ -18,11 +18,11 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-// PDP-11 teletype interface
+// PDP-11 paper tape reader/punch interface
 
-module dl11
-    #(parameter[17:00] ADDR=18'o777560,
-      parameter[7:0] INTVEC=8'o060) (
+module pc11
+    #(parameter[17:00] ADDR=18'o777550,
+      parameter[7:0] INTVEC=8'o070) (
     input CLOCK, RESET,
 
     input armwrite,
@@ -45,13 +45,13 @@ module dl11
     reg enable;
     reg[15:00] rcsr, rbuf, xcsr, xbuf;
 
-    assign armrdata = (armraddr == 0) ? 32'h444C1001 : // [31:16] = 'DL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h50431001 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rbuf, rcsr } :
                       (armraddr == 2) ? { xbuf, xcsr } :
                       { enable, 5'b0, INTVEC, ADDR };
 
-    wire rirq = rcsr[07] & rcsr[06];
-    wire xirq = xcsr[07] & xcsr[06];
+    wire rirq = (rcsr[15] | rcsr[07]) & rcsr[06];
+    wire xirq = (xcsr[15] | xcsr[07]) & xcsr[06];
     assign intreq = rirq | xirq;
     assign intvec = { INTVEC[7:3], ~ rirq, 2'b0 };
 
@@ -61,7 +61,7 @@ module dl11
                 enable <= 0;
             end
             rcsr       <= 0;
-            xcsr       <= 0;
+            xcsr       <= 8'o200;
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end
@@ -71,9 +71,13 @@ module dl11
             case (armwaddr)
                 1: begin
                     rbuf[07:00] <= armwdata[23:16];
+                    rcsr[15]    <= armwdata[15];
+                    rcsr[11]    <= armwdata[11];
                     rcsr[07]    <= armwdata[07];
+                    rcsr[00]    <= armwdata[00];
                 end
                 2: begin
+                    xcsr[15] <= armwdata[15];
                     xcsr[07] <= armwdata[07];
                 end
                 3: enable <= armwdata[31];
@@ -89,21 +93,27 @@ module dl11
             if (c_in_h[1]) begin
                 case (a_in_h[02:01])
 
-                    // pdp writing keyboard status
+                    // pdp writing reader status
                     0: begin
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
                             rcsr[06] <= d_in_h[06];
+                            rcsr[00] <= d_in_h[00];
+                            if (d_in_h[00]) begin   // reader start
+                                rcsr[07] <= 0;      // clear done
+                                rcsr[11] <= 1;      // set busy
+                                rbuf <= 0;          // clear buffer
+                            end
                         end
                     end
 
-                    // pdp writing printer status
+                    // pdp writing punch status
                     2: begin
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
                             xcsr[06] <= d_in_h[06];
                         end
                     end
 
-                    // pdp writing printer buffer
+                    // pdp writing punch buffer
                     3: begin
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
                             xbuf[07:00] <= d_in_h[07:00];
@@ -115,9 +125,9 @@ module dl11
 
                 // pdp reading a register
                 case (a_in_h[02:01])
-                    0: begin d_out_h <= rcsr & 16'o000300; end
+                    0: begin d_out_h <= rcsr & 16'o104300; end
                     1: begin d_out_h <= rbuf; rcsr[07] <= 0; end
-                    2: begin d_out_h <= xcsr & 16'o000300; end
+                    2: begin d_out_h <= xcsr & 16'o100300; end
                     3: begin d_out_h <= xbuf; end
                 endcase
             end

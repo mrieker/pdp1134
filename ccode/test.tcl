@@ -163,3 +163,29 @@ proc test3 {} {
 
     flickstart 0100             ;# start at 0100
 }
+
+# copy paper tape to tty
+# requires z11dl be running to print output or do dumptty to print output
+# requires z11pr be running to read paper tape file
+proc test4 {} {
+    pin set fpgamode 0 fpgamode 1 bm_enablo 1
+    pin set sl_haltreq 1 man_hltrq_out_h 0
+    pin set dl_enable 1
+
+    wrword 0100 0005237         ;# 0100: INC  @#177550
+    wrword 0102 0177550
+    wrword 0104 0105737         ;# 0100: TSTB @#177550
+    wrword 0106 0177550
+    wrword 0110 0100375         ;# 0104: BPL .-4
+    wrword 0112 0113703         ;# 0106: MOVB @#177552,R0
+    wrword 0114 0177552
+
+    wrword 0116 0105737         ;# 0112: TSTB @#177564
+    wrword 0120 0177564
+    wrword 0122 0100375         ;# 0116: BPL .-4
+    wrword 0124 0110337         ;# 0120: MOVB R0,@#177566
+    wrword 0126 0177566
+    wrword 0130 0000763         ;# 0124: BR 0100
+
+    flickstart 0100             ;# start at 0100
+}

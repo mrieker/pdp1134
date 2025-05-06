@@ -50,7 +50,7 @@ module swlight (
     output reg[1:0] c_out_h,
     output[15:00] d_out_h,
     output reg dc_lo_out_h,
-    output hltrq_out_h,
+    output reg hltrq_out_h,
     output reg init_out_h,
     output reg msyn_out_h,
     output npg_out_l,

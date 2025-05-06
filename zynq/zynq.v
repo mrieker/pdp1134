@@ -440,7 +440,7 @@ module Zynq (
     //  arm reading/writing registers  //
     /////////////////////////////////////
 
-    wire[31:00] bmarmrdata, slarmrdata, tt0armrdata;
+    wire[31:00] bmarmrdata, pcarmrdata, slarmrdata, tt0armrdata;
 
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION     :
@@ -457,14 +457,16 @@ module Zynq (
         (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
         (readaddr[11:05] ==  8'b0000100)    ? bmarmrdata  :
         (readaddr[11:05] ==  8'b0000101)    ? slarmrdata  :
-        (readaddr[11:04] ==  8'b00001100)   ? tt0armrdata :
+        (readaddr[11:04] ==  8'b00001100)   ? pcarmrdata  :
+        (readaddr[11:04] ==  8'b00001101)   ? tt0armrdata :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
     wire bmarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000100);
     wire slarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000101);
-    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001100);
+    wire pcarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001100);
+    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001101);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -569,6 +571,33 @@ module Zynq (
         .extmemwena (extmemwena)
     );
 
+    // paper tape reader/punch
+    wire pcintreq, pc_ssyn_out_h;
+    wire[7:0] pcintvec;
+    wire[15:00] pc_d_out_h;
+
+    pc11 pcinst (
+        .CLOCK (CLOCK),
+        .RESET (mastereset),
+
+        .armraddr (readaddr[3:2]),
+        .armrdata (pcarmrdata),
+        .armwaddr (writeaddr[3:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (pcarmwrite),
+
+        .intreq (pcintreq),
+        .intvec (pcintvec),
+
+        .a_in_h (dev_a_h),
+        .c_in_h (dev_c_h),
+        .d_in_h (dev_d_h),
+        .init_in_h (dev_init_h),
+        .msyn_in_h (dev_msyn_h),
+
+        .d_out_h (pc_d_out_h),
+        .ssyn_out_h (pc_ssyn_out_h));
+
     // switches and lights
     wire sl_ac_lo_out_h, sl_bbsy_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
     wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
@@ -642,7 +671,7 @@ module Zynq (
 
     // generate interrupt request cycles from simple request/vector lines from internal devices
 
-    wire[7:0] intvec4 = tt0intreq ? tt0intvec : 1;
+    wire[7:0] intvec4 = pcintreq ? pcintvec : tt0intreq ? tt0intvec : 1;
     wire[7:0] intvec5 = 1;
     wire[7:0] intvec6 = 1;
     wire[7:0] intvec7 = 1;
@@ -754,7 +783,7 @@ module Zynq (
     wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
     wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l    | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
     wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l | sl_init_out_h;
@@ -762,7 +791,7 @@ module Zynq (
     wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
     wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | tt0_ssyn_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | tt0_ssyn_out_h;
 
     always @(*) begin
         if (regctla[31:30] == FM_REAL) begin
