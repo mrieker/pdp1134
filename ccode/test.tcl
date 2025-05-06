@@ -1,6 +1,9 @@
 
+# various simple tests
+
 proc octal {x} {return [format "%06o" $x]}
 
+# read a byte from unibus via dma (swlight.v)
 proc rdbyte {addr} {
     if {($addr < 0) || ($addr > 0777777)} {
         error "rdbyte: bad address $addr"
@@ -15,6 +18,7 @@ proc rdbyte {addr} {
     return [expr {$data & 0377}]
 }
 
+# read a word from unibus via dma (swlight.v)
 proc rdword {addr} {
     if {($addr < 0) || ($addr > 0777777)} {
         error "rdword: bad address $addr"
@@ -30,6 +34,7 @@ proc rdword {addr} {
     return [pin get sl_dmadata]
 }
 
+# write a byte to unibus via dma (swlight.v)
 proc wrbyte {addr data} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "wrbyte: bad address %o" $addr]
@@ -44,6 +49,7 @@ proc wrbyte {addr data} {
     }
 }
 
+# write a word to unibus via dma (swlight.v)
 proc wrword {addr data} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "wrword: bad address %o" $addr]
@@ -57,6 +63,45 @@ proc wrword {addr data} {
     pin set sl_dmaaddr $addr sl_dmactrl 2 sl_dmadata $data sl_dmastate 1
     if {[pin get sl_dmafail]} {
         error [format "wrword %06o failed" $addr]
+    }
+}
+
+# single step one instruction then print PC, R0, R3
+proc flickstep {} {
+    pin set sl_stepreq 1
+    if {! [pin get sl_halted]} {
+        error "processor did not halt after step"
+    }
+    puts "PC=[octal [rdword 0777707]] RO=[octal [rdword 0777700]] R3=[octal [rdword 0777703]]"
+}
+
+# continue processing
+proc flickcont {} {
+    pin set sl_haltreq 0
+}
+
+# halt processor and initialize bus
+proc flickinit {} {
+    pin set sl_haltreq 1 sl_businit 1 sl_businit 0
+}
+
+# start processor at given address
+proc flickstart {addr} {
+    flickinit
+    wrword 0777707 $addr
+    flickcont
+}
+
+# dump what is written to tty
+proc dumptty {} {
+    while {! [ctrlcflag]} {
+        set xcsr [pin get dl_xcsr]
+        if {! ($xcsr & 0200)} {
+            set xbuf [pin get dl_xbuf]
+            puts [format "xbuf=%03o" $xbuf]
+            pin set dl_xcsr 0200
+            after 100
+        }
     }
 }
 
@@ -78,7 +123,7 @@ proc test1 {} {
     }
 }
 
-# test to print to TTY
+# test to print to TTY via local printing
 # increments R0 and prints
 proc test2 {} {
     pin set fpgamode 0 fpgamode 1 bm_enablo 1
@@ -96,21 +141,25 @@ proc test2 {} {
     dumptty
 }
 
-# single step one instruction then print PC and R0
-proc singlestep {} {
-    pin set sl_stepreq 1
-    puts "PC=[octal [rdword 0777707]] RO=[octal [rdword 0777700]]"
-}
+# echo characters from tty
+# requires z11dl be running to access controller
+proc test3 {} {
+    pin set fpgamode 0 fpgamode 1 bm_enablo 1
+    pin set sl_haltreq 1 man_hltrq_out_h 0
+    pin set dl_enable 1
 
-# dump what is written to tty
-proc dumptty {} {
-    while {! [ctrlcflag]} {
-        set xcsr [pin get dl_xcsr]
-        if {! ($xcsr & 0200)} {
-            set xbuf [pin get dl_xbuf]
-            puts [format "xbuf=%03o" $xbuf]
-            pin set dl_xcsr 0200
-            after 100
-        }
-    }
+    wrword 0100 0105737         ;# 0100: TSTB @#177560
+    wrword 0102 0177560
+    wrword 0104 0100375         ;# 0104: BPL .-4
+    wrword 0106 0113703         ;# 0106: MOVB @#177562,R3
+    wrword 0110 0177562
+
+    wrword 0112 0105737         ;# 0112: TSTB @#177564
+    wrword 0114 0177564
+    wrword 0116 0100375         ;# 0116: BPL .-4
+    wrword 0120 0110337         ;# 0120: MOVB R3,@#177566
+    wrword 0122 0177566
+    wrword 0124 0000765         ;# 0124: BR 0100
+
+    flickstart 0100             ;# start at 0100
 }

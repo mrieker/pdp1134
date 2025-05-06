@@ -19,6 +19,11 @@
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
 // switches and lights
+// * 777570 switch and light register
+// * halt, continue, step switches, run light
+// * init, aclo, dclo signal access
+// * memory (bus) read/write functions for exam/deposit
+//   can also be used by arm devices for dma
 
 module swlight (
     input CLOCK, RESET,
@@ -29,8 +34,10 @@ module swlight (
     output[31:00] armrdata,
 
     input[17:00] a_in_h,
+    input ac_lo_in_h,
     input[1:0] c_in_h,
     input[15:00] d_in_h,
+    input dc_lo_in_h,
     input hltgr_in_l,
     input init_in_h,
     input msyn_in_h,
@@ -38,20 +45,20 @@ module swlight (
     input ssyn_in_h,
 
     output reg[17:00] a_out_h,
-    output ac_lo_out_h,
+    output reg ac_lo_out_h,
     output reg bbsy_out_h,
     output reg[1:0] c_out_h,
     output[15:00] d_out_h,
-    output dc_lo_out_h,
+    output reg dc_lo_out_h,
     output hltrq_out_h,
-    output init_out_h,
+    output reg init_out_h,
     output reg msyn_out_h,
     output npg_out_l,
     output reg npr_out_h,
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmafail, enable, haltreq, stepreq, businit, aclow, dclow;
+    reg dmafail, enable, stepreq;
     reg[1:0] dmactrl, haltstate;
     reg[2:0] dmastate;
     reg[9:0] dmadelay;
@@ -64,35 +71,31 @@ module swlight (
 
     assign armrdata = (armraddr == 0) ? 32'h534C2004 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
-                      (armraddr == 2) ? { enable, haltreq, halted, stepreq, businit, aclow, dclow, 25'b0 } :
+                      (armraddr == 2) ? { enable, hltrq_out_h, halted, stepreq, init_out_h, ac_lo_out_h, dc_lo_out_h, init_in_h, ac_lo_in_h, dc_lo_in_h, 22'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
                       32'hDEADBEEF;
 
     assign halted = ~ hltgr_in_l;
-    assign hltrq_out_h = haltreq;
 
-    assign ac_lo_out_h = aclow;
-    assign dc_lo_out_h = dclow;
-    assign init_out_h  = businit;
-    assign npg_out_l   = npr_out_h ? 1 : npg_in_l;
+    assign npg_out_l = npr_out_h ? 1 : npg_in_l;
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin
             if (RESET) begin
-                aclow     <= 0;
-                businit   <= 0;
-                dclow     <= 0;
-                enable    <= 0;
-                haltreq   <= 0;
-                haltstate <= 0;
-                stepreq   <= 0;
+                ac_lo_out_h <= 0;
+                dc_lo_out_h <= 0;
+                enable      <= 0;
+                haltstate   <= 0;
+                hltrq_out_h <= 0;
+                init_out_h  <= 0;
+                stepreq     <= 0;
             end
-            dmastate    <= 0;
             a_out_h     <= 0;
             bbsy_out_h  <= 0;
             c_out_h     <= 0;
             dma_d_out_h <= 0;
+            dmastate    <= 0;
             msyn_out_h  <= 0;
             npr_out_h   <= 0;
             sack_out_h  <= 0;
@@ -107,10 +110,10 @@ module swlight (
                     switches <= armwdata[15:00];
                 end
                 2: begin
-                    enable  <= armwdata[31];
-                    haltreq <= armwdata[30];
-                    stepreq <= armwdata[28];
-                    businit <= armwdata[27];
+                    enable      <= armwdata[31];
+                    hltrq_out_h <= armwdata[30];
+                    stepreq     <= armwdata[28];
+                    init_out_h  <= armwdata[27];
                 end
                 3: if (dmastate == 0) begin
                     dmaaddr  <= armwdata[17:00];
@@ -235,10 +238,10 @@ module swlight (
         // - as soon as it starts back up, request halt
         if (stepreq) begin
             if (! halted) begin
-                haltreq <= 1;
+                hltrq_out_h <= 1;
                 stepreq <= 0;
             end else begin
-                haltreq <= 0;
+                hltrq_out_h <= 0;
             end
         end
     end
