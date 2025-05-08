@@ -1,6 +1,8 @@
 
 # test pins coming out of zynq/zturn board
-#  ./z8lpin pintest.tcl
+#  ./z11ctrl
+#  > source edgepintest.tcl
+#  > testouts etc
 
 proc splitcsvline {csvline} {
     set len [string length $csvline]
@@ -104,12 +106,10 @@ proc testpin {edgepin} {
                 set rsel [string index [lindex $val 2] 0]
                 set muxx [string index [lindex $val 2] 1]
                 set muxx [string tolower $muxx]
-                if {$rsel == 1} {pin set man_rsel1_h 1 man_rsel2_h 0 man_rsel3_h 0}
-                if {$rsel == 2} {pin set man_rsel1_h 0 man_rsel2_h 1 man_rsel3_h 0}
-                if {$rsel == 3} {pin set man_rsel1_h 0 man_rsel2_h 0 man_rsel3_h 1}
+                pin set man_rsel_h $rsel
                 set muxedfeedback [pin get mux$muxx]
                 set latchedfeedback [pin get [string map {_out_ _in_} $zynqsig]]
-                pin set man_rsel1_h 0 man_rsel2_h 0 man_rsel3_h 0
+                pin set man_rsel_h 0
                 puts " $edgepin <- $on -> $muxedfeedback -> $latchedfeedback"
             }
         }
@@ -128,24 +128,24 @@ while true {
     if {$csvline == ""} break
     set columns [splitcsvline $csvline]
 
-    set signame [lindex $columns 0]
+    set signame [lindex $columns 0]     ;# eg, BUS_A02_L
     if {$signame == ""} continue
     if {[string index $signame 0] == " "} continue
 
-    set edgepin [lindex $columns 1]
-    set muxpin  [lindex $columns 3]
-    set zynqsig [lindex $columns 7]
+    set edgepin [lindex $columns 1]     ;# eg, CF1
+    set muxpin  [lindex $columns 3]     ;# eg, 2C
+    set zynqsig [lindex $columns 5]     ;# eg, a_out_h[02]
 
     # feedback via mux pin
-    #  BUS_A02_L,CF1,"Q13A,B",2C,J12-44,B35-LN10,J19,a_out_h[02],
+    #  BUS_A02_L,CF1,"Q13A,B",2C,J12-44,a_out_h[02],
     if {$muxpin != ""} {
         dict append edgepindict $edgepin "muxfeedback $zynqsig $muxpin "
         continue
     }
 
     # feedback via dedicated pin
-    #  BUS_BBSY_L(O),DD1,Q22B,,J12-27,B35-LP03,E17,bbsy_out_h,
-    #  BUS_BBSY_L(I),DD1,Q22A,,J12-29,B35-LN03,D18,bbsy_in_h,
+    #  BUS_BBSY_L(I),DD1,Q22A,,J12-29,bbsy_in_h,sense that some device is bus master
+    #  BUS_BBSY_L(O),DD1,Q22B,,J12-27,bbsy_out_h,bus busy from zynq out to unibus
     if {[string last {(I)} $signame] >= 0} {
         dict append edgepindict $edgepin "dedinput $zynqsig "
         continue
@@ -156,14 +156,14 @@ while true {
     }
 
     # input only
-    #  BUS_AC_LO_L,AV1,Q08A,,J11-70,LCD-VSYNC,V16,ac_lo_in_h,
+    #  BUS_BG4_IN_H,BS2,Q53A,,J11-65,bg_in_l[4],bus grant 4 from pdp to zynq
     if {[string last "_in_" $zynqsig] >= 0} {
         dict append edgepindict $edgepin "inputonly $zynqsig "
         continue
     }
 
     # output only
-    #  BUS_BG4_OUT_H,BT2,Q53B,,J11-69,LCD-HSYNC,W16,bg_out_l[4],
+    #  BUS_BG4_OUT_H,BT2,Q53B,,J11-69,bg_out_l[4],bus grant 4 from zynq to outer devs
     if {[string last "_out_" $zynqsig] >= 0} {
         dict append edgepindict $edgepin "outputonly $zynqsig "
         continue

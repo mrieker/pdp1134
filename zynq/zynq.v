@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131400A;
+    localparam VERSION = 32'h3131400B;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -852,83 +852,128 @@ module Zynq (
     wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
     wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | rl_ssyn_out_h | tt0_ssyn_out_h;
 
+    assign pa_out_h = 0;
+    assign pb_out_h = 0;
+
     always @(*) begin
-        if (regctla[31:30] == FM_REAL) begin
+        case (regctla[31:30])
 
-            // send internally generated signals out to unibus
-            a_out_h     <= wor_a_h;
-            ac_lo_out_h <= wor_ac_lo_h;
-            bbsy_out_h  <= wor_bbsy_h;
-            bg_out_l    <= wor_br_h | syn_bg_in_l;
-            br_out_h    <= wor_br_h;
-            c_out_h     <= wor_c_h;
-            d_out_h     <= wor_d_h;
-            dc_lo_out_h <= wor_dc_lo_h;
-            hltrq_out_h <= wor_hltrq_h;
-            init_out_h  <= wor_init_h;
-            intr_out_h  <= wor_intr_h;
-            msyn_out_h  <= wor_msyn_h;
-            npg_out_l   <= wor_npr_h | syn_npg_in_l;
-            npr_out_h   <= wor_npr_h;
-            sack_out_h  <= wor_sack_h;
-            ssyn_out_h  <= wor_ssyn_h;
+            FM_REAL: begin
 
-            // receive those same signals back, wire-and/ored with unibus signals
-            // delayed a bit as they loop through external transistors then back in through synchronizers / demultiplexors
-            dev_a_h     <= dmx_a_in_h;
-            dev_ac_lo_h <= syn_ac_lo_in_h;
-            dev_bbsy_h  <= syn_bbsy_in_h;
-            dev_bg_l    <= syn_bg_in_l;
-            dev_c_h     <= dmx_c_in_h;
-            dev_d_h     <= dmx_d_in_h;
-            dev_dc_lo_h <= syn_dc_lo_in_h;
-            dev_hltgr_l <= syn_hltgr_in_l;
-            dev_hltrq_h <= dmx_hltrq_in_h;
-            dev_init_h  <= syn_init_in_h;
-            dev_intr_h  <= syn_intr_in_h;
-            dev_msyn_h  <= del_msyn_in_h;
-            dev_npg_l   <= syn_npg_in_l;
-            dev_npr_h   <= dmx_npr_in_h;
-            dev_sack_h  <= syn_sack_in_h;
-            dev_ssyn_h  <= del_ssyn_in_h;
-        end else begin
+                // send internally generated signals out to unibus
+                a_out_h     <= wor_a_h;
+                ac_lo_out_h <= wor_ac_lo_h;
+                bbsy_out_h  <= wor_bbsy_h;
+                bg_out_l    <= wor_br_h | syn_bg_in_l;
+                br_out_h    <= wor_br_h;
+                c_out_h     <= wor_c_h;
+                d_out_h     <= wor_d_h;
+                dc_lo_out_h <= wor_dc_lo_h;
+                hltrq_out_h <= wor_hltrq_h;
+                init_out_h  <= wor_init_h;
+                intr_out_h  <= wor_intr_h;
+                msyn_out_h  <= wor_msyn_h;
+                npg_out_l   <= wor_npr_h | syn_npg_in_l;
+                npr_out_h   <= wor_npr_h;
+                sack_out_h  <= wor_sack_h;
+                ssyn_out_h  <= wor_ssyn_h;
 
-            // hi-Z all the transistors going out to unibus
-            // except pass grant signals through
-            a_out_h     <= 0;
-            ac_lo_out_h <= 0;
-            bg_out_l    <= bg_in_l;
-            bbsy_out_h  <= 0;
-            c_out_h     <= 0;
-            d_out_h     <= 0;
-            dc_lo_out_h <= 0;
-            hltrq_out_h <= 0;
-            init_out_h  <= 0;
-            intr_out_h  <= 0;
-            msyn_out_h  <= 0;
-            npg_out_l   <= npg_in_l;
-            npr_out_h   <= 0;
-            sack_out_h  <= 0;
-            ssyn_out_h  <= 0;
+                // receive those same signals back, wire-and/ored with unibus signals
+                // delayed a bit as they loop through external transistors then back in through synchronizers / demultiplexors
+                dev_a_h     <= dmx_a_in_h;
+                dev_ac_lo_h <= syn_ac_lo_in_h;
+                dev_bbsy_h  <= syn_bbsy_in_h;
+                dev_bg_l    <= syn_bg_in_l;
+                dev_c_h     <= dmx_c_in_h;
+                dev_d_h     <= dmx_d_in_h;
+                dev_dc_lo_h <= syn_dc_lo_in_h;
+                dev_hltgr_l <= syn_hltgr_in_l;
+                dev_hltrq_h <= dmx_hltrq_in_h;
+                dev_init_h  <= syn_init_in_h;
+                dev_intr_h  <= syn_intr_in_h;
+                dev_msyn_h  <= del_msyn_in_h;
+                dev_npg_l   <= syn_npg_in_l;
+                dev_npr_h   <= dmx_npr_in_h;
+                dev_sack_h  <= syn_sack_in_h;
+                dev_ssyn_h  <= del_ssyn_in_h;
+            end
 
-            // loop signals directly back to device inputs
-            dev_a_h     <= wor_a_h;
-            dev_ac_lo_h <= wor_ac_lo_h;
-            dev_bbsy_h  <= wor_bbsy_h;
-            dev_bg_l    <= ~ sim_bg_out_h;
-            dev_c_h     <= wor_c_h;
-            dev_d_h     <= wor_d_h;
-            dev_dc_lo_h <= wor_dc_lo_h;
-            dev_hltgr_l <= ~ sim_hltgr_out_h;
-            dev_hltrq_h <= wor_hltrq_h;
-            dev_init_h  <= wor_init_h | mastereset;
-            dev_intr_h  <= wor_intr_h;
-            dev_msyn_h  <= wor_msyn_h;
-            dev_npg_l   <= ~ sim_npg_out_h;
-            dev_npr_h   <= wor_npr_h;
-            dev_sack_h  <= wor_sack_h;
-            dev_ssyn_h  <= wor_ssyn_h;
-        end
+            FM_OFF, FM_SIM: begin
+
+                // hi-Z all the transistors going out to unibus
+                // except pass grant signals through
+                a_out_h     <= 0;
+                ac_lo_out_h <= 0;
+                bg_out_l    <= bg_in_l;
+                bbsy_out_h  <= 0;
+                c_out_h     <= 0;
+                d_out_h     <= 0;
+                dc_lo_out_h <= 0;
+                hltrq_out_h <= 0;
+                init_out_h  <= 0;
+                intr_out_h  <= 0;
+                msyn_out_h  <= 0;
+                npg_out_l   <= npg_in_l;
+                npr_out_h   <= 0;
+                sack_out_h  <= 0;
+                ssyn_out_h  <= 0;
+
+                // loop signals directly back to device inputs
+                dev_a_h     <= wor_a_h;
+                dev_ac_lo_h <= wor_ac_lo_h;
+                dev_bbsy_h  <= wor_bbsy_h;
+                dev_bg_l    <= ~ sim_bg_out_h;
+                dev_c_h     <= wor_c_h;
+                dev_d_h     <= wor_d_h;
+                dev_dc_lo_h <= wor_dc_lo_h;
+                dev_hltgr_l <= ~ sim_hltgr_out_h;
+                dev_hltrq_h <= wor_hltrq_h;
+                dev_init_h  <= wor_init_h | mastereset;
+                dev_intr_h  <= wor_intr_h;
+                dev_msyn_h  <= wor_msyn_h;
+                dev_npg_l   <= ~ sim_npg_out_h;
+                dev_npr_h   <= wor_npr_h;
+                dev_sack_h  <= wor_sack_h;
+                dev_ssyn_h  <= wor_ssyn_h;
+            end
+
+            // manual pin testing (edgepintest.tcl)
+            FM_MAN: begin
+                a_out_h     <= man_a_out_h;
+                ac_lo_out_h <= man_ac_lo_out_h;
+                bbsy_out_h  <= man_bbsy_out_h;
+                bg_out_l    <= man_bg_out_l;
+                br_out_h    <= man_br_out_h;
+                c_out_h     <= man_c_out_h;
+                d_out_h     <= man_d_out_h;
+                dc_lo_out_h <= man_dc_lo_out_h;
+                hltrq_out_h <= man_hltrq_out_h;
+                init_out_h  <= man_init_out_h;
+                intr_out_h  <= man_intr_out_h;
+                msyn_out_h  <= man_msyn_out_h;
+                npg_out_l   <= man_npg_out_l;
+                npr_out_h   <= man_npr_out_h;
+                sack_out_h  <= man_sack_out_h;
+                ssyn_out_h  <= man_ssyn_out_h;
+
+                dev_a_h     <=  0;
+                dev_ac_lo_h <=  0;
+                dev_bbsy_h  <=  0;
+                dev_bg_l    <= 15;
+                dev_c_h     <=  0;
+                dev_d_h     <=  0;
+                dev_dc_lo_h <=  0;
+                dev_hltgr_l <=  0;
+                dev_hltrq_h <=  0;
+                dev_init_h  <=  0;
+                dev_intr_h  <=  0;
+                dev_msyn_h  <=  0;
+                dev_npg_l   <=  1;
+                dev_npr_h   <=  0;
+                dev_sack_h  <=  0;
+                dev_ssyn_h  <=  0;
+            end
+        endcase
     end
 
     /////////////////////////////////
