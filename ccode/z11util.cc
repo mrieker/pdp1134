@@ -32,17 +32,27 @@
 #include "z11defs.h"
 #include "z11util.h"
 
+#define SL3_DMASTATE 0xE0000000U
+#define SL3_DMAFAIL  0x10000000U
+#define SL3_DMACTRL  0x0C000000U
+#define SL3_DMAADDR  0x0003FFFFU
+#define SL4_DMADATA  0x0000FFFFU
+#define SL5_DMALOCK  0xFFFFFFFFU
+
+#define SL3_DMASTATE0 0x20000000U
+#define SL3_DMACTRL0  0x04000000U
+#define SL3_DMAADDR0  0x00000001U
+#define SL4_DMADATA0  0x00000001U
+
+
 uint32_t Z11Page::mypid = getpid ();
 
 Z11Page::Z11Page ()
 {
-    bigmemptr = NULL;
     zynqpage = NULL;
     zynqptr = NULL;
 
-    cmemat = NULL;
-    xmemat = NULL;
-    bigmemat = NULL;
+    slat = NULL;
 
     zynqfd = open ("/proc/zynqpdp11", O_RDWR);
     if (zynqfd < 0) {
@@ -62,15 +72,11 @@ Z11Page::Z11Page ()
 Z11Page::~Z11Page ()
 {
     if (zynqptr != NULL) munmap (zynqptr, 4096);
-    if (bigmemptr != NULL) munmap (bigmemptr, 0x20000);
     close (zynqfd);
     zynqpage = NULL;
     zynqptr = NULL;
-    bigmemptr = NULL;
     zynqfd = -1;
-    cmemat = NULL;
-    xmemat = NULL;
-    bigmemat = NULL;
+    slat = NULL;
 }
 
 // find a device in the Z11 page
@@ -104,19 +110,6 @@ uint32_t volatile *Z11Page::findev (char const *id, bool (*entry) (void *param, 
     }
     entry (param, NULL);
     return NULL;
-}
-
-// get a pointer to the 256K-byte memory shared with the FPGA bigmem.v module
-uint32_t volatile *Z11Page::bigmem ()
-{
-    if (bigmemptr == NULL) {
-        bigmemptr = mmap (NULL, 256*1024, PROT_READ | PROT_WRITE, MAP_SHARED, zynqfd, 4096);
-        if (bigmemptr == MAP_FAILED) {
-            fprintf (stderr, "Z11Page::bigmem: error mmapping /proc/zynqpdp11: %m\n");
-            ABORT ();
-        }
-    }
-    return (uint32_t volatile *) bigmemptr;
 }
 
 // lock a sub-device
@@ -180,139 +173,75 @@ found:;
     }
 }
 
-
-#if 000
-#define CMWAIT(pred) do {                                               \
-    uint32_t started = 0;                                               \
-    while (true) {                                                      \
-        int i;                                                          \
-        for (i = 1000000; -- i >= 0;) if (pred) break;                  \
-        if (i >= 0) break;                                              \
-        uint32_t now = time (NULL);                                     \
-        if (started == 0) started = now;                                \
-        else if (now - started > 1) {                                   \
-            fprintf (stderr, "z11page: cmem controller is stuck\n");    \
-            ABORT ();                                                   \
-        }                                                               \
-    }                                                                   \
-} while (false)
-
-// do a dma cycle
-//  input:
-//     cm<CM_ADDR>  = 15-bit address
-//     cm<CM_WRITE> = do a write access (else it's a read)
-//     cm<CM_DATA>  = write data
-//     cm<CM_ENAB>  = enable access
-//   cm2<CM2_CAINC> = increment address of a 3-cycle
-//   cm2<CM2_3CYCL> = do a 3-cycle
-//  output:
-//     cm<CM_DATA>  = read data
-//     cm<CM_WCOVF> = wordcount overflow in 3-cycle
-uint32_t Z11Page::dmacycle (uint32_t cm, uint32_t cm2)
+// read a word from unibus via dma
+// works even when 11/34 is halted
+bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
-    if (cmemat == NULL) cmemat = findev ("CM", NULL, NULL, false);
-
-    cmlock ();
-    CMWAIT (! (cmemat[1] & CM_BUSY));
-    cmemat[2] = (cmemat[2] & CM2_NOBRK) | cm2;
-    cmemat[1] = cm;
-    CMWAIT ((cm = cmemat[1]) & CM_DONE);
-    cmunlk ();
-    return cm;
-}
-
-// make sure last write has completed
-void Z11Page::dmaflush ()
-{
-    cmlock ();
-    CMWAIT (! (cmemat[1] & CM_BUSY));
-    cmunlk ();
-}
-
-// get exclusive access (co-operative) to pdp11cmem.v device by the calling process
-void Z11Page::cmlock ()
-{
-    if (cmemat == NULL) cmemat = findev ("CM", NULL, NULL, false);
-
-    uint32_t started = 0;
-    while (true) {
-        uint32_t lkpid;
-        for (int i = 1000000; -- i >= 0;) {
-            cmemat[3] = mypid;
-            lkpid = cmemat[3];
-            if (lkpid == mypid) return;
-        }
-        uint32_t now = time (NULL);
-        if (started == 0) started = now;
-        else if (now - started > 1) {
-            fprintf (stderr, "z11page: cmem controller is stuckn");
+    dmalock ();
+    slat[3] = SL3_DMASTATE0 | SL3_DMAADDR0 * xba;
+    for (int i = 0; (slat[3] & SL3_DMASTATE) != 0; i ++) {
+        if (i > 100000) {
+            fprintf (stderr, "Z11Page::dmaread: dma stuck\n");
             ABORT ();
         }
-        if ((lkpid != 0) && (kill (lkpid, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "Z11Page::cmlock: pid %u died, releasing lock\n", lkpid);
-            cmemat[3] = lkpid;
+    }
+    bool ok = ! (slat[3] & SL3_DMAFAIL);
+    *data = (slat[4] & SL4_DMADATA) / SL4_DMADATA0;
+    dmaunlk ();
+    return ok;
+}
+
+// write a word to unibus via dma
+// works even when 11/34 is halted
+bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
+{
+    dmalock ();
+    slat[4] = SL4_DMADATA0 * data;
+    slat[3] = SL3_DMASTATE0 | SL3_DMACTRL0 * 2 | SL3_DMAADDR0 * xba;
+    for (int i = 0; (slat[3] & SL3_DMASTATE) != 0; i ++) {
+        if (i > 100000) {
+            fprintf (stderr, "Z11Page::dmawrite: dma stuck\n");
+            ABORT ();
         }
+    }
+    bool ok = ! (slat[3] & SL3_DMAFAIL);
+    dmaunlk ();
+    return ok;
+}
+
+// acquire exclusive access to dma controller
+// wait indefinitely in case being used by TCL scripting
+void Z11Page::dmalock ()
+{
+    ASSERT (SL5_DMALOCK == 0xFFFFFFFFU);
+
+    // use swlight.v for dma transfers
+    if (slat == NULL) {
+        slat = findev ("SL", NULL, NULL, false, false);
+    }
+
+    ASSERT (slat[5] != mypid);
+    int nus = 10;
+    while (true) {
+        slat[5] = mypid;
+        uint32_t lkpid = slat[5];
+        if (lkpid == mypid) break;
+        if ((lkpid != 0) && (kill (lkpid, 0) < 0) && (errno == ESRCH)) {
+            fprintf (stderr, "Z11Page::dmalock: unlocking from dead %u\n", lkpid);
+            slat[5] = lkpid;
+        }
+        if (nus < 1000) ++ nus;
+        usleep (nus);
     }
 }
 
-// release exclusive access to pdp11cmem.v device by the calling process
-void Z11Page::cmunlk ()
+// release exclusive access to dma controller
+void Z11Page::dmaunlk ()
 {
-    ASSERT (cmemat != NULL);
-    uint32_t lkpid = cmemat[3];
-    ASSERT (lkpid == mypid);
-    cmemat[3] = lkpid;
+    ASSERT (SL5_DMALOCK == 0xFFFFFFFFU);
+    ASSERT (slat[5] == mypid);
+    slat[5] = mypid;
 }
-
-// format shadow string
-char *formatshadow (uint32_t volatile *shat)
-{
-    static char const *const msstr[] = { "--", "F ", "D ", "E ", "WC", "CA", "BR", "IA",
-                                         "ST", "09", "10", "11", "12", "13", "14", "15" };
-
-    uint32_t sh1 = shat[1];
-    uint32_t sh2 = shat[2];
-    uint32_t sh3 = shat[3];
-    uint32_t sh4 = shat[4];
-
-    char iregstr[5], pctrstr[5], mbufstr[5], madrstr[5], acumstr[5], eadrstr[5];
-    sprintf (iregstr, "%04o", (sh2 & SH2_IREG) / (SH2_IREG & - SH2_IREG));
-    sprintf (pctrstr, "%04o", (sh2 & SH2_PCTR) / (SH2_PCTR & - SH2_PCTR));
-    sprintf (mbufstr, "%04o", (sh3 & SH3_MBUF) / (SH3_MBUF & - SH3_MBUF));
-    sprintf (madrstr, "%04o", (sh3 & SH3_MADR) / (SH3_MADR & - SH3_MADR));
-    sprintf (acumstr, "%04o", (sh4 & SH4_ACUM) / (SH4_ACUM & - SH4_ACUM));
-    sprintf (eadrstr, "%04o", (sh4 & SH4_EADR) / (SH4_EADR & - SH4_EADR));
-
-    char *buf;
-    int rc = asprintf (&buf,
-        "err=%04X"
-        " foe=%o"
-        " ms=%s"
-        " ts=%u+%2u"
-        " ir=%s"
-        " pc=%s"
-        " mb=%s"
-        " ma=%s"
-        " l.ac=%c.%s"
-        " ea=%s",
-
-        (sh1 & SH_ERROR) / (SH_ERROR & - SH_ERROR),
-        (sh1 & SH_FRZONERR) / SH_FRZONERR,
-        msstr[(sh2&SH2_MAJSTATE)/(SH2_MAJSTATE&-SH2_MAJSTATE)],
-        (sh2 & SH2_TIMESTATE) / (SH2_TIMESTATE & - SH2_TIMESTATE),
-                (sh3 & SH3_TIMEDELAY) / (SH3_TIMEDELAY & - SH3_TIMEDELAY),
-        (sh1 & SH_IRKNOWN) ? iregstr : "----",
-        (sh1 & SH_PCKNOWN) ? pctrstr : "----",
-        (sh1 & SH_MBKNOWN) ? mbufstr : "----",
-        (sh1 & SH_MAKNOWN) ? madrstr : "----",
-        (sh1 & SH_LNKNOWN) ? '0' + (sh4 & SH4_LINK) / SH4_LINK : '-',
-                (sh1 & SH_ACKNOWN) ? acumstr : "----",
-        (sh1 & SH_EAKNOWN) ? eadrstr : "----");
-
-    ASSERT (rc > 0);
-    return buf;
-}
-#endif
 
 // generate a random number
 uint32_t randbits (int nbits)

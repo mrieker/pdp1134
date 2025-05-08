@@ -1,0 +1,178 @@
+//    Copyright (C) Mike Rieker, Beverly, MA USA
+//    www.outerworldapps.com
+//
+//    This program is free software; you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation; version 2 of the License.
+//
+//    This program is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with this program; if not, write to the Free Software
+//    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+//
+//    http://www.gnu.org/licenses/gpl-2.0.html
+
+// PDP-11 RL01/2 disk interface
+
+module rl11
+    #(parameter[17:00] ADDR=18'o774400,
+      parameter[7:0] INTVEC=8'o160) (
+    input CLOCK, RESET,
+
+    input armwrite,
+    input[2:0] armraddr, armwaddr,
+    input[31:00] armwdata,
+    output[31:00] armrdata,
+
+    output intreq,
+    output[7:0] intvec,
+
+    input[17:00] a_in_h,
+    input[1:0] c_in_h,
+    input[15:00] d_in_h,
+    input init_in_h,
+    input msyn_in_h,
+
+    output reg[15:00] d_out_h,
+    output reg ssyn_out_h);
+
+    reg enable;
+    reg[15:00] rlcs, rlba, rlda, rlmp, rhda, rhcrc;
+    reg[3:0] driveerrors, drivereadys;
+    wire[1:0] driveselect = rlcs[09:08];
+    reg[1:0] mpmux;
+
+    assign armrdata = (armraddr == 0) ? 32'h524C2001 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+                      (armraddr == 1) ? { rlba,  rlcs } :
+                      (armraddr == 2) ? { rlmp,  rlda } :
+                      (armraddr == 3) ? { rhcrc, rhda } :
+                      (armraddr == 4) ? { 22'b0, mpmux, driveerrors, drivereadys } :
+                      (armraddr == 5) ? { enable, 5'b0, INTVEC, ADDR } :
+                      32'hDEADBEEF;
+
+    assign intreq = rlcs[07] & rlcs[06];
+    assign intvec = { INTVEC[7:2], 2'b0 };
+
+    always @(*) begin
+        rlcs[00] <= drivereadys[driveselect];
+        rlcs[14] <= driveerrors[driveselect];
+        rlcs[15] <= rlcs[14:10] != 0;
+    end
+
+    always @(posedge CLOCK) begin
+        if (init_in_h) begin
+            if (RESET) begin
+                enable <= 0;
+                driveerrors <= 0;
+                drivereadys <= 0;
+            end
+
+            mpmux <= 0;
+
+            rlcs[13:01] <= 13'b0000001000000;
+            rlba[15:00] <= 0;
+            rlda[15:00] <= 0;
+
+            d_out_h    <= 0;
+            ssyn_out_h <= 0;
+        end
+
+        // arm processor is writing one of the registers
+        else if (armwrite) begin
+            case (armwaddr)
+                1: begin
+                    rlba  <= armwdata[31:16];
+                    rlcs[13:01] <= armwdata[13:01];
+                end
+                2: begin
+                    rlmp  <= armwdata[31:16];
+                    rlda  <= armwdata[15:00];
+                end
+                3: begin
+                    rhcrc <= armwdata[31:16];
+                    rhda  <= armwdata[15:00];
+                end
+                4: begin
+                    mpmux       <= armwdata[09:08];
+                    driveerrors <= armwdata[07:04];
+                    drivereadys <= armwdata[03:00];
+                end
+                5: begin
+                    enable <= armwdata[31];
+                end
+            endcase
+        end
+
+        // pdp or something else is accessing an i/o register
+        else if (~ msyn_in_h) begin
+            d_out_h    <= 0;
+            ssyn_out_h <= 0;
+        end else if (enable & (a_in_h[17:03] == ADDR[17:03]) & ~ ssyn_out_h) begin
+            ssyn_out_h <= 1;
+            if (c_in_h[1]) begin
+                case (a_in_h[02:01])
+
+                    // pdp writing control/status register
+                    0: begin
+                        if (~ c_in_h[0] |   a_in_h[00]) begin
+                            rlcs[09:08] <= d_in_h[09:08];
+                        end
+                        if (~ c_in_h[0] | ~ a_in_h[00]) begin
+                            rlcs[07:01] <= d_in_h[07:01];
+                        end
+                    end
+
+                    // pdp writing bus address
+                    1: begin
+                        if (~ c_in_h[0] |   a_in_h[00]) begin
+                            rlba[15:08] <= d_in_h[15:08];
+                        end
+                        if (~ c_in_h[0] | ~ a_in_h[00]) begin
+                            rlba[07:01] <= d_in_h[07:01];
+                        end
+                    end
+
+                    // pdp writing disk address
+                    2: begin
+                        if (~ c_in_h[0] |   a_in_h[00]) begin
+                            rlda[15:08] <= d_in_h[15:08];
+                        end
+                        if (~ c_in_h[0] | ~ a_in_h[00]) begin
+                            rlda[07:00] <= d_in_h[07:00];
+                        end
+                    end
+
+                    // pdp writing multi-purpose
+                    3: begin
+                        if (~ c_in_h[0] |   a_in_h[00]) begin
+                            rlmp[15:08] <= d_in_h[15:08];
+                        end
+                        if (~ c_in_h[0] | ~ a_in_h[00]) begin
+                            rlmp[07:00] <= d_in_h[07:00];
+                        end
+                    end
+                endcase
+            end else begin
+
+                // pdp reading a register
+                case (a_in_h[02:01])
+                    0: begin d_out_h <= rlcs; end
+                    1: begin d_out_h <= rlba; end
+                    2: begin d_out_h <= rlda; end
+                    3: case (mpmux)
+                        0: d_out_h <= rlmp;
+                        1: begin d_out_h <= rhda;  mpmux <= 2; end
+                        2: begin d_out_h <= 0;     mpmux <= 3; end
+                        3: begin d_out_h <= rhcrc; mpmux <= 0; end
+                    endcase
+                endcase
+            end
+        end
+    end
+endmodule

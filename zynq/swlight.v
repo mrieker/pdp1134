@@ -64,16 +64,18 @@ module swlight (
     reg[9:0] dmadelay;
     reg[15:00] dmadata, lights, switches;
     reg[17:00] dmaaddr;
+    reg[31:00] dmalock;
     wire halted;
 
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C2004 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C2005 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? { enable, hltrq_out_h, halted, stepreq, init_out_h, ac_lo_out_h, dc_lo_out_h, init_in_h, ac_lo_in_h, dc_lo_in_h, 22'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
+                      (armraddr == 5) ? { dmalock } :
                       32'hDEADBEEF;
 
     assign halted = ~ hltgr_in_l;
@@ -85,6 +87,7 @@ module swlight (
             if (RESET) begin
                 ac_lo_out_h <= 0;
                 dc_lo_out_h <= 0;
+                dmalock     <= 0;
                 enable      <= 0;
                 haltstate   <= 0;
                 hltrq_out_h <= 0;
@@ -123,10 +126,14 @@ module swlight (
                 4: if (dmastate == 0) begin
                     dmadata  <= armwdata[15:00];
                 end
+                5: begin
+                         if (dmalock == 0) dmalock <= armwdata;
+                    else if (dmalock == armwdata) dmalock <= 0;
+                end
             endcase
         end
 
-        // something on unibus is accessing a register
+        // something on unibus is accessing a 777570 register
         else if (~ msyn_in_h) begin
             swr_d_out_h <= 0;
             ssyn_out_h  <= 0;
@@ -147,6 +154,7 @@ module swlight (
 
             // if processor is running, do a non-processor request
             // if processor halted, just start using bus, presumably we are only one that would
+            // take into account that processor may halt after we assert npg but before it asserts npr
             1: begin
                 dmafail <= 0;
                 if (~ hltgr_in_l | npr_out_h & ~ npg_in_l) begin

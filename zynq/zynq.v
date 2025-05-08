@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314009;
+    localparam VERSION = 32'h3131400A;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -184,17 +184,23 @@ module Zynq (
     localparam MUXDELAY = 15;
     reg del_msyn_in_h;
 
-    reg[5:0] muxcount, muxdelay;
+    // del_ssyn_in_h - delayed MUXDELAY*3*10nS so all data demuxed signals are up-to-date
+    // - dmx_a_in_h and dmx_c_in_h should still be ok from msyn
+    //   dmx_d_in_h will be up to date for write functions
+    //   ...but needs to be updated for read functions
+    reg del_ssyn_in_h;
+
+    reg[5:0] muxcount, mmuxdelay, smuxdelay;
     assign rsel1_h  = muxcount[5:4] == 1;
     assign rsel2_h  = muxcount[5:4] == 2;
     assign rsel3_h  = muxcount[5:4] == 3;
 
     always @(posedge CLOCK) begin
         if (mastereset) begin
-            muxcount <= 8;
+            muxcount <= 16;
         end else begin
 
-            // give transistors 50nS to switch and soak
+            // give transistors MUXDELAY*10nS to switch and soak
             if (muxcount[3:0] != MUXDELAY-1) begin
                 muxcount[3:0] <= muxcount[3:0] + 1;
             end else begin
@@ -259,15 +265,29 @@ module Zynq (
                                             (muxcount[5:4] == 3) ? 1 : (muxcount[5:4] + 1);
             end
 
-            // delay msyn_in_h a full demux cycle so we know multiplexed signals are all updated
+            // delay msyn_in_h for a full demux cycle so we know multiplexed signals are all updated
             // master has given it some delay but give it more to be sure
             if (~ syn_msyn_in_h) begin
                 del_msyn_in_h <= 0;                 // drop delayed msyn as soon as external drops
-                muxdelay      <= 0;                 // init delay counter for next time
-            end else if (muxdelay != MUXDELAY*3-1) begin
-                muxdelay      <= muxdelay + 1;
+                mmuxdelay     <= 0;                 // init delay counter for next time
+            end else if (mmuxdelay != MUXDELAY*3) begin
+                mmuxdelay     <= mmuxdelay + 1;
             end else begin                          // see if all 3 clocked in since transition
                 del_msyn_in_h <= 1;                 // ok to assert delayed msyn now
+            end
+
+            // delay ssyn_in_h for a full demux cycle so we know multiplexed signals are all updated
+            // dmx_a_in_h and dmx_c_in_h were updated by delayed msyn_in_h
+            // dmx_d_in_h was updated for 'write' cycles by the delayed msyn_in_h
+            // we only need to delay for 'read' cycles so dmx_d_in_h gets updated with what was read
+            // master will give it some delay but give it more to be sure
+            if (~ syn_ssyn_in_h) begin
+                del_ssyn_in_h <= 0;                 // drop delayed ssyn as soon as external drops
+                smuxdelay     <= 0;                 // init delay counter for next time
+            end else if (~ dmx_c_in_h[1] & (smuxdelay != MUXDELAY*3)) begin
+                smuxdelay     <= smuxdelay + 1;     // read - count through delay; write - don't bother
+            end else begin                          // see if all 3 clocked in since transition
+                del_ssyn_in_h <= 1;                 // ok to assert delayed(read)/undelayed(write) ssyn now
             end
         end
     end
@@ -440,7 +460,7 @@ module Zynq (
     //  arm reading/writing registers  //
     /////////////////////////////////////
 
-    wire[31:00] bmarmrdata, pcarmrdata, slarmrdata, tt0armrdata;
+    wire[31:00] bmarmrdata, pcarmrdata, rlarmrdata, slarmrdata, tt0armrdata;
 
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION     :
@@ -456,17 +476,19 @@ module Zynq (
         (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
         (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
         (readaddr[11:05] ==  8'b0000100)    ? bmarmrdata  :
-        (readaddr[11:05] ==  8'b0000101)    ? slarmrdata  :
-        (readaddr[11:04] ==  8'b00001100)   ? pcarmrdata  :
-        (readaddr[11:04] ==  8'b00001101)   ? tt0armrdata :
+        (readaddr[11:05] ==  8'b0000101)    ? rlarmrdata  :
+        (readaddr[11:05] ==  8'b0000110)    ? slarmrdata  :
+        (readaddr[11:04] ==  8'b00001110)   ? pcarmrdata  :
+        (readaddr[11:04] ==  8'b00001111)   ? tt0armrdata :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
     wire bmarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000100);
-    wire slarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000101);
-    wire pcarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001100);
-    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001101);
+    wire rlarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000101);
+    wire slarmwrite  = armwrite & (writeaddr[11:05] == 8'b0000110);
+    wire pcarmwrite  = armwrite & (writeaddr[11:04] == 8'b00001110);
+    wire tt0armwrite = armwrite & (writeaddr[11:04] == 8'b00001111);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -598,6 +620,33 @@ module Zynq (
         .d_out_h (pc_d_out_h),
         .ssyn_out_h (pc_ssyn_out_h));
 
+    // rl01/2 disk controller
+    wire rlintreq, rl_ssyn_out_h;
+    wire[7:0] rlintvec;
+    wire[15:00] rl_d_out_h;
+
+    rl11 rlinst (
+        .CLOCK (CLOCK),
+        .RESET (mastereset),
+
+        .armraddr (readaddr[4:2]),
+        .armrdata (rlarmrdata),
+        .armwaddr (writeaddr[4:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (rlarmwrite),
+
+        .intreq (rlintreq),
+        .intvec (rlintvec),
+
+        .a_in_h (dev_a_h),
+        .c_in_h (dev_c_h),
+        .d_in_h (dev_d_h),
+        .init_in_h (dev_init_h),
+        .msyn_in_h (dev_msyn_h),
+
+        .d_out_h (rl_d_out_h),
+        .ssyn_out_h (rl_ssyn_out_h));
+
     // switches and lights
     wire sl_ac_lo_out_h, sl_bbsy_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
     wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
@@ -672,7 +721,7 @@ module Zynq (
     // generate interrupt request cycles from simple request/vector lines from internal devices
 
     wire[7:0] intvec4 = pcintreq ? pcintvec : tt0intreq ? tt0intvec : 1;
-    wire[7:0] intvec5 = 1;
+    wire[7:0] intvec5 = rlintreq ? rlintvec : 1;
     wire[7:0] intvec6 = 1;
     wire[7:0] intvec7 = 1;
 
@@ -759,6 +808,16 @@ module Zynq (
     //  generate internal bus signals  //
     /////////////////////////////////////
 
+    // bus configuration for FM_REAL:
+
+    //   [our devices]  =>  wor_ (wired-or)  =>  unibus (unprefixed)  =>  synchronizers/demuxers syn_/dmx_/del_  =>  dev_  =>  [our devices]
+
+    // bus configuration for FM_OFF,FM_SIM:
+
+    //   [our devices]  =>  wor_ (wired-or)  =>  dev_  =>  [our devices]
+
+    //   hi-Z  =>  unibus (unprefixed)  =>  ignored
+
     // manual overrides from arm processor
     wire[17:00] man_a_out_h     = regctlb[17:00];
     wire        man_ac_lo_out_h = regctla[28];
@@ -783,7 +842,7 @@ module Zynq (
     wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
     wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l    | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
     wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l | sl_init_out_h;
@@ -791,7 +850,7 @@ module Zynq (
     wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
     wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | tt0_ssyn_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | rl_ssyn_out_h | tt0_ssyn_out_h;
 
     always @(*) begin
         if (regctla[31:30] == FM_REAL) begin
@@ -831,7 +890,7 @@ module Zynq (
             dev_npg_l   <= syn_npg_in_l;
             dev_npr_h   <= dmx_npr_in_h;
             dev_sack_h  <= syn_sack_in_h;
-            dev_ssyn_h  <= syn_ssyn_in_h;
+            dev_ssyn_h  <= del_ssyn_in_h;
         end else begin
 
             // hi-Z all the transistors going out to unibus

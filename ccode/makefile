@@ -10,7 +10,7 @@ endif
 
 LIBS = lib.$(MACH).a
 
-default: z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MACH)
+default: z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MACH) z11rl.$(MACH)
 
 lib.$(MACH).a: \
 		cmd_pin.$(MACH).o \
@@ -20,19 +20,7 @@ lib.$(MACH).a: \
 	rm -f lib.$(MACH).a
 	ar rc $@ $^
 
-z11ctrl.$(MACH): z11ctrl.$(MACH).o $(LIBS)
-	$(GPP) -o $@ $^ $(LNKFLG)
-
-z11dl.$(MACH): z11dl.$(MACH).o $(LIBS)
-	$(GPP) -o $@ $^ $(LNKFLG)
-
-z11dump.$(MACH): z11dump.$(MACH).o $(LIBS)
-	$(GPP) -o $@ $^ $(LNKFLG)
-
-z11ila.$(MACH): z11ila.$(MACH).o $(LIBS)
-	$(GPP) -o $@ $^ $(LNKFLG)
-
-z11pr.$(MACH): z11pr.$(MACH).o $(LIBS)
+%.$(MACH): %.$(MACH).o $(LIBS)
 	$(GPP) -o $@ $^ $(LNKFLG)
 
 %.$(MACH).o: %.cc *.h
