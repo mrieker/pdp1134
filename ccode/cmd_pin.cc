@@ -131,6 +131,13 @@ static PinDef const pindefs[] = {
     { "d_in_h",          DEV_11, Z_RG, g_d_in_h,      0, false },
     { "d_out_h",         DEV_11, Z_RG, g_d_out_h,     0, false },
 
+    { "ilaarmed",        DEV_11, 17,   0x80000000,    0, true  },
+    { "ilaafter",        DEV_11, 17,   0x0FFF0000,    0, true  },
+    { "iladivid",        DEV_11, 17,   0x0000F000,    0, true  },
+    { "ilaindex",        DEV_11, 17,   0x00000FFF,    0, true  },
+    { "ilardatalo",      DEV_11, 18,   0xFFFFFFFF,    0, false },
+    { "ilardatahi",      DEV_11, 19,   0xFFFFFFFF,    0, false },
+
     { "bm_enablo",       DEV_BM, 1,    0xFFFFFFFF,    0, true  },
     { "bm_enabhi",       DEV_BM, 2,    0x3FFFFFFF,    0, true  },
     { "bm_armfunc",      DEV_BM, 3,    0xE0000000,    0, true  },

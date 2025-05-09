@@ -35,7 +35,7 @@
 
 #define DEPTH 4096  // total number of elements in ilaarray
 #define AFTER 4000  // number of samples to take after sample containing trigger
-#define DIVID 1     // sample at 10MHz rate
+#define DIVID 10    // sample at 10MHz rate
 
 #define ILACTL 021
 #define ILADAT 022
@@ -107,14 +107,26 @@ int main (int argc, char **argv)
         if (nodots || (i == 0) || (i == DEPTH - 1) ||
                 (thisentry != preventry) || (thisentry != nextentry)) {
 
-            printf ("%7.2f %o %o %06o %06o %06o\n",
+            printf ("%7.2f  %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
                 (i - DEPTH + AFTER + 1) * DIVID / 100.0,// trigger shows as 0.00uS
 
-                (unsigned) (thisentry >> 55) & 1,       // enab
-                (unsigned) (thisentry >> 53) & 3,       // wena
-                (unsigned) (thisentry >> 35) & 0777776, // addr
-                (unsigned) (thisentry >> 18) & 0777777, // dout
-                (unsigned) (thisentry >>  0) & 0777777  // din
+                (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h
+                (unsigned) (thisentry >> 37) & 1,       // dev_ac_lo_in_h,
+                (unsigned) (thisentry >> 36) & 1,       // dev_bbsy_in_h,
+                (unsigned) (thisentry >> 32) & 017,     // dev_bg_in_l,
+                (unsigned) (thisentry >> 28) & 017,     // dmx_br_in_h,
+                (unsigned) (thisentry >> 26) & 3,       // dev_c_in_h,
+                (unsigned) (thisentry >> 10) & 0177777, // dev_d_in_h,
+                (unsigned) (thisentry >>  9) & 1,       // dev_dc_lo_in_h,
+                (unsigned) (thisentry >>  8) & 1,       // dev_hltgr_in_l,
+                (unsigned) (thisentry >>  7) & 1,       // dev_hltrq_in_h,
+                (unsigned) (thisentry >>  6) & 1,       // dev_init_in_h,
+                (unsigned) (thisentry >>  5) & 1,       // dev_intr_in_h,
+                (unsigned) (thisentry >>  4) & 1,       // dev_msyn_in_h,
+                (unsigned) (thisentry >>  3) & 1,       // dev_npg_in_l,
+                (unsigned) (thisentry >>  2) & 1,       // dmx_npr_in_h,
+                (unsigned) (thisentry >>  1) & 1,       // dev_sack_in_h,
+                (unsigned) (thisentry >>  0) & 1        // dev_ssyn_in_h
             );
             indotdotdot = false;
         } else if (! indotdotdot) {

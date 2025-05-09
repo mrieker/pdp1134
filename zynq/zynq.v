@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131400B;
+    localparam VERSION = 32'h3131400E;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -127,14 +127,18 @@ module Zynq (
 
     reg[55:00] ilaarray[4095:0], ilardata;
     reg[11:00] ilaafter, ilaindex;
+    reg[3:0] ilacount, iladivid;
     reg ilaarmed;
 
     // we don't do anything with these
     assign pa_out_h = 0;
     assign pb_out_h = 0;
 
-    // regctla[31:30] determine overall FPGA mode
+    // arm writes these to control fpga
     reg[31:00] regctla, regctlb;
+
+    // regctla[31:30] determine overall FPGA mode
+    wire[1:0] fpgamode = regctla[31:30];
     localparam FM_OFF  = 0;     // FPGA 'off' - acts as a grant jumper card
     localparam FM_SIM  = 1;     // simulating - still acts as grant jumper to outside world
     localparam FM_REAL = 2;     // real - connected to outside signals
@@ -191,13 +195,17 @@ module Zynq (
     reg del_ssyn_in_h;
 
     reg[5:0] muxcount, mmuxdelay, smuxdelay;
-    assign rsel1_h  = muxcount[5:4] == 1;
-    assign rsel2_h  = muxcount[5:4] == 2;
-    assign rsel3_h  = muxcount[5:4] == 3;
+    assign rsel1_h = muxcount[5:4] == 1;
+    assign rsel2_h = muxcount[5:4] == 2;
+    assign rsel3_h = muxcount[5:4] == 3;
+
+    reg[31:00] regctli;
+    wire[1:0] man_rsel_h;
 
     always @(posedge CLOCK) begin
         if (mastereset) begin
             muxcount <= 16;
+            regctli  <= 0;
         end else begin
 
             // give transistors MUXDELAY*10nS to switch and soak
@@ -258,11 +266,11 @@ module Zynq (
                 // increment on to next multiplexor selection
                 muxcount[3:0] <= 0;
 
-                // - if FM_MAN mode and non-zero b_rsel_h, use that one
+                // - if non-zero man_rsel_h, use that one
                 //   otherwise, cycle on through one to the next
                 muxcount[5:4] <=
-                    ((regctla[31:30] == FM_MAN) & (regctlb[29:28] != 0)) ? regctlb[29:28] :
-                                            (muxcount[5:4] == 3) ? 1 : (muxcount[5:4] + 1);
+                        (man_rsel_h != 0) ? man_rsel_h :
+                                (muxcount[5:4] == 3) ? 1 : (muxcount[5:4] + 1);
             end
 
             // delay msyn_in_h for a full demux cycle so we know multiplexed signals are all updated
@@ -271,6 +279,7 @@ module Zynq (
                 del_msyn_in_h <= 0;                 // drop delayed msyn as soon as external drops
                 mmuxdelay     <= 0;                 // init delay counter for next time
             end else if (mmuxdelay != MUXDELAY*3) begin
+                if (mmuxdelay == 0) regctli <= regctli + 1;
                 mmuxdelay     <= mmuxdelay + 1;
             end else begin                          // see if all 3 clocked in since transition
                 del_msyn_in_h <= 1;                 // ok to assert delayed msyn now
@@ -323,9 +332,7 @@ module Zynq (
     //  signals coming out of simulator going to internal bus  //
     /////////////////////////////////////////////////////////////
 
-    // zeroes when not in FM_SIM mode
-
-    wire simmode = regctla[31:30] == FM_SIM;
+    // negated when not in simulator mode
 
     wire[17:00] sim_a_out_l;
     wire[1:0] sim_c_out_l;
@@ -340,7 +347,7 @@ module Zynq (
 
     sim1134 siminst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (mastereset | (fpgamode == FM_SIM)),
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -375,7 +382,7 @@ module Zynq (
     //  give arm direct read-only access to unibus pins  //
     ///////////////////////////////////////////////////////
 
-    wire turnedon = regctla[31:30] != FM_OFF;
+    wire turnedon = fpgamode != FM_OFF;
 
     wire[31:00] regctlc = {
         muxa,               // multiplexed inputs
@@ -472,7 +479,8 @@ module Zynq (
         (readaddr        == 10'b0000000110) ? regctlf     :
         (readaddr        == 10'b0000000111) ? regctlg     :
         (readaddr        == 10'b0000001000) ? regctlh     :
-        (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, 4'b0, ilaindex } :
+        (readaddr        == 10'b0000001001) ? regctli     :
+        (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, iladivid, ilaindex } :
         (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
         (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
         (readaddr[11:05] ==  8'b0000100)    ? bmarmrdata  :
@@ -668,9 +676,11 @@ module Zynq (
         .c_in_h      (dev_c_h),         //<< control code from pdp/sim to read switch register or write light register
         .d_in_h      (dev_d_h),         //<< data from pdp/sim to write to light register or data being read from real memory or device
         .hltgr_in_l  (dev_hltgr_l),     //<< halt grant from pdp/sim indicating it has halted
+        .hltrq_in_h  (dev_hltrq_h),     //<< something (such as pdp original front panel or this thing) is requesting halt
         .init_in_h   (dev_init_h),      //<< bus init signal from pdp/sim for RESET instruction
         .msyn_in_h   (dev_msyn_h),      //<< signal from pdp/sim when reading/writing switch/light register
         .npg_in_l    (dev_npg_l),       //<< pdp/sim says it is ok to do a DMA transfer
+        .sack_in_h   (dev_sack_h),      //<< signal from pdp/sim/device indicating it is acknowledging a grant
         .ssyn_in_h   (dev_ssyn_h),      //<< signal from pdp/sim/device indicating data transfer complete
 
         .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
@@ -808,15 +818,21 @@ module Zynq (
     //  generate internal bus signals  //
     /////////////////////////////////////
 
-    // bus configuration for FM_REAL:
-
-    //   [our devices]  =>  wor_ (wired-or)  =>  unibus (unprefixed)  =>  synchronizers/demuxers syn_/dmx_/del_  =>  dev_  =>  [our devices]
-
     // bus configuration for FM_OFF,FM_SIM:
 
     //   [our devices]  =>  wor_ (wired-or)  =>  dev_  =>  [our devices]
 
-    //   hi-Z  =>  unibus (unprefixed)  =>  ignored
+    //   hi-Z  =>  unibus (unprefixed)  =>  synchronizers/demuxers syn_/dmx_/del_  =>  ignored
+
+    // bus configuration for FM_REAL:
+
+    //   [our devices]  =>  wor_ (wired-or)  =>  unibus (unprefixed)  =>  synchronizers/demuxers syn_/dmx_/del_  =>  dev_  =>  [our devices]
+
+    // bus configuration for FM_MAN:
+
+    //   zeroes  =>  dev_  =>  [our devices]
+
+    //   man_ (arm)  =>  unibus (unprefixed)  =>  synchronizers/demuxers syn_/dmx_/del_  =>  ignored
 
     // manual overrides from arm processor
     wire[17:00] man_a_out_h     = regctlb[17:00];
@@ -833,6 +849,7 @@ module Zynq (
     wire        man_msyn_out_h  = regctla[22];
     wire        man_npg_out_l   = regctla[21];
     wire        man_npr_out_h   = regctla[20];
+    assign      man_rsel_h      = regctlb[29:28];
     wire        man_sack_out_h  = regctla[17];
     wire        man_ssyn_out_h  = regctla[16];
 
@@ -856,11 +873,52 @@ module Zynq (
     assign pb_out_h = 0;
 
     always @(*) begin
-        case (regctla[31:30])
+        case (fpgamode)
+
+            FM_OFF, FM_SIM: begin
+
+                // hi-Z all the transistors going out to unibus
+                // except pass grant signals through
+                a_out_h     <= 0;
+                ac_lo_out_h <= 0;
+                bbsy_out_h  <= 0;
+                bg_out_l    <= bg_in_l;
+                br_out_h    <= 0;
+                c_out_h     <= 0;
+                d_out_h     <= 0;
+                dc_lo_out_h <= 0;
+                hltrq_out_h <= 0;
+                init_out_h  <= 0;
+                intr_out_h  <= 0;
+                msyn_out_h  <= 0;
+                npg_out_l   <= npg_in_l;
+                npr_out_h   <= 0;
+                sack_out_h  <= 0;
+                ssyn_out_h  <= 0;
+
+                // loop signals directly back to device inputs
+                dev_a_h     <= wor_a_h;
+                dev_ac_lo_h <= wor_ac_lo_h;
+                dev_bbsy_h  <= wor_bbsy_h;
+                dev_bg_l    <= ~ sim_bg_out_h;
+                dev_c_h     <= wor_c_h;
+                dev_d_h     <= wor_d_h;
+                dev_dc_lo_h <= wor_dc_lo_h;
+                dev_hltgr_l <= ~ sim_hltgr_out_h;
+                dev_hltrq_h <= wor_hltrq_h;
+                dev_init_h  <= wor_init_h | mastereset;
+                dev_intr_h  <= wor_intr_h;
+                dev_msyn_h  <= wor_msyn_h;
+                dev_npg_l   <= ~ sim_npg_out_h;
+                dev_npr_h   <= wor_npr_h;
+                dev_sack_h  <= wor_sack_h;
+                dev_ssyn_h  <= wor_ssyn_h;
+            end
 
             FM_REAL: begin
 
                 // send internally generated signals out to unibus
+                // for bg,npg: block if requesting, else pass input as is
                 a_out_h     <= wor_a_h;
                 ac_lo_out_h <= wor_ac_lo_h;
                 bbsy_out_h  <= wor_bbsy_h;
@@ -896,45 +954,6 @@ module Zynq (
                 dev_npr_h   <= dmx_npr_in_h;
                 dev_sack_h  <= syn_sack_in_h;
                 dev_ssyn_h  <= del_ssyn_in_h;
-            end
-
-            FM_OFF, FM_SIM: begin
-
-                // hi-Z all the transistors going out to unibus
-                // except pass grant signals through
-                a_out_h     <= 0;
-                ac_lo_out_h <= 0;
-                bg_out_l    <= bg_in_l;
-                bbsy_out_h  <= 0;
-                c_out_h     <= 0;
-                d_out_h     <= 0;
-                dc_lo_out_h <= 0;
-                hltrq_out_h <= 0;
-                init_out_h  <= 0;
-                intr_out_h  <= 0;
-                msyn_out_h  <= 0;
-                npg_out_l   <= npg_in_l;
-                npr_out_h   <= 0;
-                sack_out_h  <= 0;
-                ssyn_out_h  <= 0;
-
-                // loop signals directly back to device inputs
-                dev_a_h     <= wor_a_h;
-                dev_ac_lo_h <= wor_ac_lo_h;
-                dev_bbsy_h  <= wor_bbsy_h;
-                dev_bg_l    <= ~ sim_bg_out_h;
-                dev_c_h     <= wor_c_h;
-                dev_d_h     <= wor_d_h;
-                dev_dc_lo_h <= wor_dc_lo_h;
-                dev_hltgr_l <= ~ sim_hltgr_out_h;
-                dev_hltrq_h <= wor_hltrq_h;
-                dev_init_h  <= wor_init_h | mastereset;
-                dev_intr_h  <= wor_intr_h;
-                dev_msyn_h  <= wor_msyn_h;
-                dev_npg_l   <= ~ sim_npg_out_h;
-                dev_npr_h   <= wor_npr_h;
-                dev_sack_h  <= wor_sack_h;
-                dev_ssyn_h  <= wor_ssyn_h;
             end
 
             // manual pin testing (edgepintest.tcl)
@@ -986,8 +1005,6 @@ module Zynq (
     //  ilaindex = next entry in ilaarray to write
     //  iladivid = 0: 100MHz; 1: 50MHz; 2: 33MHz; 4: 25MHz; ...
 
-    reg[3:0] ilacount, iladivid;
-
     always @(posedge CLOCK) begin
         if (mastereset) begin
             ilaarmed <= 0;
@@ -1012,11 +1029,26 @@ module Zynq (
                 ilacount <= iladivid;
 
                 ilaarray[ilaindex] <= {
-                    extmemenab,     //55
-                    extmemwena,     //53
-                    extmemaddr,     //36
-                    extmemdout,     //18
-                    extmemdin       //00
+                    dev_a_h[17:03],     //41
+                        rsel3_h,        //40
+                        rsel2_h,        //39
+                        rsel1_h,        //38
+                        ac_lo_in_h,     //37
+                        bbsy_in_h,      //36
+                    dev_bg_l,           //32
+                    dev_br_h,           //28
+                    dev_c_h,            //26
+                    dev_d_h,            //10
+                        dc_lo_in_h,     //09
+                        hltgr_in_l,     //08
+                        muxc,           //07  hltrq_in_h when resl1_h
+                        init_in_h,      //06
+                        intr_in_h,      //05
+                        msyn_in_h,      //04
+                        npg_in_l,       //03
+                    dev_npr_h,          //02
+                        sack_in_h,      //01
+                        ssyn_in_h       //00
 /***
                     dev_a_h,        //38
                     dev_ac_lo_h,    //37
@@ -1041,13 +1073,13 @@ module Zynq (
                 ilaindex <= ilaindex + 1;
                 if (~ ilaarmed) ilaafter <= ilaafter - 1;
             end
-        end
 
-        // check trigger condition
-        ////if (rsel1_h & muxc) begin   // - hltrq_in_h
-        ////if (~ hltgr_in_l) begin
-        else if (bmarmwrite) begin
-            ilaarmed <= 0;
+            // check trigger condition
+            if (rsel1_h & muxc) begin   // - hltrq_in_h
+            ////if (~ hltgr_in_l) begin
+            ////if (wor_msyn_h) begin
+                ilaarmed <= 0;
+            end
         end
     end
 endmodule

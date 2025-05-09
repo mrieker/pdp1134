@@ -87,9 +87,14 @@ proc rdbyte {addr} {
     }
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 0 sl_dmastate 1
+    set dmastate [pin get sl_dmastate]
+    if {$dmastate != 0} {
+        unlkdma
+        error "rdbyte: dmastate stuck at $dmastate"
+    }
     if {[pin get sl_dmafail]} {
         unlkdma
-        error [format "rdbyte %06o failed" $addr]
+        error [format "rdbyte %06o timed out" $addr]
     }
     set data [pin get sl_dmadata]
     unlkdma
@@ -108,9 +113,14 @@ proc rdword {addr} {
     }
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 0 sl_dmastate 1
+    set dmastate [pin get sl_dmastate]
+    if {$dmastate != 0} {
+        unlkdma
+        error "rdword: dmastate stuck at $dmastate"
+    }
     if {[pin get sl_dmafail]} {
         unlkdma
-        error [format "rdword %06o failed" $addr]
+        error [format "rdword %06o timed out" $addr]
     }
     set data [pin get sl_dmadata]
     unlkdma
@@ -128,9 +138,14 @@ proc wrbyte {addr data} {
     if {$addr & 1} {set data [expr {$data << 8}]}
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 3 sl_dmadata $data sl_dmastate 1
+    set dmastate [pin get sl_dmastate]
+    if {$dmastate != 0} {
+        unlkdma
+        error "wrbyte: dmastate stuck at $dmastate"
+    }
     if {[pin get sl_dmafail]} {
         unlkdma
-        error [format "wrbyte %06o failed" $addr]
+        error [format "wrbyte %06o timed out" $addr]
     }
     unlkdma
 }
@@ -148,9 +163,14 @@ proc wrword {addr data} {
     }
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 2 sl_dmadata $data sl_dmastate 1
+    set dmastate [pin get sl_dmastate]
+    if {$dmastate != 0} {
+        unlkdma
+        error "wrword: dmastate stuck at $dmastate"
+    }
     if {[pin get sl_dmafail]} {
         unlkdma
-        error [format "wrword %06o failed" $addr]
+        error [format "wrword %06o timed out" $addr]
     }
     unlkdma
 }

@@ -39,9 +39,11 @@ module swlight (
     input[15:00] d_in_h,
     input dc_lo_in_h,
     input hltgr_in_l,
+    input hltrq_in_h,
     input init_in_h,
     input msyn_in_h,
     input npg_in_l,
+    input sack_in_h,
     input ssyn_in_h,
 
     output reg[17:00] a_out_h,
@@ -58,27 +60,24 @@ module swlight (
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmafail, enable, stepreq;
+    reg dmafail, enable, halted, stepreq;
     reg[1:0] dmactrl, haltstate;
     reg[2:0] dmastate;
     reg[9:0] dmadelay;
     reg[15:00] dmadata, lights, switches;
     reg[17:00] dmaaddr;
     reg[31:00] dmalock;
-    wire halted;
 
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C2005 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C2007 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? { enable, hltrq_out_h, halted, stepreq, init_out_h, ac_lo_out_h, dc_lo_out_h, init_in_h, ac_lo_in_h, dc_lo_in_h, 22'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
                       (armraddr == 5) ? { dmalock } :
                       32'hDEADBEEF;
-
-    assign halted = ~ hltgr_in_l;
 
     assign npg_out_l = npr_out_h ? 1 : npg_in_l;
 
@@ -89,6 +88,7 @@ module swlight (
                 dc_lo_out_h <= 0;
                 dmalock     <= 0;
                 enable      <= 0;
+                halted      <= 0;
                 haltstate   <= 0;
                 hltrq_out_h <= 0;
                 init_out_h  <= 0;
@@ -147,6 +147,25 @@ module swlight (
             end
         end
 
+        // determine if processor is halted
+        // the nutbag protocol is:
+        //   console asserts HLTRQ
+        //   processor asserts HLTGR
+        //   console asserts SACK
+        //   console negates HLTRQ
+        //   processor negates HLTGR
+        //   console maintains SACK to hold processor in halt state
+        //   console negates SACK to resume processor
+        // - assume that if processor is granting halt, it is halted
+        // - it may drop the grant but remains halted until request and sack are dropped
+        if (~ RESET) begin
+            if (~ hltgr_in_l) begin
+                halted <= 1;
+            end else if (~ hltrq_in_h & ~ sack_in_h) begin
+                halted <= 0;
+            end
+        end
+
         // dma transaction initiated by arm processor
         case (dmastate)
 
@@ -157,7 +176,7 @@ module swlight (
             // take into account that processor may halt after we assert npg but before it asserts npr
             1: begin
                 dmafail <= 0;
-                if (~ hltgr_in_l | npr_out_h & ~ npg_in_l) begin
+                if (halted | npr_out_h & ~ npg_in_l) begin
                     // deglitch grant signal in case upstream requested at same time we did
                     if (dmadelay[2:0] != 4) begin
                         dmadelay   <= dmadelay + 1;
@@ -245,7 +264,7 @@ module swlight (
         // - stop requesting processor to halt
         // - as soon as it starts back up, request halt
         if (stepreq) begin
-            if (! halted) begin
+            if (~ halted) begin
                 hltrq_out_h <= 1;
                 stepreq <= 0;
             end else begin
