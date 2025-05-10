@@ -35,7 +35,7 @@
 
 #define DEPTH 4096  // total number of elements in ilaarray
 #define AFTER 4000  // number of samples to take after sample containing trigger
-#define DIVID 10    // sample at 10MHz rate
+#define DIVID 1     // sample at 10nS rate
 
 #define ILACTL 021
 #define ILADAT 022
@@ -107,9 +107,15 @@ int main (int argc, char **argv)
         if (nodots || (i == 0) || (i == DEPTH - 1) ||
                 (thisentry != preventry) || (thisentry != nextentry)) {
 
-            printf ("%7.2f  %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
+            printf ("%7.2f  %03o %06o %o %05o %06o\n",
                 (i - DEPTH + AFTER + 1) * DIVID / 100.0,// trigger shows as 0.00uS
 
+                (unsigned) (thisentry >> 54) & 0377,    // muxcount
+                (unsigned) (thisentry >> 36) & 0777777, // dev_a_in_h
+                (unsigned) (thisentry >> 33) & 07,      // dev_a_in_h
+                (unsigned) (thisentry >> 18) & 077777,  // dev_a_in_h
+                (unsigned) (thisentry >>  0) & 0777777  // dev_a_in_h
+/***
                 (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h
                 (unsigned) (thisentry >> 37) & 1,       // dev_ac_lo_in_h,
                 (unsigned) (thisentry >> 36) & 1,       // dev_bbsy_in_h,
@@ -127,6 +133,7 @@ int main (int argc, char **argv)
                 (unsigned) (thisentry >>  2) & 1,       // dmx_npr_in_h,
                 (unsigned) (thisentry >>  1) & 1,       // dev_sack_in_h,
                 (unsigned) (thisentry >>  0) & 1        // dev_ssyn_in_h
+***/
             );
             indotdotdot = false;
         } else if (! indotdotdot) {

@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131400E;
+    localparam VERSION = 32'h3131400F;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -125,7 +125,7 @@ module Zynq (
 
     reg[11:02] readaddr, writeaddr;
 
-    reg[55:00] ilaarray[4095:0], ilardata;
+    reg[63:00] ilaarray[4095:0], ilardata;
     reg[11:00] ilaafter, ilaindex;
     reg[3:0] ilacount, iladivid;
     reg ilaarmed;
@@ -175,7 +175,7 @@ module Zynq (
     synk synkbg_7  (CLOCK, syn_bg_in_l[7], bg_in_l[7]);
 
     // input demux signal latches
-    // - loaded from mux pins every 150nS
+    // - loaded from mux pins every MUXDELAY*3*10nS
     reg dmx_hltrq_in_h, dmx_npr_in_h;
     reg[1:0] dmx_c_in_h;
     reg[7:4] dmx_br_in_h;
@@ -185,7 +185,7 @@ module Zynq (
     // del_msyn_in_h - delayed MUXDELAY*3*10nS so all demuxed signals up-to-date
     // - specifically we care about dmx_a_in_h, dmx_c_in_h, dmx_d_in_h
     //   the other dmx_ signals are just passed to arm for debugging
-    localparam MUXDELAY = 15;
+    localparam MUXDELAY = 31;
     reg del_msyn_in_h;
 
     // del_ssyn_in_h - delayed MUXDELAY*3*10nS so all data demuxed signals are up-to-date
@@ -194,23 +194,23 @@ module Zynq (
     //   ...but needs to be updated for read functions
     reg del_ssyn_in_h;
 
-    reg[5:0] muxcount, mmuxdelay, smuxdelay;
-    assign rsel1_h = muxcount[5:4] == 1;
-    assign rsel2_h = muxcount[5:4] == 2;
-    assign rsel3_h = muxcount[5:4] == 3;
+    reg[7:0] muxcount, mmuxdelay, smuxdelay;
+    assign rsel1_h = muxcount[7:6] == 1;
+    assign rsel2_h = muxcount[7:6] == 2;
+    assign rsel3_h = muxcount[7:6] == 3;
 
     reg[31:00] regctli;
     wire[1:0] man_rsel_h;
 
     always @(posedge CLOCK) begin
         if (mastereset) begin
-            muxcount <= 16;
+            muxcount <= 64;
             regctli  <= 0;
         end else begin
 
             // give transistors MUXDELAY*10nS to switch and soak
-            if (muxcount[3:0] != MUXDELAY-1) begin
-                muxcount[3:0] <= muxcount[3:0] + 1;
+            if (muxcount[5:0] != MUXDELAY-1) begin
+                muxcount[5:0] <= muxcount[5:0] + 1;
             end else begin
 
                 // all soaked in, clock into corresponding flipflops
@@ -264,13 +264,13 @@ module Zynq (
                 end
 
                 // increment on to next multiplexor selection
-                muxcount[3:0] <= 0;
+                muxcount[5:0] <= 0;
 
                 // - if non-zero man_rsel_h, use that one
                 //   otherwise, cycle on through one to the next
-                muxcount[5:4] <=
+                muxcount[7:6] <=
                         (man_rsel_h != 0) ? man_rsel_h :
-                                (muxcount[5:4] == 3) ? 1 : (muxcount[5:4] + 1);
+                                (muxcount[7:6] == 3) ? 1 : (muxcount[7:6] + 1);
             end
 
             // delay msyn_in_h for a full demux cycle so we know multiplexed signals are all updated
@@ -437,20 +437,15 @@ module Zynq (
     };
 
     wire[31:00] regctle = {
-        6'b0,
-
-        muxcount,
-
-        dmx_npr_in_h,
-        2'b0,
-        dmx_hltrq_in_h,
-
-        dmx_c_in_h,
-        dev_c_h,            // control bus outputs
-
-        dmx_br_in_h,
-        dev_br_h,           // bus request outputs
-        dev_bg_l            // bus grant outputs
+        6'b0,               //26
+        muxcount,           //18
+        dmx_npr_in_h,       //17
+        dmx_hltrq_in_h,     //16
+        dmx_c_in_h,         //14
+        dev_c_h,            //12 control bus outputs
+        dmx_br_in_h,        //08
+        dev_br_h,           //04 bus request outputs
+        dev_bg_l            //00 bus grant outputs
     };
 
     wire[31:00] regctlf = {
@@ -481,8 +476,8 @@ module Zynq (
         (readaddr        == 10'b0000001000) ? regctlh     :
         (readaddr        == 10'b0000001001) ? regctli     :
         (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, iladivid, ilaindex } :
-        (readaddr        == 10'b0000010010) ? {       ilardata[31:00] } :
-        (readaddr        == 10'b0000010011) ? { 8'b0, ilardata[55:32] } :
+        (readaddr        == 10'b0000010010) ? { ilardata[31:00] } :
+        (readaddr        == 10'b0000010011) ? { ilardata[63:32] } :
         (readaddr[11:05] ==  8'b0000100)    ? bmarmrdata  :
         (readaddr[11:05] ==  8'b0000101)    ? rlarmrdata  :
         (readaddr[11:05] ==  8'b0000110)    ? slarmrdata  :
@@ -1029,26 +1024,28 @@ module Zynq (
                 ilacount <= iladivid;
 
                 ilaarray[ilaindex] <= {
-                    dev_a_h[17:03],     //41
-                        rsel3_h,        //40
-                        rsel2_h,        //39
-                        rsel1_h,        //38
-                        ac_lo_in_h,     //37
-                        bbsy_in_h,      //36
-                    dev_bg_l,           //32
-                    dev_br_h,           //28
-                    dev_c_h,            //26
-                    dev_d_h,            //10
-                        dc_lo_in_h,     //09
-                        hltgr_in_l,     //08
-                        muxc,           //07  hltrq_in_h when resl1_h
-                        init_in_h,      //06
-                        intr_in_h,      //05
-                        msyn_in_h,      //04
-                        npg_in_l,       //03
-                    dev_npr_h,          //02
-                        sack_in_h,      //01
-                        ssyn_in_h       //00
+                    2'b0,           //62
+                    muxcount,       //54
+                    man_a_out_h,    //36
+                    rsel1_h,
+                    rsel2_h,
+                    rsel3_h,        //33
+                    muxa,
+                    muxb,
+                    muxc,
+                    muxd,
+                    muxe,
+                    muxf,
+                    muxh,
+                    muxj,
+                    muxk,
+                    muxl,
+                    muxm,
+                    muxn,
+                    muxp,
+                    muxr,
+                    muxs,           //18
+                    dev_a_h         //00
 /***
                     dev_a_h,        //38
                     dev_ac_lo_h,    //37
@@ -1075,9 +1072,10 @@ module Zynq (
             end
 
             // check trigger condition
-            if (rsel1_h & muxc) begin   // - hltrq_in_h
+            ////if (rsel1_h & muxc) begin   // - hltrq_in_h
             ////if (~ hltgr_in_l) begin
             ////if (wor_msyn_h) begin
+            if (armwrite) begin
                 ilaarmed <= 0;
             end
         end

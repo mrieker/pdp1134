@@ -20,8 +20,8 @@
 
 // bits provided by zynq.v in the zynq
 
-#ifndef _Z34DEFS
-#define _Z34DEFS
+#ifndef _Z11DEFS
+#define _Z11DEFS
 
 #define Z_VER 0
 #define Z_RA 1
@@ -32,20 +32,20 @@
 #define Z_RF 6
 #define Z_RG 7
 
-#define a_d_out_h     (0177777U << 0)
-#define a_ssyn_out_h  (1U << 16)
-#define a_sack_out_h  (1U << 17)
-#define a_pb_out_h    (1U << 18)
-#define a_pa_out_h    (1U << 19)
-#define a_npr_out_h   (1U << 20)
-#define a_npg_out_l   (1U << 21)
-#define a_msyn_out_h  (1U << 22)
-#define a_intr_out_h  (1U << 23)
-#define a_init_out_h  (1U << 24)
-#define a_hltrq_out_h (1U << 25)
-#define a_dc_lo_out_h (1U << 26)
-#define a_bbsy_out_h  (1U << 27)
-#define a_ac_lo_out_h (1U << 28)
+#define a_man_d_out_h     (0177777U << 0)
+#define a_man_ssyn_out_h  (1U << 16)
+#define a_man_sack_out_h  (1U << 17)
+#define a_man_pb_out_h    (1U << 18)
+#define a_man_pa_out_h    (1U << 19)
+#define a_man_npr_out_h   (1U << 20)
+#define a_man_npg_out_l   (1U << 21)
+#define a_man_msyn_out_h  (1U << 22)
+#define a_man_intr_out_h  (1U << 23)
+#define a_man_init_out_h  (1U << 24)
+#define a_man_hltrq_out_h (1U << 25)
+#define a_man_dc_lo_out_h (1U << 26)
+#define a_man_bbsy_out_h  (1U << 27)
+#define a_man_ac_lo_out_h (1U << 28)
 #define a_fpgamode    (3U << 30)
 
 #define FM_OFF  0U    // reset FPGA and disconnect from bus
@@ -55,11 +55,11 @@
 
 #define FMSTRS "OFF", "SIM", "REAL", "MAN"
 
-#define b_a_out_h     (0777777U << 0)
-#define b_c_out_h     (3U << 18)
-#define b_br_out_h    (017U << 20)
-#define b_bg_out_l    (017U << 24)
-#define b_rsel_h      (3U << 28)
+#define b_man_a_out_h  (0777777U << 0)
+#define b_man_c_out_h  (3U << 18)
+#define b_man_br_out_h (017U << 20)
+#define b_man_bg_out_l (017U << 24)
+#define b_man_rsel_h   (3U << 28)
 
 #define c_muxa        (1U << 31)
 #define c_muxb        (1U << 30)
@@ -91,36 +91,34 @@
 #define c_ssyn_in_h   (1U <<  4)
 #define c_bg_in_l     (15U << 0)
 
-#define d_ac_lo_out_h (1U << 31)
-#define d_bbsy_out_h  (1U << 30)
-#define d_dc_lo_out_h (1U << 29)
-#define d_hltgr_out_l (1U << 28)
-#define d_hltrq_out_h (1U << 27)
-#define d_init_out_h  (1U << 26)
-#define d_intr_out_h  (1U << 25)
-#define d_msyn_out_h  (1U << 24)
-#define d_npg_out_l   (1U << 23)
-#define d_npr_out_h   (1U << 22)
-#define d_pa_out_h    (1U << 21)
-#define d_pb_out_h    (1U << 20)
-#define d_sack_out_h  (1U << 19)
-#define d_ssyn_out_h  (1U << 18)
-#define d_a_out_h     (0777777U << 0)
+#define d_dev_ac_lo_h (1U << 31)
+#define d_dev_bbsy_h  (1U << 30)
+#define d_dev_dc_lo_h (1U << 29)
+#define d_dev_hltgr_l (1U << 28)
+#define d_dev_hltrq_h (1U << 27)
+#define d_dev_init_h  (1U << 26)
+#define d_dev_intr_h  (1U << 25)
+#define d_dev_msyn_h  (1U << 24)
+#define d_dev_npg_l   (1U << 23)
+#define d_dev_npr_h   (1U << 22)
+#define d_dev_pa_h    (1U << 21)
+#define d_dev_pb_h    (1U << 20)
+#define d_dev_sack_h  (1U << 19)
+#define d_dev_ssyn_h  (1U << 18)
+#define d_dev_a_h     (0777777U << 0)
 
-#define e_muxcount    (037U << 20)
-#define e_npr_in_h    (  1U << 19)
-#define e_pa_in_h     (  1U << 18)
-#define e_pb_in_h     (  1U << 17)
-#define e_hltrq_in_h  (  1U << 16)
-#define e_c_in_h      (  3U << 14)
-#define e_c_out_h     (  3U << 12)
-#define e_br_in_h     (017U <<  8)
-#define e_br_out_h    (017U <<  4)
-#define e_bg_out_l    (017U <<  0)
+#define e_muxcount       (0377U << 18)
+#define e_dmx_npr_in_h   (   1U << 17)
+#define e_dmx_hltrq_in_h (   1U << 16)
+#define e_dmx_c_in_h     (   3U << 14)
+#define e_dev_c_h        (   3U << 12)
+#define e_dmx_br_in_h    ( 017U <<  8)
+#define e_dev_br_h       ( 017U <<  4)
+#define e_dev_bg_l       ( 017U <<  0)
 
-#define f_a_in_h      (0777777U <<  0)
+#define f_dmx_a_in_h  (0777777U <<  0)
 
-#define g_d_in_h      (0177777U << 16)
-#define g_d_out_h     (0177777U <<  0)
+#define g_dmx_d_in_h  (0177777U << 16)
+#define g_dev_d_h     (0177777U <<  0)
 
 #endif

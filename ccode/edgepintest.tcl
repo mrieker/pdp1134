@@ -35,6 +35,26 @@ proc splitcsvline {csvline} {
 proc testins {} {
     global edgepindict sortedkeys
 
+    foreach edgepin $sortedkeys {
+        set val [dict get $edgepindict $edgepin]
+        set pintype [lindex $val 0]
+        switch $pintype {
+            outputonly {
+                pin set man_[lindex $val 1] 0
+            }
+            dedinput {
+                pin set man_[lindex $val 3] 0
+            }
+            dedoutput {
+                pin set man_[lindex $val 1] 0
+            }
+            muxfeedback {
+                set zynqsig [lindex $val 1]
+                pin set man_$zynqsig 0
+            }
+        }
+    }
+
     for {set side 1} {$side <= 2} {incr side} {
         foreach edgepin $sortedkeys {
             if {[string last $side $edgepin] == 2} {
@@ -108,7 +128,7 @@ proc testpin {edgepin} {
                 set muxx [string tolower $muxx]
                 pin set man_rsel_h $rsel
                 set muxedfeedback [pin get mux$muxx]
-                set latchedfeedback [pin get [string map {_out_ _in_} $zynqsig]]
+                set latchedfeedback [pin get dmx_[string map {_out_ _in_} $zynqsig]]
                 pin set man_rsel_h 0
                 puts " $edgepin <- $on -> $muxedfeedback -> $latchedfeedback"
             }
@@ -131,6 +151,8 @@ while true {
     set signame [lindex $columns 0]     ;# eg, BUS_A02_L
     if {$signame == ""} continue
     if {[string index $signame 0] == " "} continue
+    if {$signame == "BUS_PA_L"} continue
+    if {$signame == "BUS_PB_L"} continue
 
     set edgepin [lindex $columns 1]     ;# eg, CF1
     set muxpin  [lindex $columns 3]     ;# eg, 2C
