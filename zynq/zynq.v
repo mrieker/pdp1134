@@ -125,10 +125,10 @@ module Zynq (
 
     reg[11:02] readaddr, writeaddr;
 
-    reg[63:00] ilaarray[4095:0], ilardata;
+    reg[63:00] ilaarray[4095:0], ilardata, ilacurwd, ilaprvwd;
+    reg[31:00] ilatimes[4095:0], ilatimer, ilartime;
     reg[11:00] ilaafter, ilaindex;
-    reg[3:0] ilacount, iladivid;
-    reg ilaarmed;
+    reg ilaarmed, ilaoflow;
 
     // we don't do anything with these
     assign pa_out_h = 0;
@@ -475,9 +475,10 @@ module Zynq (
         (readaddr        == 10'b0000000111) ? regctlg     :
         (readaddr        == 10'b0000001000) ? regctlh     :
         (readaddr        == 10'b0000001001) ? regctli     :
-        (readaddr        == 10'b0000010001) ? { ilaarmed, 3'b0, ilaafter, iladivid, ilaindex } :
-        (readaddr        == 10'b0000010010) ? { ilardata[31:00] } :
-        (readaddr        == 10'b0000010011) ? { ilardata[63:32] } :
+        (readaddr        == 10'b0000011100) ? { ilaarmed, 3'b0, ilaafter, ilaoflow, 3'b0, ilaindex } :
+        (readaddr        == 10'b0000011101) ? { ilartime } :
+        (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
+        (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
         (readaddr[11:05] ==  8'b0000100)    ? bmarmrdata  :
         (readaddr[11:05] ==  8'b0000101)    ? rlarmrdata  :
         (readaddr[11:05] ==  8'b0000110)    ? slarmrdata  :
@@ -668,8 +669,10 @@ module Zynq (
         .armwrite (slarmwrite),
 
         .a_in_h      (dev_a_h),         //<< address from pdp/sim to read switch register or write light register
+        .ac_lo_in_h  (dev_ac_lo_h),     //<< power is going down
         .c_in_h      (dev_c_h),         //<< control code from pdp/sim to read switch register or write light register
         .d_in_h      (dev_d_h),         //<< data from pdp/sim to write to light register or data being read from real memory or device
+        .dc_lo_in_h  (dev_dc_lo_h),     //<< power is down
         .hltgr_in_l  (dev_hltgr_l),     //<< halt grant from pdp/sim indicating it has halted
         .hltrq_in_h  (dev_hltrq_h),     //<< something (such as pdp original front panel or this thing) is requesting halt
         .init_in_h   (dev_init_h),      //<< bus init signal from pdp/sim for RESET instruction
@@ -997,86 +1000,74 @@ module Zynq (
     //  ilaarmed = 0: trigger condition satisfied
     //             1: waiting for trigger condition
     //  ilaafter = number of cycles to record after trigger condition satisfied
+    //  ilaoflow = 0: index did not overflow while recording
+    //             1: index overflowed while recording
     //  ilaindex = next entry in ilaarray to write
-    //  iladivid = 0: 100MHz; 1: 50MHz; 2: 33MHz; 4: 25MHz; ...
+
+    always @(*) begin
+        ilacurwd <= {
+            8'b0,           //56
+            dev_a_h,        //38
+            dev_ac_lo_h,    //37
+            dev_bbsy_h,     //36
+            dev_bg_l,       //32
+            dev_br_h,       //28
+            dev_c_h,        //26
+            dev_d_h,        //10
+            dev_dc_lo_h,    //09
+            dev_hltgr_l,    //08
+            dev_hltrq_h,    //07
+            dev_init_h,     //06
+            dev_intr_h,     //05
+            dev_msyn_h,     //04
+            dev_npg_l,      //03
+            dev_npr_h,      //02
+            dev_sack_h,     //01
+            dev_ssyn_h      //00
+        };
+    end
 
     always @(posedge CLOCK) begin
         if (mastereset) begin
-            ilaarmed <= 0;
             ilaafter <= 0;
-            ilacount <= 0;
-            iladivid <= 0;
-        end else if (armwrite & (writeaddr == 10'b0000010001)) begin
+            ilaarmed <= 0;
+            ilatimer <= 0;
+        end else begin
+            ilatimer <= ilatimer + 1;
 
-            // arm processor is writing control register
-            ilaarmed <= saxi_WDATA[31];
-            ilaafter <= saxi_WDATA[27:16];
-            iladivid <= saxi_WDATA[15:12];
-            ilaindex <= saxi_WDATA[11:00];
-            ilardata <= ilaarray[saxi_WDATA[11:00]];
-            ilacount <= 0;
+            if (armwrite & (writeaddr == 10'b0000011100)) begin
 
-        // capture signals while before trigger and for ilaafter*(idivid+1) cycles thereafter
-        end else if (ilaarmed | (ilaafter != 0)) begin
-            if (ilacount != 0) begin
-                ilacount <= ilacount - 1;
-            end else begin
-                ilacount <= iladivid;
+                // arm processor is writing control register
+                ilaarmed <= saxi_WDATA[31];
+                ilaafter <= saxi_WDATA[27:16];
+                ilaoflow <= saxi_WDATA[15];
+                ilaindex <= saxi_WDATA[11:00];
 
-                ilaarray[ilaindex] <= {
-                    2'b0,           //62
-                    muxcount,       //54
-                    man_a_out_h,    //36
-                    rsel1_h,
-                    rsel2_h,
-                    rsel3_h,        //33
-                    muxa,
-                    muxb,
-                    muxc,
-                    muxd,
-                    muxe,
-                    muxf,
-                    muxh,
-                    muxj,
-                    muxk,
-                    muxl,
-                    muxm,
-                    muxn,
-                    muxp,
-                    muxr,
-                    muxs,           //18
-                    dev_a_h         //00
-/***
-                    dev_a_h,        //38
-                    dev_ac_lo_h,    //37
-                    dev_bbsy_h,     //36
-                    dev_bg_l,       //32
-                    dev_br_h,       //28
-                    dev_c_h,        //26
-                    dev_d_h,        //10
-                    dev_dc_lo_h,    //09
-                    dev_hltgr_l,    //08
-                    dev_hltrq_h,    //07
-                    dev_init_h,     //06
-                    dev_intr_h,     //05
-                    dev_msyn_h,     //04
-                    dev_npg_l,      //03
-                    dev_npr_h,      //02
-                    dev_sack_h,     //01
-                    dev_ssyn_h      //00
-***/
-                };
+                ilardata <= ilaarray[saxi_WDATA[11:00]];
+                ilartime <= ilatimes[saxi_WDATA[11:00]];
 
-                ilaindex <= ilaindex + 1;
-                if (~ ilaarmed) ilaafter <= ilaafter - 1;
-            end
+                ilaprvwd <= ~ ilacurwd;
 
-            // check trigger condition
-            ////if (rsel1_h & muxc) begin   // - hltrq_in_h
-            ////if (~ hltgr_in_l) begin
-            ////if (wor_msyn_h) begin
-            if (armwrite) begin
-                ilaarmed <= 0;
+            // capture signals while before trigger and for ilaafter*(idivid+1) cycles thereafter
+            end else if (ilaarmed | (ilaafter != 0)) begin
+
+                // save word and timestamp if different than previous
+                if (ilaprvwd != ilacurwd) begin
+                    ilaarray[ilaindex] <= ilacurwd;
+                    ilatimes[ilaindex] <= ilatimer;
+                    ilaoflow <= ilaoflow | (ilaindex == 4095);
+                    ilaindex <= ilaindex + 1;
+                    ilaprvwd <= ilacurwd;
+                    if (~ ilaarmed) ilaafter <= ilaafter - 1;
+                end
+
+                // check trigger condition
+                ////if (rsel1_h & muxc) begin   // - hltrq_in_h
+                ////if (~ hltgr_in_l) begin
+                ////if (wor_msyn_h) begin
+                if (armwrite) begin
+                    ilaarmed <= 0;
+                end
             end
         end
     end

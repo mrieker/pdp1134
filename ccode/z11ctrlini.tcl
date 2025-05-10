@@ -10,6 +10,7 @@ proc helpini {} {
     puts "   flickstart addr - reset processor and start at given address"
     puts "         flickstep - step processor one instruction then print PC"
     puts "                     can be used as an halt if processor running"
+    puts "         hardreset - hard reset processor to halted state"
     puts "           lockdma - lock access to dma controller"
     puts "           octal x - convert integer x to 6-digit octal string"
     puts "       rdbyte addr - read byte at given physical address"
@@ -59,6 +60,24 @@ proc flickstep {} {
         error "flickstep: processor did not halt after step"
     }
     puts "PC=[octal [rdword 0777707]]"
+}
+
+# hard reset by asserting HLTRQ and strobing AC_LO,DC_LO
+proc hardreset {} {
+    pin set sl_haltreq 1    ;# so it halts when started back up
+    pin set sl_acfail 1     ;# protocol is assert AC_LO
+    after 5                 ;# wait at least 5mS
+    pin set sl_dcfail 1     ;# then assert DC_LO
+                            ;# swlight.v negates HLTRQ to processor
+                            ;# processor asserts INIT
+    after 10                ;# leave it resetting for 10mS
+    pin set sl_dcfail 0     ;# dc power restored first
+                            ;# swlight.v reasserts HLTRQ
+    pin set sl_acfail 0     ;# ac power restored last
+    after 1                 ;# give it a millisec to start up
+    if {! [pin get sl_halted]} {
+        error "hardreset: processor not halted"
+    }
 }
 
 # lock acess to dma controller

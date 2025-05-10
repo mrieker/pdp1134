@@ -60,9 +60,9 @@ module swlight (
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmafail, enable, halted, stepreq;
-    reg[1:0] dmactrl, haltstate;
-    reg[2:0] dmastate;
+    reg dmafail, enable, halted, haltreq, stepreq;
+    reg[1:0] dmactrl;
+    reg[2:0] dmastate, haltstate;
     reg[9:0] dmadelay;
     reg[15:00] dmadata, lights, switches;
     reg[17:00] dmaaddr;
@@ -71,9 +71,11 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C2007 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C2008 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
-                      (armraddr == 2) ? { enable, hltrq_out_h, halted, stepreq, init_out_h, ac_lo_out_h, dc_lo_out_h, init_in_h, ac_lo_in_h, dc_lo_in_h, 22'b0 } :
+                      (armraddr == 2) ? { enable, haltreq, halted, stepreq,
+                                          init_out_h, ac_lo_out_h, dc_lo_out_h, init_in_h,
+                                          ac_lo_in_h, dc_lo_in_h, haltstate, 19'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
                       (armraddr == 5) ? { dmalock } :
@@ -90,7 +92,7 @@ module swlight (
                 enable      <= 0;
                 halted      <= 0;
                 haltstate   <= 0;
-                hltrq_out_h <= 0;
+                haltreq     <= 0;
                 init_out_h  <= 0;
                 stepreq     <= 0;
             end
@@ -114,9 +116,11 @@ module swlight (
                 end
                 2: begin
                     enable      <= armwdata[31];
-                    hltrq_out_h <= armwdata[30];
+                    haltreq     <= armwdata[30];
                     stepreq     <= armwdata[28];
                     init_out_h  <= armwdata[27];
+                    ac_lo_out_h <= armwdata[26];
+                    dc_lo_out_h <= armwdata[25];
                 end
                 3: if (dmastate == 0) begin
                     dmaaddr  <= armwdata[17:00];
@@ -147,8 +151,50 @@ module swlight (
             end
         end
 
-        // determine if processor is halted
-        // the nutbag protocol is:
+        // halt the processor
+        // the processor gets confused with HLTRQ and DCLO at same time
+        // ...so abandon halt request if doing hard reset with DCLO
+        if (dc_lo_in_h) begin
+            haltstate   <= 0;
+            hltrq_out_h <= 0;
+        end else case (haltstate)
+
+            // wait for somone to push our HALT button
+            // then request processor to halt (assert HLTRQ)
+            0: begin
+                if (haltreq) begin
+                    haltstate   <= 1;
+                    hltrq_out_h <= 1;
+                end
+            end
+
+            // when processor grants halt (HLTGR asserted), assert SACK
+            1: begin
+                if (~ hltgr_in_l) begin
+                    haltstate   <= 2;
+                    sack_out_h  <= 1;
+                end
+            end
+
+            // when SACK loops back through transistors, negate HLTRQ
+            2: begin
+                if (sack_in_h) begin
+                    haltstate   <= 3;
+                    hltrq_out_h <= 0;
+                end
+            end
+
+            // maintain SACK until HALT button released
+            3: begin
+                if (~ haltreq) begin
+                    haltstate   <= 0;
+                    sack_out_h  <= 0;
+                end
+            end
+        endcase
+
+        // determine if processor is halted, even if the external front panel halted it
+        // the protocol is:
         //   console asserts HLTRQ
         //   processor asserts HLTGR
         //   console asserts SACK

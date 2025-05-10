@@ -35,18 +35,21 @@
 
 #define DEPTH 4096  // total number of elements in ilaarray
 #define AFTER 4000  // number of samples to take after sample containing trigger
-#define DIVID 1     // sample at 10nS rate
 
-#define ILACTL 021
-#define ILADAT 022
+#define ILACTL 034
+#define ILATIM 035
+#define ILADAT 036
 
 #define CTL_ARMED  0x80000000U
 #define CTL_AFTER0 0x00010000U
-#define CTL_DIVID0 0x00001000U
+#define CTL_OFLOW  0x00008000U
 #define CTL_INDEX0 0x00000001U
 #define CTL_AFTER  (CTL_AFTER0 * (DEPTH - 1))
-#define CTL_DIVID  (CTL_DIVID0 * (DIVID - 1))
 #define CTL_INDEX  (CTL_INDEX0 * (DEPTH - 1))
+
+static bool volatile ctrlcflag;
+
+static void siginthand (int signum);
 
 int main (int argc, char **argv)
 {
@@ -77,73 +80,74 @@ int main (int argc, char **argv)
 
     uint32_t ctl;
     if (asisflag) {
-        ctl = pdpat[ILACTL] & CTL_INDEX;
+        ctl = pdpat[ILACTL];
     } else {
 
         // tell zynq.v to start collecting samples
         // tell it to stop when collected trigger sample plus AFTER thereafter
-        pdpat[ILACTL] = CTL_ARMED | CTL_DIVID | AFTER * CTL_AFTER0;
+        pdpat[ILACTL] = CTL_ARMED | AFTER * CTL_AFTER0;
         printf ("armed\n");
 
+        if (signal (SIGINT, siginthand) != SIG_DFL) ABORT ();
+
         // wait for sampling to stop
-        while (((ctl = pdpat[ILACTL]) & (CTL_ARMED | CTL_AFTER)) != 0) sleep (1);
-    }
-
-    // read array[index] = next entry to be overwritten = oldest entry
-    pdpat[ILACTL] = ctl & CTL_INDEX;
-    uint64_t thisentry = (((uint64_t) pdpat[ILADAT+1]) << 32) | (uint64_t) pdpat[ILADAT+0];
-
-    // loop through all entries in the array
-    bool nodots = false;
-    bool indotdotdot = false;
-    uint64_t preventry = 0;
-    for (int i = 0; i < DEPTH; i ++) {
-
-        // read array[index+i+1] = array entry after thisentry
-        pdpat[ILACTL] = (ctl + i * CTL_INDEX0 + CTL_INDEX0) & CTL_INDEX;
-        uint64_t nextentry = (((uint64_t) pdpat[ILADAT+1]) << 32) | (uint64_t) pdpat[ILADAT+0];
-
-        // print thisentry - but use ... if same as prev and next
-        if (nodots || (i == 0) || (i == DEPTH - 1) ||
-                (thisentry != preventry) || (thisentry != nextentry)) {
-
-            printf ("%7.2f  %03o %06o %o %05o %06o\n",
-                (i - DEPTH + AFTER + 1) * DIVID / 100.0,// trigger shows as 0.00uS
-
-                (unsigned) (thisentry >> 54) & 0377,    // muxcount
-                (unsigned) (thisentry >> 36) & 0777777, // dev_a_in_h
-                (unsigned) (thisentry >> 33) & 07,      // dev_a_in_h
-                (unsigned) (thisentry >> 18) & 077777,  // dev_a_in_h
-                (unsigned) (thisentry >>  0) & 0777777  // dev_a_in_h
-/***
-                (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h
-                (unsigned) (thisentry >> 37) & 1,       // dev_ac_lo_in_h,
-                (unsigned) (thisentry >> 36) & 1,       // dev_bbsy_in_h,
-                (unsigned) (thisentry >> 32) & 017,     // dev_bg_in_l,
-                (unsigned) (thisentry >> 28) & 017,     // dmx_br_in_h,
-                (unsigned) (thisentry >> 26) & 3,       // dev_c_in_h,
-                (unsigned) (thisentry >> 10) & 0177777, // dev_d_in_h,
-                (unsigned) (thisentry >>  9) & 1,       // dev_dc_lo_in_h,
-                (unsigned) (thisentry >>  8) & 1,       // dev_hltgr_in_l,
-                (unsigned) (thisentry >>  7) & 1,       // dev_hltrq_in_h,
-                (unsigned) (thisentry >>  6) & 1,       // dev_init_in_h,
-                (unsigned) (thisentry >>  5) & 1,       // dev_intr_in_h,
-                (unsigned) (thisentry >>  4) & 1,       // dev_msyn_in_h,
-                (unsigned) (thisentry >>  3) & 1,       // dev_npg_in_l,
-                (unsigned) (thisentry >>  2) & 1,       // dmx_npr_in_h,
-                (unsigned) (thisentry >>  1) & 1,       // dev_sack_in_h,
-                (unsigned) (thisentry >>  0) & 1        // dev_ssyn_in_h
-***/
-            );
-            indotdotdot = false;
-        } else if (! indotdotdot) {
-            printf ("    ...\n");
-            indotdotdot = true;
+        while (true) {
+            ctl = pdpat[ILACTL];
+            if ((ctl & (CTL_ARMED | CTL_AFTER)) == 0) break;
+            if (ctrlcflag) break;
+            usleep (10000);
         }
+    }
+    pdpat[ILACTL] = 0;
 
-        // shuffle entries for next time through
-        preventry = thisentry;
-        thisentry = nextentry;
+    // get limits of entries to print
+    uint32_t earliestentry = (ctl & CTL_INDEX) / CTL_INDEX0;
+    uint32_t numfilledentries = DEPTH;
+    if (! (ctl & CTL_OFLOW)) {
+        earliestentry = 0;
+        numfilledentries = (ctl & CTL_INDEX) / CTL_INDEX0;
+    }
+    uint32_t numaftertrigger = AFTER - (ctl & CTL_AFTER) / CTL_AFTER0;
+    printf ("ctl=%08X  earliestentry=%u  numfilledentries=%u  numaftertrigger=%u\n", ctl, earliestentry, numfilledentries, numaftertrigger);
+
+    // loop through entries in the array
+    uint32_t basetime = 0;
+    for (uint32_t i = 0; i < numfilledentries; i ++) {
+
+        // read next entry from array
+        pdpat[ILACTL] = ((earliestentry + i) * CTL_INDEX0) & CTL_INDEX;
+        if (i == 0) basetime = pdpat[ILATIM];
+        uint32_t deltatime  = pdpat[ILATIM] - basetime;
+        uint64_t thisentry  = ((uint64_t) pdpat[ILADAT+1] << 32) | pdpat[ILADAT+0];
+
+        if (i == numfilledentries - numaftertrigger) printf ("**trigger**\n");
+        printf ("%2u.%08u0  %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
+            deltatime / 100000000, deltatime % 100000000,   // 10nS per tick
+
+            (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h
+            (unsigned) (thisentry >> 37) & 1,       // dev_ac_lo_in_h,
+            (unsigned) (thisentry >> 36) & 1,       // dev_bbsy_in_h,
+            (unsigned) (thisentry >> 32) & 017,     // dev_bg_in_l,
+            (unsigned) (thisentry >> 28) & 017,     // dmx_br_in_h,
+            (unsigned) (thisentry >> 26) & 3,       // dev_c_in_h,
+            (unsigned) (thisentry >> 10) & 0177777, // dev_d_in_h,
+            (unsigned) (thisentry >>  9) & 1,       // dev_dc_lo_in_h,
+            (unsigned) (thisentry >>  8) & 1,       // dev_hltgr_in_l,
+            (unsigned) (thisentry >>  7) & 1,       // dev_hltrq_in_h,
+            (unsigned) (thisentry >>  6) & 1,       // dev_init_in_h,
+            (unsigned) (thisentry >>  5) & 1,       // dev_intr_in_h,
+            (unsigned) (thisentry >>  4) & 1,       // dev_msyn_in_h,
+            (unsigned) (thisentry >>  3) & 1,       // dev_npg_in_l,
+            (unsigned) (thisentry >>  2) & 1,       // dmx_npr_in_h,
+            (unsigned) (thisentry >>  1) & 1,       // dev_sack_in_h,
+            (unsigned) (thisentry >>  0) & 1        // dev_ssyn_in_h
+        );
     }
     return 0;
+}
+
+static void siginthand (int signum)
+{
+    write (STDOUT_FILENO, "\n", 1);
+    ctrlcflag = true;
 }
