@@ -42,7 +42,12 @@ proc flickcont {} {
 
 # halt processor and initialize bus
 proc flickinit {} {
-    pin set sl_haltreq 1 sl_businit 1 sl_businit 0
+    pin set sl_haltreq 1 sl_businit 1
+    after 100
+    if {! [pin get sl_halted]} {
+        error "flickinit: processor failed to halt"
+    }
+    pin set sl_businit 0
 }
 
 # start processor at given address
@@ -74,9 +79,11 @@ proc hardreset {} {
     pin set sl_dcfail 0     ;# dc power restored first
                             ;# swlight.v reasserts HLTRQ
     pin set sl_acfail 0     ;# ac power restored last
-    after 1                 ;# give it a millisec to start up
-    if {! [pin get sl_halted]} {
-        error "hardreset: processor not halted"
+    for {set i 0} {! [pin get sl_halted]} {incr i} {
+        if {$i > 100} {
+            error "hardreset: processor not halted"
+        }
+        after 1             ;# give it a millisec to halt
     }
 }
 

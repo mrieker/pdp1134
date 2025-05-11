@@ -252,7 +252,7 @@ module pdp1134 (
     reg[31:00] product;
     reg[3:0] counter;
     reg[3:0] intrdelay;
-    reg haltck, traceck, trapping, yellowck;
+    reg aclock, haltck, halted, nopushpspc, traceck, trapping, yellowck;
 
     localparam[1:0] MF_RD = 1;  // do a DATI cycle
     localparam[1:0] MF_WR = 2;  // do a DATO[B] cycle
@@ -291,16 +291,16 @@ module pdp1134 (
 
     // processor main loop
     always @(posedge CLOCK) begin
-        if (RESET | (~ bus_init_in_l & (state != S_EXRESET))) begin
+        if (RESET | (~ bus_ac_lo_in_l & ~ bus_dc_lo_in_l)) begin
             bus_a_out_l      <= 18'o777777;
             bus_c_out_l      <= 3;
             bus_msyn_out_l   <= 1;
             bus_ssyn_out_l   <= 1;
             bus_bg_out_h     <= 0;
             bus_bbsy_out_l   <= 1;
-            bus_init_out_l   <= 1;
+            bus_init_out_l   <= 0;
             bus_npg_out_h    <= 0;
-            halt_grant_out_h <= 1;
+            halt_grant_out_h <= 0;
 
             cer_d_out_l <= 16'o177777;
             cpu_d_out_l <= 16'o177777;
@@ -309,19 +309,22 @@ module pdp1134 (
             mmv_d_out_l <= 16'o177777;
             psw_d_out_l <= 16'o177777;
 
-            cpuerr      <= 0;
-            getopaddr   <= 0;
-            haltck      <= 1;
-            memfunc     <= 0;
-            mmr0        <= 0;
-            psw         <= 0;
-            resdelay    <= 0;
-            rwstate     <= 0;
-            state       <= S_HALT;
-            traceck     <= 1;
-            trapping    <= 0;
-            trapvec     <= 0;
-            yellowck    <= 0;
+            aclock      <= 0;           // don't check AC_LO when powering up
+            cpuerr      <= 0;           // haven't had any trap 4s yet
+            getopaddr   <= 0;           // not getting operand address
+            haltck      <= 1;           // check for halt when we get going
+            halted      <= 0;           // starting out by reading power-up vector
+            memfunc     <= 0;           // not doing any memory function
+            mmr0        <= 0;           // not using mmu to begin with
+            nopushpspc  <= 1;           // don't push PC/PS when doing power-up trap
+            psw         <= 16'o340;     // start in kernel mode with ints disabled
+            resdelay    <= 0;           // not doing RESET instruction
+            rwstate     <= 0;           // not accessing memory
+            state       <= S_ENDINST;   // start out doing power-up trap after releasing bus_init_out_l
+            traceck     <= 1;           // check T-bit
+            trapping    <= 0;           // not currently doing a trap
+            trapvec     <= T_PWRFAIL;   // start out doing power-up trap
+            yellowck    <= 0;           // don't check yellow stack
         end
 
         //////////////////////////////////
@@ -615,6 +618,7 @@ module pdp1134 (
                 // wait for halt_rqst_in_l asserted if not already
                 // ...so we know front panel knows we are halted
                 S_HALT: begin
+                    halted <= 1;
                     halt_grant_out_h <= 1;
                     if (~ halt_rqst_in_l) begin
                         state <= S_HALT2;
@@ -623,9 +627,12 @@ module pdp1134 (
 
                 // wait for front panel to negate halt_rqst_in_l
                 S_HALT2: begin
-                    if (halt_rqst_in_l) begin
+                    if (~ bus_sack_in_l) begin
+                        halt_grant_out_h <= 0;
+                    end else if (halt_rqst_in_l) begin
                         halt_grant_out_h <= 0;
                         haltck <= 0;
+                        halted <= 0;
                         state  <= S_ENDINST;
                     end
                 end
@@ -706,8 +713,6 @@ module pdp1134 (
                     if (resdelay != 1000000) begin
                         bus_init_out_l <= 0;
                         resdelay       <= resdelay + 1;
-                    end else if (~ bus_init_out_l) begin
-                        bus_init_out_l <= 1;
                     end else begin
                         resdelay       <= 0;
                         state          <= S_ENDINST;
@@ -1168,6 +1173,7 @@ module pdp1134 (
 
                 // end of instruction, figure out what to do next
                 S_ENDINST: begin
+                    bus_init_out_l <= 1;    // in case we got here from powering up or RESET instruction
 
                     // do traps caused by instruction before checking halt switch
                     if (trapvec != 0) begin
@@ -1177,6 +1183,13 @@ module pdp1134 (
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;
+                    end
+
+                    // maybe power just failed
+                    else if (aclock & ~ bus_ac_lo_in_l) begin
+                        aclock     <= 0;
+                        state      <= S_TRAP;
+                        trapvec    <= T_PWRFAIL;
                     end
 
                     // check halt switch
@@ -1294,15 +1307,21 @@ module pdp1134 (
                 end
 
                 // - start pushing old PS onto new stack
+                //   unless powering up, then just use new PC and PS
                 S_TRAP3: begin
-                    dstval     <= readdata;
-                    membyte    <= 0;
-                    memfunc    <= MF_WR;
-                    memmode    <= readdata[15:14];
-                    state      <= S_TRAP4;
-                    trapping   <= readdata[15:14] == 0;
-                    virtaddr   <= gprs[gprx(readdata[15:14],6)] - 2;
-                    writedata  <= psw;
+                    dstval <= readdata;
+                    if (nopushpspc) begin
+                        nopushpspc <= 0;
+                        state      <= S_TRAP5;
+                    end else begin
+                        membyte    <= 0;
+                        memfunc    <= MF_WR;
+                        memmode    <= readdata[15:14];
+                        state      <= S_TRAP4;
+                        trapping   <= readdata[15:14] == 0;
+                        virtaddr   <= gprs[gprx(readdata[15:14],6)] - 2;
+                        writedata  <= psw;
+                    end
                 end
 
                 // - start pushing old PC onto new stack
@@ -1329,6 +1348,9 @@ module pdp1134 (
                 // hang if invalid state
                 default: begin end
             endcase
+
+            // if AC power is good, arm to detect AC power failure
+            if (bus_ac_lo_in_l) aclock <= 1;
         end
 
         ///////////////////////
@@ -1399,7 +1421,7 @@ module pdp1134 (
         end
 
         // register access via 7777rr
-        if (halt_grant_out_h & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
+        if (halted & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
             if (bus_msyn_in_l) begin
                 gpr_d_out_l    <= 16'o177777;
                 bus_ssyn_out_l <= 1;
