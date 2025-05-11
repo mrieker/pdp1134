@@ -121,4 +121,21 @@
 #define g_dmx_d_in_h  (0177777U << 16)
 #define g_dev_d_h     (0177777U <<  0)
 
+#define ILACTL 034
+#define ILATIM 035
+#define ILADAT 036
+
+#define CTL_DEPTH  4096
+#define CTL_ARMED  0x80000000U
+#define CTL_AFTER0 0x00010000U
+#define CTL_OFLOW  0x00008000U
+#define CTL_INDEX0 0x00000001U
+#define CTL_AFTER  (CTL_AFTER0 * (CTL_DEPTH-1))
+#define CTL_INDEX  (CTL_INDEX0 * (CTL_DEPTH-1))
+
+#define SL2_HALTREQ   0x40000000U
+#define SL2_HALTED    0x20000000U
+#define SL2_STEPREQ   0x10000000U
+#define SL2_HALTSTATE 0x00380000U
+
 #endif

@@ -33,19 +33,7 @@
 #include "z11defs.h"
 #include "z11util.h"
 
-#define DEPTH 4096  // total number of elements in ilaarray
 #define AFTER 4000  // number of samples to take after sample containing trigger
-
-#define ILACTL 034
-#define ILATIM 035
-#define ILADAT 036
-
-#define CTL_ARMED  0x80000000U
-#define CTL_AFTER0 0x00010000U
-#define CTL_OFLOW  0x00008000U
-#define CTL_INDEX0 0x00000001U
-#define CTL_AFTER  (CTL_AFTER0 * (DEPTH - 1))
-#define CTL_INDEX  (CTL_INDEX0 * (DEPTH - 1))
 
 static bool volatile ctrlcflag;
 
@@ -102,7 +90,7 @@ int main (int argc, char **argv)
 
     // get limits of entries to print
     uint32_t earliestentry = (ctl & CTL_INDEX) / CTL_INDEX0;
-    uint32_t numfilledentries = DEPTH;
+    uint32_t numfilledentries = CTL_DEPTH;
     if (! (ctl & CTL_OFLOW)) {
         earliestentry = 0;
         numfilledentries = (ctl & CTL_INDEX) / CTL_INDEX0;
@@ -115,15 +103,16 @@ int main (int argc, char **argv)
     for (uint32_t i = 0; i < numfilledentries; i ++) {
 
         // read next entry from array
-        pdpat[ILACTL] = ((earliestentry + i) * CTL_INDEX0) & CTL_INDEX;
+        uint32_t index = (earliestentry + i) & (CTL_DEPTH - 1);
+        pdpat[ILACTL] = index * CTL_INDEX0;
         if (i == 0) basetime = pdpat[ILATIM];
         uint32_t deltatime  = pdpat[ILATIM] - basetime;
         uint64_t thisentry  = ((uint64_t) pdpat[ILADAT+1] << 32) | pdpat[ILADAT+0];
 
-        if (i == numfilledentries - numaftertrigger) printf ("**trigger**\n");
-        printf ("%2u.%08u0  %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
-            deltatime / 100000000, deltatime % 100000000,   // 10nS per tick
+        printf ("[%04o] %2u.%08u0  %03o %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
+            index, deltatime / 100000000, deltatime % 100000000,   // 10nS per tick
 
+            (unsigned) (thisentry >> 56) & 0377,    // muxcount
             (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h
             (unsigned) (thisentry >> 37) & 1,       // dev_ac_lo_in_h,
             (unsigned) (thisentry >> 36) & 1,       // dev_bbsy_in_h,

@@ -49,7 +49,6 @@
 #define EOP ESC_EREOP
 
 #define FIELD(index,mask) ((z11s[index] & mask) / (mask & - mask))
-#define BUS12(index,topbit) ((z11s[index] / (topbit / 2048)) & 4095)
 
 struct XMemRange {
     XMemRange *next;
@@ -206,19 +205,27 @@ int main (int argc, char **argv)
             printf ("    man_npr_out_h=%o     dmx_npr_in_h=%o        dev_npr_h=%o%s",       FIELD(Z_RA,a_man_npr_out_h),    FIELD(Z_RE,e_dmx_npr_in_h),    FIELD(Z_RD,d_dev_npr_h),    eol);
             printf ("   man_sack_out_h=%o        sack_in_h=%o       dev_sack_h=%o%s",       FIELD(Z_RA,a_man_sack_out_h),   FIELD(Z_RC,c_sack_in_h),       FIELD(Z_RD,d_dev_sack_h),   eol);
             printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o%s",       FIELD(Z_RA,a_man_ssyn_out_h),   FIELD(Z_RC,c_ssyn_in_h),       FIELD(Z_RD,d_dev_ssyn_h),   eol);
-            printf ("       man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], eol);
+            printf ("%s", eol);
+            printf ("  man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], eol);
+            printf ("  ILA_ARMED=%o  ILA_AFTER=%04o  ILA_OFLOW=%o  ILA_INDEX=%04o%s", FIELD(ILACTL,CTL_ARMED), FIELD(ILACTL,CTL_AFTER), FIELD(ILACTL,CTL_OFLOW), FIELD(ILACTL,CTL_INDEX), eol);
 
             for (int i = 0; i < 1024;) {
                 uint32_t idver = z11s[i];
+                uint8_t idch1 = idver >> 24;
+                uint8_t idch2 = idver >> 16;
                 if ((idver & 0xF000U) == 0x0000U) {
-                    printf ("%sVERSION=%08X %c%c %08X%s", eol, idver, idver >> 24, idver >> 16, z11s[i+1], eol);
+                    printf ("%sVERSION=%08X %c%c %08X%s", eol, idver, idch1, idch2, z11s[i+1], eol);
                 }
                 if ((idver & 0xF000U) == 0x1000U) {
-                    printf ("%sVERSION=%08X %c%c %08X %08X %08X%s", eol, idver, idver >> 24, idver >> 16, z11s[i+1], z11s[i+2], z11s[i+3], eol);
+                    printf ("%sVERSION=%08X %c%c %08X %08X %08X%s", eol, idver, idch1, idch2, z11s[i+1], z11s[i+2], z11s[i+3], eol);
                 }
                 if ((idver & 0xF000U) == 0x2000U) {
-                    printf ("%sVERSION=%08X %c%c %08X %08X %08X %08X %08X %08X %08X%s", eol, idver, idver >> 24, idver >> 16,
+                    printf ("%sVERSION=%08X %c%c %08X %08X %08X %08X %08X %08X %08X%s", eol, idver, idch1, idch2,
                         z11s[i+1], z11s[i+2], z11s[i+3], z11s[i+4], z11s[i+5], z11s[i+6], z11s[i+7], eol);
+                }
+                if ((idch1 == 'S') && (idch2 == 'L')) {
+                    printf ("                    haltreq=%o halted=%o stepreq=%u haltstate=%o%s",
+                        FIELD(i+2,SL2_HALTREQ), FIELD(i+2,SL2_HALTED), FIELD(i+2,SL2_STEPREQ), FIELD(i+2,SL2_HALTSTATE), eol);
                 }
                 i += 2 << ((idver >> 12) & 15);
             }
