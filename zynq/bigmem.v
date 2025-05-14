@@ -49,7 +49,7 @@ module bigmem (
     reg[17:00] armaddr;
     reg[15:00] armdata;
 
-    assign armrdata = (armraddr == 0) ? 32'h424D2003 : // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h424D2004 : // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable[31:00] } :
                       (armraddr == 2) ? { enable[63:32] } :
                       (armraddr == 3) ? { armfunc,   11'b0, armaddr } :
@@ -69,7 +69,7 @@ module bigmem (
         end
 
         // arm processor is writing one of the registers
-        else if (armwrite) begin
+        if (~ RESET & armwrite) begin
             case (armwaddr)
                 1: begin
                     enable[31:00] <= armwdata[31:00];
@@ -87,7 +87,7 @@ module bigmem (
             endcase
         end
 
-        else case (delayline)
+        else if (~ init_in_h) case (delayline)
 
             // wait for something to do
             0: begin

@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131400F;
+    localparam VERSION = 32'h31314010;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -148,7 +148,7 @@ module Zynq (
 
     // master reset of FPGA when turned off
     // use for all resets except arm register access (so it can turn resetting off)
-    wire mastereset = ~ RESET_N | (regctla[31:00] == FM_OFF);
+    wire mastereset = ~ RESET_N | (fpgamode == FM_OFF);
 
     /////////////////////////////////////////////////////////////////
     //  synchronize and demultiplex signals coming in from unibus  //

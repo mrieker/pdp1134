@@ -50,6 +50,7 @@ static Tcl_ObjCmdProc cmd_atexit;
 static Tcl_ObjCmdProc cmd_ctrlcflag;
 static Tcl_ObjCmdProc cmd_help;
 static Tcl_ObjCmdProc cmd_randbits;
+static Tcl_ObjCmdProc cmd_spawn;
 static Tcl_ObjCmdProc cmd_waitpid;
 
 bool volatile ctrlcflag;
@@ -107,6 +108,7 @@ int tclmain (
     if (Tcl_CreateObjCommand (interp, "ctrlcflag", cmd_ctrlcflag, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "help", cmd_help, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "randbits", cmd_randbits, NULL, NULL) == NULL) ABORT ();
+    if (Tcl_CreateObjCommand (interp, "spawn", cmd_spawn, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "waitpid", cmd_waitpid, NULL, NULL) == NULL) ABORT ();
 
     char exedir[1024];
@@ -520,6 +522,102 @@ int cmd_randbits (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *
     }
     Tcl_SetResult (interp, (char *) "bad number of arguments", TCL_STATIC);
     return TCL_ERROR;
+}
+
+// spawn process
+//  spawn [-stdin inputfilename] [-stdout outputfilename] command ...
+// returns pid
+int cmd_spawn (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    char *cmdargv[objc+1];
+    char *stdinname = NULL;
+    char *stdoutname = NULL;
+    int cmdargi = -1;
+
+    if ((objc == 2) && (strcasecmp (Tcl_GetString (objv[1]), "help") == 0)) {
+        puts ("");
+        puts ("  spawn command ... in background");
+        puts ("");
+        puts ("    spawn [-stdin inputfilename] [-stdout outputfilename] command ...");
+        puts ("");
+        puts ("      -stdin inputfilename : redirect command's stdin from this file");
+        puts ("    -stdout outputfilename : redirect command's stdout to this file");
+        puts ("");
+        return TCL_OK;
+    }
+
+    for (int i = 0; ++ i < objc;) {
+        char const *arg = Tcl_GetString (objv[i]);
+        if (strcasecmp (arg, "-stdin") == 0) {
+            if ((++ i >= objc) || ((arg = Tcl_GetString (objv[i]))[0] == '-')) {
+                Tcl_SetResultF (interp, "missing filename for -stdin");
+                return TCL_ERROR;
+            }
+            stdinname = strdup (arg);
+            continue;
+        }
+        if (strcasecmp (arg, "-stdout") == 0) {
+            if ((++ i >= objc) || ((arg = Tcl_GetString (objv[i]))[0] == '-')) {
+                Tcl_SetResultF (interp, "missing filename for -stdout");
+                return TCL_ERROR;
+            }
+            stdoutname = strdup (arg);
+            continue;
+        }
+        if (arg[0] == '-') {
+            Tcl_SetResultF (interp, "unknown option %s", arg);
+            return TCL_ERROR;
+        }
+        cmdargi = i;
+        break;
+    }
+
+    if (cmdargi < 0) {
+        Tcl_SetResultF (interp, "missing command");
+        return TCL_ERROR;
+    }
+    for (int i = cmdargi; i < objc; i ++) {
+        cmdargv[i-cmdargi] = Tcl_GetString (objv[i]);
+    }
+    cmdargv[objc-cmdargi] = NULL;
+
+    int stdinpipe[2]  = { -1, -1 };
+    int stdoutpipe[2] = { -1, -1 };
+    if ((stdinname  != NULL) && (pipe (stdinpipe)  < 0)) ABORT ();
+    if ((stdoutname != NULL) && (pipe (stdoutpipe) < 0)) ABORT ();
+
+    int pid = fork ();
+    if (pid < 0) {
+        Tcl_SetResultF (interp, "fork error: %m");
+        return TCL_ERROR;
+    }
+
+    if (pid == 0) {
+        if (stdinname != NULL) {
+            int fd = open (stdinname, O_RDONLY);
+            if (fd < 0) {
+                fprintf (stderr, "cmd_spawn: error opening %s: %m\n", stdinname);
+                exit (255);
+            }
+            if (dup2 (fd, STDIN_FILENO) < 0) ABORT ();
+            close (fd);
+        }
+        if (stdoutname != NULL) {
+            int fd = open (stdoutname, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (fd < 0) {
+                fprintf (stderr, "cmd_spawn: error creating %s: %m\n", stdoutname);
+                exit (255);
+            }
+            if (dup2 (fd, STDOUT_FILENO) < 0) ABORT ();
+            close (fd);
+        }
+        execvp (cmdargv[0], cmdargv);
+        fprintf (stderr, "cmd_spawn: error spawning %s: %m\n", cmdargv[0]);
+        exit (255);
+    }
+
+    Tcl_SetObjResult (interp, Tcl_NewIntObj (pid));
+    return TCL_OK;
 }
 
 // wait for process to exit
