@@ -18,7 +18,8 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-// use external memory
+// Provide up to 248KB memory using external block RAM module
+// 62 enable bits provide independent enables for each 4KB
 
 module bigmem (
     input CLOCK, RESET,
@@ -48,13 +49,23 @@ module bigmem (
     reg[2:0] armfunc, delayline;
     reg[17:00] armaddr;
     reg[15:00] armdata;
+    reg armpehi, armpelo;
 
     assign armrdata = (armraddr == 0) ? 32'h424D2004 : // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable[31:00] } :
                       (armraddr == 2) ? { enable[63:32] } :
                       (armraddr == 3) ? { armfunc,   11'b0, armaddr } :
-                      (armraddr == 4) ? { delayline, 13'b0, armdata } :
+                      (armraddr == 4) ? { delayline, 11'b0, armpehi, armpelo, armdata } :
                       32'hDEADBEEF;
+
+    wire perdinhi = ~ extmemdin[17] ^ extmemdin[16] ^ extmemdin[15] ^ extmemdin[14] ^ extmemdin[13] ^ extmemdin[12] ^ extmemdin[11] ^ extmemdin[10] ^ extmemdin[09];
+    wire perdinlo = ~ extmemdin[08] ^ extmemdin[07] ^ extmemdin[06] ^ extmemdin[05] ^ extmemdin[04] ^ extmemdin[03] ^ extmemdin[02] ^ extmemdin[01] ^ extmemdin[00];
+
+    wire pdpparhi = ~ d_in_h[16] ^ d_in_h[15] ^ d_in_h[14] ^ d_in_h[13] ^ d_in_h[12] ^ d_in_h[11] ^ d_in_h[10] ^ d_in_h[09];
+    wire pdpparlo = ~ d_in_h[07] ^ d_in_h[06] ^ d_in_h[05] ^ d_in_h[04] ^ d_in_h[03] ^ d_in_h[02] ^ d_in_h[01] ^ d_in_h[00];
+
+    wire armparhi = ~ armpehi ^ armdata[16] ^ armdata[15] ^ armdata[14] ^ armdata[13] ^ armdata[12] ^ armdata[11] ^ armdata[10] ^ armdata[09];
+    wire armparlo = ~ armpelo ^ armdata[07] ^ armdata[06] ^ armdata[05] ^ armdata[04] ^ armdata[03] ^ armdata[02] ^ armdata[01] ^ armdata[00];
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin
@@ -83,6 +94,8 @@ module bigmem (
                 end
                 4: begin
                     armdata <= armwdata[15:00];
+                    armpelo <= armwdata[16];
+                    armpehi <= armwdata[17];
                 end
             endcase
         end
@@ -93,13 +106,19 @@ module bigmem (
             0: begin
 
                 // arm is wanting to access the memory
+                //  armfunnc = 4: read word
+                //             3: write word
+                //             2: write upper byte
+                //             1: write lower byte
                 if (armfunc != 0) begin
-                    delayline     <= 4;
-                    extmemaddr    <= armaddr[17:01];
-                    extmemdout    <= { 1'b0, armdata[15:08], 1'b0, armdata[07:00] };
-                    extmemenab    <= 1;
-                    extmemwena[1] <= armfunc[1];
-                    extmemwena[0] <= armfunc[0];
+                    delayline  <= 4;
+                    extmemaddr <= armaddr[17:01];
+                    extmemdout[17]    <= armparhi;
+                    extmemdout[16:09] <= armdata[15:08];
+                    extmemdout[08]    <= armparlo;
+                    extmemdout[07:00] <= armdata[07:00];
+                    extmemenab <= 1;
+                    extmemwena <= armfunc;
                 end
 
                 // something on unibus is accessing a memory location
@@ -108,7 +127,10 @@ module bigmem (
                     extmemaddr <= a_in_h[17:01];
                     extmemenab <= 1;
                     if (c_in_h[1]) begin
-                        extmemdout    <= { 1'b0, d_in_h[15:08], 1'b0, d_in_h[07:00] };
+                        extmemdout[17]    <= pdpparhi;
+                        extmemdout[16:09] <= d_in_h[15:08];
+                        extmemdout[08]    <= pdpparlo;
+                        extmemdout[07:00] <= d_in_h[07:00];
                         extmemwena[1] <= ~ c_in_h[00] |   a_in_h[00];
                         extmemwena[0] <= ~ c_in_h[00] | ~ a_in_h[00];
                     end
@@ -137,8 +159,10 @@ module bigmem (
                 if (armfunc[2]) begin
                     armdata[15:08] <= extmemdin[16:09];
                     armdata[07:00] <= extmemdin[07:00];
+                    armpehi <= perdinhi;
+                    armpelo <= perdinlo;
                 end
-                armfunc <= 0;
+                armfunc    <= 0;
                 delayline  <= 0;
                 extmemenab <= 0;
                 extmemwena <= 0;
