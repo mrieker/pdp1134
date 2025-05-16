@@ -70,21 +70,9 @@ proc flickstep {} {
 # hard reset by asserting HLTRQ and strobing AC_LO,DC_LO
 proc hardreset {} {
     pin set sl_haltreq 1    ;# so it halts when started back up
-    pin set sl_acfail 1     ;# protocol is assert AC_LO
-    after 5                 ;# wait at least 5mS
-    pin set sl_dcfail 1     ;# then assert DC_LO
-                            ;# swlight.v negates HLTRQ to processor
-                            ;# processor asserts INIT
-    after 10                ;# leave it resetting for 10mS
-    pin set sl_dcfail 0     ;# dc power restored first
-                            ;# swlight.v reasserts HLTRQ
-    pin set sl_acfail 0     ;# ac power restored last
-    for {set i 0} {! [pin get sl_halted]} {incr i} {
-        if {$i > 100} {
-            error "hardreset: processor not halted"
-        }
-        after 1             ;# give it a millisec to halt
-    }
+    pin set man_ac_lo_out_h 1 man_dc_lo_out_h 1
+    after 200
+    pin set man_dc_lo_out_h 0 man_ac_lo_out_h 0
 }
 
 # lock acess to dma controller

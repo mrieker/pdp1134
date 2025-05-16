@@ -147,15 +147,13 @@ static PinDef const pindefs[] = {
     { "sl_switches",     DEV_SL, 1,    0x0000FFFF,        0, true  },
     { "sl_lights",       DEV_SL, 1,    0xFFFF0000,        0, false },
     { "sl_enable",       DEV_SL, 2,    0x80000000,        0, true  },
-
     { "sl_haltreq",      DEV_SL, 2,    0x40000000,        0, true  },
     { "sl_halted",       DEV_SL, 2,    0x20000000,        0, false },
     { "sl_stepreq",      DEV_SL, 2,    0x10000000,        0, true  },
-    { "sl_businit",      DEV_SL, 2,    0x08000000,        0, true  },
-    { "sl_acfail",       DEV_SL, 2,    0x04000000,        0, true  },
-    { "sl_dcfail",       DEV_SL, 2,    0x02000000,        0, true  },
+    { "sl_init_out_h",   DEV_SL, 2,    0x08000000,        0, false },
+    { "sl_init_in_h",    DEV_SL, 2,    0x01000000,        0, false },
     { "sl_haltstate",    DEV_SL, 2,    0x00380000,        0, false },
-
+    { "sl_hltrq_out_h",  DEV_SL, 2,    0x00040000,        0, false },
     { "sl_dmastate",     DEV_SL, 3,    0xE0000000,        0, true  },
     { "sl_dmafail",      DEV_SL, 3,    0x10000000,        0, false },
     { "sl_dmactrl",      DEV_SL, 3,    0x0C000000,        0, true  },
