@@ -652,7 +652,7 @@ module Zynq (
         .ssyn_out_h (rl_ssyn_out_h));
 
     // switches and lights
-    wire sl_ac_lo_out_h, sl_bbsy_out_h, sl_dc_lo_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
+    wire sl_bbsy_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
     wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
     wire[1:0] sl_c_out_h;
     wire[15:00] sl_d_out_h;
@@ -682,11 +682,9 @@ module Zynq (
         .ssyn_in_h   (dev_ssyn_h),      //<< signal from pdp/sim/device indicating data transfer complete
 
         .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
-        .ac_lo_out_h (sl_ac_lo_out_h),
         .bbsy_out_h  (sl_bbsy_out_h),   //>> front panel is using the bus
         .c_out_h     (sl_c_out_h),      //>> control from front panel to read or write memory or device register
         .d_out_h     (sl_d_out_h),      //>> data being written to pdp/sim/memory or data being read from switch register
-        .dc_lo_out_h (sl_dc_lo_out_h),
         .hltrq_out_h (sl_hltrq_out_h),  //>> halt switch on requesting pdp/sim to halt
         .init_out_h  (sl_init_out_h),   //>> initialize button being pressed to reset everything
         .msyn_out_h  (sl_msyn_out_h),   //>> memory cycle being performed by front panel
