@@ -224,8 +224,8 @@ int main (int argc, char **argv)
                         z11s[i+1], z11s[i+2], z11s[i+3], z11s[i+4], z11s[i+5], z11s[i+6], z11s[i+7], eol);
                 }
                 if ((idch1 == 'S') && (idch2 == 'L')) {
-                    printf ("                    haltreq=%o halted=%o stepreq=%u haltstate=%o%s",
-                        FIELD(i+2,SL2_HALTREQ), FIELD(i+2,SL2_HALTED), FIELD(i+2,SL2_STEPREQ), FIELD(i+2,SL2_HALTSTATE), eol);
+                    printf ("                    haltreq=%o halted=%o stepreq=%u haltstate=%o haltins=%o%s",
+                        FIELD(i+2,SL2_HALTREQ), FIELD(i+2,SL2_HALTED), FIELD(i+2,SL2_STEPREQ), FIELD(i+2,SL2_HALTSTATE), FIELD(i+2,SL2_HALTINS), eol);
                 }
                 i += 2 << ((idver >> 12) & 15);
             }

@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314010;
+    localparam VERSION = 32'h31314011;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -144,7 +144,7 @@ module Zynq (
     localparam FM_REAL = 2;     // real - connected to outside signals
     localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
 
-    wire[31:00] regctlh = 0;    // debug display in z11dump
+    wire[31:00] regctlh = { 29'b11110, man_hltrq_out_h, sl_hltrq_out_h, hltrq_out_h };    // debug display in z11dump
 
     // master reset of FPGA when turned off
     // use for all resets except arm register access (so it can turn resetting off)
@@ -176,7 +176,7 @@ module Zynq (
 
     // input demux signal latches
     // - loaded from mux pins every MUXDELAY*3*10nS
-    reg dmx_hltrq_in_h, dmx_npr_in_h;
+    reg dmx_haltloaded, dmx_hltrq_in_h, dmx_npr_in_h;
     reg[1:0] dmx_c_in_h;
     reg[7:4] dmx_br_in_h;
     reg[17:00] dmx_a_in_h;
@@ -204,18 +204,21 @@ module Zynq (
 
     always @(posedge CLOCK) begin
         if (mastereset) begin
+            dmx_haltloaded <= 0;
             muxcount <= 64;
             regctli  <= 0;
         end else begin
 
             // give transistors MUXDELAY*10nS to switch and soak
             if (muxcount[5:0] != MUXDELAY-1) begin
-                muxcount[5:0] <= muxcount[5:0] + 1;
+                dmx_haltloaded <= 0;
+                muxcount[5:0]  <= muxcount[5:0] + 1;
             end else begin
 
                 // all soaked in, clock into corresponding flipflops
                 if (rsel1_h) begin
                     dmx_d_in_h[11] <= muxb;
+                    dmx_haltloaded <= 1;
                     dmx_hltrq_in_h <= muxc;
                     dmx_d_in_h[15] <= muxe;
                     dmx_d_in_h[14] <= muxf;
@@ -313,6 +316,7 @@ module Zynq (
     reg dev_bbsy_h;
     reg dev_dc_lo_h;
     reg dev_hltgr_l;
+    reg dev_hltld_h;
     reg dev_hltrq_h;
     reg dev_init_h;
     reg dev_intr_h;
@@ -652,7 +656,7 @@ module Zynq (
         .ssyn_out_h (rl_ssyn_out_h));
 
     // switches and lights
-    wire sl_bbsy_out_h, sl_hltrq_out_h, sl_init_out_h, sl_msyn_out_h;
+    wire sl_bbsy_out_h, sl_hltrq_out_h, sl_msyn_out_h;
     wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
     wire[1:0] sl_c_out_h;
     wire[15:00] sl_d_out_h;
@@ -674,6 +678,7 @@ module Zynq (
         .d_in_h      (dev_d_h),         //<< data from pdp/sim to write to light register or data being read from real memory or device
         .dc_lo_in_h  (dev_dc_lo_h),     //<< power is down
         .hltgr_in_l  (dev_hltgr_l),     //<< halt grant from pdp/sim indicating it has halted
+        .hltld_in_h  (dev_hltld_h),     //<< dev_hltrq_h is updated this cycle
         .hltrq_in_h  (dev_hltrq_h),     //<< something (such as pdp original front panel or this thing) is requesting halt
         .init_in_h   (dev_init_h),      //<< bus init signal from pdp/sim for RESET instruction
         .msyn_in_h   (dev_msyn_h),      //<< signal from pdp/sim when reading/writing switch/light register
@@ -686,7 +691,6 @@ module Zynq (
         .c_out_h     (sl_c_out_h),      //>> control from front panel to read or write memory or device register
         .d_out_h     (sl_d_out_h),      //>> data being written to pdp/sim/memory or data being read from switch register
         .hltrq_out_h (sl_hltrq_out_h),  //>> halt switch on requesting pdp/sim to halt
-        .init_out_h  (sl_init_out_h),   //>> initialize button being pressed to reset everything
         .msyn_out_h  (sl_msyn_out_h),   //>> memory cycle being performed by front panel
         .npg_out_l   (sl_npg_out_l),    //>> pass dma grant signal along
         .npr_out_h   (sl_npr_out_h),    //>> request use of bus for dma transfer
@@ -858,7 +862,7 @@ module Zynq (
     wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
-    wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l | sl_init_out_h;
+    wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l;
     wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h  | irq5_intr_out_h  | irq6_intr_out_h | irq7_intr_out_h;
     wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
@@ -901,6 +905,7 @@ module Zynq (
                 dev_d_h     <= wor_d_h;
                 dev_dc_lo_h <= wor_dc_lo_h;
                 dev_hltgr_l <= ~ sim_hltgr_out_h;
+                dev_hltld_h <= 1;   // wor_hltrq_h is always up-to-date
                 dev_hltrq_h <= wor_hltrq_h;
                 dev_init_h  <= wor_init_h | mastereset;
                 dev_intr_h  <= wor_intr_h;
@@ -942,6 +947,7 @@ module Zynq (
                 dev_d_h     <= dmx_d_in_h;
                 dev_dc_lo_h <= syn_dc_lo_in_h;
                 dev_hltgr_l <= syn_hltgr_in_l;
+                dev_hltld_h <= dmx_haltloaded;  // dmx_hltrq_in_h is updated this cycle
                 dev_hltrq_h <= dmx_hltrq_in_h;
                 dev_init_h  <= syn_init_in_h;
                 dev_intr_h  <= syn_intr_in_h;
@@ -979,6 +985,7 @@ module Zynq (
                 dev_d_h     <=  0;
                 dev_dc_lo_h <=  0;
                 dev_hltgr_l <=  0;
+                dev_hltld_h <=  1;  // the 0 for dev_hltrq_h is always up-to-date
                 dev_hltrq_h <=  0;
                 dev_init_h  <=  0;
                 dev_intr_h  <=  0;

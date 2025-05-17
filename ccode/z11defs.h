@@ -133,9 +133,12 @@
 #define CTL_AFTER  (CTL_AFTER0 * (CTL_DEPTH-1))
 #define CTL_INDEX  (CTL_INDEX0 * (CTL_DEPTH-1))
 
-#define SL2_HALTREQ   0x40000000U
-#define SL2_HALTED    0x20000000U
-#define SL2_STEPREQ   0x10000000U
+#define SL2_ENABLE    0x80000000U   // enable 777570 switches & lights registers
+#define SL2_HALTREQ   0x40000000U   // request processor to halt
+#define SL2_HALTED    0x20000000U   // processor has halted
+#define SL2_STEPREQ   0x10000000U   // single-step processor
 #define SL2_HALTSTATE 0x00380000U
+#define SL2_HLTRQOUTH 0x00040000U   // swlight.v is requesting processor to halt
+#define SL2_HALTINS   0x00020000U   // processor has HALT instr in its IR
 
 #endif

@@ -39,6 +39,7 @@ module swlight (
     input[15:00] d_in_h,
     input dc_lo_in_h,
     input hltgr_in_l,
+    input hltld_in_h,
     input hltrq_in_h,
     input init_in_h,
     input msyn_in_h,
@@ -51,14 +52,13 @@ module swlight (
     output reg[1:0] c_out_h,
     output[15:00] d_out_h,
     output reg hltrq_out_h,
-    output reg init_out_h,
     output reg msyn_out_h,
     output npg_out_l,
     output reg npr_out_h,
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmafail, enable, halted, haltreq, stepreq;
+    reg dmafail, enable, halted, haltins, haltreq, stepreq;
     reg[1:0] dmactrl;
     reg[2:0] dmastate, haltstate;
     reg[9:0] dmadelay;
@@ -69,20 +69,18 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C2009 : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C200A : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? {
                             enable,         //31
                             haltreq,        //30
                             halted,         //29
                             stepreq,        //28
-                            init_out_h,     //27
-                            2'b0,           //25
-                            init_in_h,      //24
-                            2'b0,           //22
+                            6'b0,           //22
                             haltstate,      //19
                             hltrq_out_h,    //18
-                            18'b0 } :
+                            haltins,        //17
+                            17'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
                       (armraddr == 5) ? { dmalock } :
@@ -99,7 +97,6 @@ module swlight (
                 haltstate   <= 0;
                 haltreq     <= 0;
                 hltrq_out_h <= 0;
-                init_out_h  <= 0;
                 stepreq     <= 0;
             end
             a_out_h     <= 0;
@@ -107,6 +104,7 @@ module swlight (
             c_out_h     <= 0;
             dma_d_out_h <= 0;
             dmastate    <= 0;
+            haltins     <= 0;
             msyn_out_h  <= 0;
             npr_out_h   <= 0;
             sack_out_h  <= 0;
@@ -121,10 +119,9 @@ module swlight (
                     switches <= armwdata[15:00];
                 end
                 2: begin
-                    enable      <= armwdata[31];
-                    haltreq     <= armwdata[30];
-                    stepreq     <= armwdata[28];
-                    init_out_h  <= armwdata[27];
+                    enable   <= armwdata[31];
+                    haltreq  <= armwdata[30];
+                    stepreq  <= armwdata[28];
                 end
                 3: if (dmastate == 0) begin
                     dmaaddr  <= armwdata[17:00];
@@ -154,6 +151,13 @@ module swlight (
                 swr_d_out_h <= switches;
             end
         end
+
+        // if an HALT instruction makes its way into the instruction register,
+        // the processor jams the Unibus HLTRQ_L signal low, and the only recovery
+        // is to reset with ACLO/DCLO.  we detect this condition as the processor
+        // is the only thing on the bus, other than us, that will assert HLTRQ.
+        if (~ hltrq_in_h) haltins <= 0;                     // if Unibus HLTRQ is negated, then HALT instr not in IR
+        else if (hltld_in_h & ~ hltrq_out_h) haltins <= 1;  // Unibus HLTRQ is asserted, HALT instr if we aren't requesting halt
 
         // halt the processor
         // the processor gets confused with HLTRQ and DCLO at same time
