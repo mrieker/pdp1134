@@ -64,7 +64,7 @@ module swlight (
     reg[9:0] dmadelay;
     reg[15:00] dmadata, lights, switches;
     reg[17:00] dmaaddr;
-    reg[31:00] dmalock;
+    reg[31:00] dmalock, dmaflags;
 
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
@@ -84,6 +84,7 @@ module swlight (
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
                       (armraddr == 5) ? { dmalock } :
+                      (armraddr == 6) ? dmaflags :
                       32'hDEADBEEF;
 
     assign npg_out_l = npr_out_h ? 1 : npg_in_l;
@@ -103,6 +104,7 @@ module swlight (
             bbsy_out_h  <= 0;
             c_out_h     <= 0;
             dma_d_out_h <= 0;
+            dmaflags    <= 32'h12345678;
             dmastate    <= 0;
             haltins     <= 0;
             msyn_out_h  <= 0;
@@ -127,6 +129,7 @@ module swlight (
                     dmaaddr  <= armwdata[17:00];
                     dmactrl  <= armwdata[27:26];
                     dmastate <= { 2'b0, armwdata[29] };
+                    dmaflags <= { 28'hABCD000, dmaflags[3:0] + 4'h1 };
                 end
                 4: if (dmastate == 0) begin
                     dmadata  <= armwdata[15:00];
@@ -142,7 +145,7 @@ module swlight (
         else if (~ msyn_in_h) begin
             swr_d_out_h <= 0;
             ssyn_out_h  <= 0;
-        end else if (enable & (a_in_h[17:01] == 18'o777570 >> 1) & ~ ssyn_out_h) begin
+        end else if (enable & ({ a_in_h[17:01], 1'b0 } == 18'o777570) & ~ ssyn_out_h) begin
             ssyn_out_h <= 1;
             if (c_in_h[1]) begin
                 if (~ c_in_h[0] |   a_in_h[00]) lights[15:08] <= d_in_h[15:08];
@@ -229,8 +232,10 @@ module swlight (
             // if processor halted, just start using bus, presumably we are only one that would
             // take into account that processor may halt after we assert npg but before it asserts npr
             1: begin
+                dmaflags[4] <= 1;
                 dmafail <= 0;
                 if (halted | npr_out_h & ~ npg_in_l) begin
+                    dmaflags[5] <= 1;
                     // deglitch grant signal in case upstream requested at same time we did
                     if (dmadelay[2:0] != 4) begin
                         dmadelay   <= dmadelay + 1;
@@ -241,6 +246,7 @@ module swlight (
                         sack_out_h <= 1;
                     end
                 end else begin
+                    dmaflags[6] <= 1;
                     dmadelay <= 0;
                     // make sure not granted to downstream before we make request
                     // ...so we don't steal its grant after it may have seen it
@@ -253,6 +259,7 @@ module swlight (
             // send address, control and maybe data out
             // if reading, d_out_h must be 0 so it doesn't stomp on incoming data
             2: begin
+                dmaflags[7] <= 1;
                 a_out_h     <= dmaaddr;
                 c_out_h     <= dmactrl;
                 dma_d_out_h <= dmactrl[1] ? dmadata : 0;
@@ -262,6 +269,7 @@ module swlight (
 
             // wait 150nS deskew/decode before sending msyn out
             3: begin
+                dmaflags[8] <= 1;
                 if (dmadelay[3:0] != 15) begin
                     dmadelay   <= dmadelay + 1;
                 end else begin
@@ -273,6 +281,7 @@ module swlight (
             // wait up to 10uS for ssyn reply
             // if not received, set dmafail flag and finish up
             4: begin
+                dmaflags[9] <= 1;
                 if (ssyn_in_h) begin
                     dmadelay   <= 0;
                     dmastate   <= 5;
@@ -288,6 +297,7 @@ module swlight (
 
             // wait 150nS for deskewing then clock in read data and drop msyn
             5: begin
+                dmaflags[10] <= 1;
                 if (dmadelay[3:0] != 15) begin
                     dmadelay   <= dmadelay + 1;
                 end else begin
@@ -302,6 +312,7 @@ module swlight (
 
             // wait 150nS then drop everything, we're done
             6: begin
+                dmaflags[11] <= 1;
                 if (dmadelay[3:0] != 15) begin
                     dmadelay   <= dmadelay + 1;
                 end else begin

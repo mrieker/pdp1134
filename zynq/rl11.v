@@ -43,26 +43,28 @@ module rl11
     output reg ssyn_out_h);
 
     reg enable;
-    reg[15:00] rlcs, rlba, rlda, rlmp, rhda, rhcrc;
+    reg[15:00] rlba, rlda, rlmp, rhda, rhcrc;
+    reg rlcs_15, rlcs_14, rlcs_00;
+    reg[13:01] rlcs_1301;
     reg[3:0] driveerrors, drivereadys;
-    wire[1:0] driveselect = rlcs[09:08];
+    wire[1:0] driveselect = rlcs_1301[09:08];
     reg[1:0] mpmux;
 
     assign armrdata = (armraddr == 0) ? 32'h524C2001 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      (armraddr == 1) ? { rlba,  rlcs } :
+                      (armraddr == 1) ? { rlba,  rlcs_15, rlcs_14, rlcs_1301, rlcs_00 } :
                       (armraddr == 2) ? { rlmp,  rlda } :
                       (armraddr == 3) ? { rhcrc, rhda } :
                       (armraddr == 4) ? { 22'b0, mpmux, driveerrors, drivereadys } :
                       (armraddr == 5) ? { enable, 5'b0, INTVEC, ADDR } :
                       32'hDEADBEEF;
 
-    assign intreq = rlcs[07] & rlcs[06];
+    assign intreq = rlcs_1301[07] & rlcs_1301[06];
     assign intvec = { INTVEC[7:2], 2'b0 };
 
     always @(*) begin
-        rlcs[00] <= drivereadys[driveselect];
-        rlcs[14] <= driveerrors[driveselect];
-        rlcs[15] <= rlcs[14:10] != 0;
+        rlcs_00 = drivereadys[driveselect];
+        rlcs_14 = driveerrors[driveselect];
+        rlcs_15 = rlcs_14 | rlcs_1301[13] | rlcs_1301[12] | rlcs_1301[11] | rlcs_1301[10];
     end
 
     always @(posedge CLOCK) begin
@@ -75,7 +77,7 @@ module rl11
 
             mpmux <= 0;
 
-            rlcs[13:01] <= 13'b0000001000000;
+            rlcs_1301   <= 13'b0000001000000;
             rlba[15:00] <= 0;
             rlda[15:00] <= 0;
 
@@ -88,7 +90,7 @@ module rl11
             case (armwaddr)
                 1: begin
                     rlba  <= armwdata[31:16];
-                    rlcs[13:01] <= armwdata[13:01];
+                    rlcs_1301 <= armwdata[13:01];
                 end
                 2: begin
                     rlmp  <= armwdata[31:16];
@@ -121,10 +123,10 @@ module rl11
                     // pdp writing control/status register
                     0: begin
                         if (~ c_in_h[0] |   a_in_h[00]) begin
-                            rlcs[09:08] <= d_in_h[09:08];
+                            rlcs_1301[09:08] <= d_in_h[09:08];
                         end
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                            rlcs[07:01] <= d_in_h[07:01];
+                            rlcs_1301[07:01] <= d_in_h[07:01];
                         end
                     end
 
@@ -162,7 +164,7 @@ module rl11
 
                 // pdp reading a register
                 case (a_in_h[02:01])
-                    0: begin d_out_h <= rlcs; end
+                    0: begin d_out_h <= { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 }; end
                     1: begin d_out_h <= rlba; end
                     2: begin d_out_h <= rlda; end
                     3: case (mpmux)

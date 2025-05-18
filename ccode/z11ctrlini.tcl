@@ -21,6 +21,49 @@ proc helpini {} {
     puts ""
 }
 
+proc bmrdword {addr} {
+    if {($addr < 0) || ($addr > 0777777)} {
+        error [format "bmrdword: bad address %o" $addr]
+    }
+    if {$addr & 1} {
+        error [format "bmrdword: odd address %06o" $addr]
+    }
+    set x [pin set bm_armaddr $addr bm_armfunc 4 get bm_armfunc]
+    if {$x != 0} {
+        error "bmrdword: stuck at $x"
+    }
+    return [pin bm_armdata]
+}
+
+proc bmwrbyte {addr data} {
+    if {($addr < 0) || ($addr > 0777777)} {
+        error [format "bmwrbyte: bad address %o" $addr]
+    }
+    if {($data < 0) || ($data > 0377)} {
+        error [format "bmwrbyte: bad data %o" $data]
+    }
+    set x [pin set bm_armaddr $addr bm_armdata [expr {$data*0401}] bm_armfunc 1 get bm_armfunc]
+    if {$x != 0} {
+        error "bmwrbyte: stuck at $x"
+    }
+}
+
+proc bmwrword {addr data} {
+    if {($addr < 0) || ($addr > 0777777)} {
+        error [format "bmwrword: bad address %o" $addr]
+    }
+    if {$addr & 1} {
+        error [format "bmwrword: odd address %06o" $addr]
+    }
+    if {($data < 0) || ($data > 0177777)} {
+        error [format "bmwrword: bad data %o" $data]
+    }
+    set x [pin set bm_armaddr $addr bm_armdata $data bm_armfunc 3 get bm_armfunc]
+    if {$x != 0} {
+        error "bmwrword: stuck at $x"
+    }
+}
+
 # dump memory
 proc dumpmem {loaddr hiaddr} {
     for {set addr [expr {$loaddr & 0777740}]} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 040} {
@@ -44,7 +87,7 @@ proc flickcont {} {
 proc flickinit {} {
     pin set sl_haltreq 1 sl_businit 1
     after 100
-    if {! [pin get sl_halted]} {
+    if {! [pin sl_halted]} {
         error "flickinit: processor failed to halt"
     }
     pin set sl_businit 0
@@ -61,7 +104,7 @@ proc flickstart {addr} {
 # - can also be used as an halt
 proc flickstep {} {
     pin set sl_stepreq 1
-    if {! [pin get sl_halted]} {
+    if {! [pin sl_halted]} {
         error "flickstep: processor did not halt after step"
     }
     puts "PC=[octal [rdword 0777707]]"
@@ -77,7 +120,7 @@ proc hardreset {} {
 
 # lock acess to dma controller
 proc lockdma {} {
-    set lockedby [pin get sl_dmalock]
+    set lockedby [pin sl_dmalock]
     set mypid [pid]
     if {$lockedby == $mypid} {error "dmalock: already locked by mypid $mypid"}
     while true {
@@ -101,16 +144,16 @@ proc rdbyte {addr} {
     }
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 0 sl_dmastate 1
-    set dmastate [pin get sl_dmastate]
+    set dmastate [pin sl_dmastate]
     if {$dmastate != 0} {
         unlkdma
         error "rdbyte: dmastate stuck at $dmastate"
     }
-    if {[pin get sl_dmafail]} {
+    if {[pin sl_dmafail]} {
         unlkdma
         error [format "rdbyte %06o timed out" $addr]
     }
-    set data [pin get sl_dmadata]
+    set data [pin sl_dmadata]
     unlkdma
     if {$addr & 1} {set data [expr {$data >> 8}]}
     return [expr {$data & 0377}]
@@ -119,7 +162,6 @@ proc rdbyte {addr} {
 # read a word from unibus via dma (swlight.v)
 proc rdword {addr} {
     if {($addr < 0) || ($addr > 0777777)} {
-        error "rdword: bad address $addr"
         error [format "rdword: bad address %o" $addr]
     }
     if {($addr & 1) && (($addr < 0777700) || ($addr > 0777717))} {
@@ -127,16 +169,16 @@ proc rdword {addr} {
     }
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 0 sl_dmastate 1
-    set dmastate [pin get sl_dmastate]
+    set dmastate [pin sl_dmastate]
     if {$dmastate != 0} {
         unlkdma
         error "rdword: dmastate stuck at $dmastate"
     }
-    if {[pin get sl_dmafail]} {
+    if {[pin sl_dmafail]} {
         unlkdma
         error [format "rdword %06o timed out" $addr]
     }
-    set data [pin get sl_dmadata]
+    set data [pin sl_dmadata]
     unlkdma
     return $data
 }
@@ -152,12 +194,12 @@ proc wrbyte {addr data} {
     if {$addr & 1} {set data [expr {$data << 8}]}
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 3 sl_dmadata $data sl_dmastate 1
-    set dmastate [pin get sl_dmastate]
+    set dmastate [pin sl_dmastate]
     if {$dmastate != 0} {
         unlkdma
         error "wrbyte: dmastate stuck at $dmastate"
     }
-    if {[pin get sl_dmafail]} {
+    if {[pin sl_dmafail]} {
         unlkdma
         error [format "wrbyte %06o timed out" $addr]
     }
@@ -177,12 +219,12 @@ proc wrword {addr data} {
     }
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 2 sl_dmadata $data sl_dmastate 1
-    set dmastate [pin get sl_dmastate]
+    set dmastate [pin sl_dmastate]
     if {$dmastate != 0} {
         unlkdma
         error "wrword: dmastate stuck at $dmastate"
     }
-    if {[pin get sl_dmafail]} {
+    if {[pin sl_dmafail]} {
         unlkdma
         error [format "wrword %06o timed out" $addr]
     }
@@ -191,7 +233,7 @@ proc wrword {addr data} {
 
 # unlock acess to dma controller
 proc unlkdma {} {
-    set lockedby [pin get sl_dmalock]
+    set lockedby [pin sl_dmalock]
     set mypid [pid]
     if {$lockedby != $mypid} {error "unlkdma: not locked by mypid $mypid"}
     pin set sl_dmalock $mypid

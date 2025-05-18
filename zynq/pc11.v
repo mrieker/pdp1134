@@ -61,7 +61,7 @@ module pc11
                 enable <= 0;
             end
             rcsr       <= 0;
-            xcsr       <= 8'o200;
+            xcsr       <= 16'o200;
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end

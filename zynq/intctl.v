@@ -36,13 +36,11 @@ module intctl (
     input ssyn_in_h,
 
     output reg bbsy_out_h,
-    output bg_out_l,
     output reg br_out_h,
     output reg[15:00] d_out_h,
     output reg intr_out_h,
     output reg sack_out_h);
 
-    assign bg_out_l = br_out_h | bg_in_l;
     reg[2:0] intdelay;
 
     always @(posedge CLOCK) begin
