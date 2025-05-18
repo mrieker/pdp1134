@@ -28,9 +28,11 @@ proc bmrdword {addr} {
     if {$addr & 1} {
         error [format "bmrdword: odd address %06o" $addr]
     }
-    set x [pin set bm_armaddr $addr bm_armfunc 4 get bm_armfunc]
-    if {$x != 0} {
-        error "bmrdword: stuck at $x"
+    pin set bm_armaddr $addr bm_armfunc 4
+    for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
+        if {$i > 100} {
+            error "bmrdword: stuck at $x"
+        }
     }
     return [pin bm_armdata]
 }
@@ -42,9 +44,11 @@ proc bmwrbyte {addr data} {
     if {($data < 0) || ($data > 0377)} {
         error [format "bmwrbyte: bad data %o" $data]
     }
-    set x [pin set bm_armaddr $addr bm_armdata [expr {$data*0401}] bm_armfunc 1 get bm_armfunc]
-    if {$x != 0} {
-        error "bmwrbyte: stuck at $x"
+    pin set bm_armaddr $addr bm_armdata [expr {$data*0401}] bm_armfunc 1
+    for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
+        if {$i > 100} {
+            error "bmwrbyte: stuck at $x"
+        }
     }
 }
 
@@ -58,9 +62,11 @@ proc bmwrword {addr data} {
     if {($data < 0) || ($data > 0177777)} {
         error [format "bmwrword: bad data %o" $data]
     }
-    set x [pin set bm_armaddr $addr bm_armdata $data bm_armfunc 3 get bm_armfunc]
-    if {$x != 0} {
-        error "bmwrword: stuck at $x"
+    pin set bm_armaddr $addr bm_armdata $data bm_armfunc 3
+    for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
+        if {$i > 100} {
+            error "bmwrword: stuck at $x"
+        }
     }
 }
 
@@ -111,11 +117,20 @@ proc flickstep {} {
 }
 
 # hard reset by asserting HLTRQ and strobing AC_LO,DC_LO
+# waits for processor to halt after the reset
+# it theoretically has read the 024/026 power-up vector
 proc hardreset {} {
     pin set sl_haltreq 1    ;# so it halts when started back up
     pin set man_ac_lo_out_h 1 man_dc_lo_out_h 1
     after 200
     pin set man_dc_lo_out_h 0 man_ac_lo_out_h 0
+    for {set i 0} true {incr i} {
+        after 1
+        if {[pin sl_halted]} break
+        if {$i > 1000} {
+            error "hardreset: processor did not halt"
+        }
+    }
 }
 
 # lock acess to dma controller
@@ -144,10 +159,11 @@ proc rdbyte {addr} {
     }
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 0 sl_dmastate 1
-    set dmastate [pin sl_dmastate]
-    if {$dmastate != 0} {
-        unlkdma
-        error "rdbyte: dmastate stuck at $dmastate"
+    for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
+        if {$i > 100} {
+            unlkdma
+            error "rdbyte: dmastate stuck at $dmastate"
+        }
     }
     if {[pin sl_dmafail]} {
         unlkdma
@@ -169,10 +185,11 @@ proc rdword {addr} {
     }
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 0 sl_dmastate 1
-    set dmastate [pin sl_dmastate]
-    if {$dmastate != 0} {
-        unlkdma
-        error "rdword: dmastate stuck at $dmastate"
+    for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
+        if {$i > 100} {
+            unlkdma
+            error "rdword: dmastate stuck at $dmastate"
+        }
     }
     if {[pin sl_dmafail]} {
         unlkdma
@@ -194,10 +211,11 @@ proc wrbyte {addr data} {
     if {$addr & 1} {set data [expr {$data << 8}]}
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 3 sl_dmadata $data sl_dmastate 1
-    set dmastate [pin sl_dmastate]
-    if {$dmastate != 0} {
-        unlkdma
-        error "wrbyte: dmastate stuck at $dmastate"
+    for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
+        if {$i > 100} {
+            unlkdma
+            error "wrbyte: dmastate stuck at $dmastate"
+        }
     }
     if {[pin sl_dmafail]} {
         unlkdma
@@ -219,10 +237,11 @@ proc wrword {addr data} {
     }
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 2 sl_dmadata $data sl_dmastate 1
-    set dmastate [pin sl_dmastate]
-    if {$dmastate != 0} {
-        unlkdma
-        error "wrword: dmastate stuck at $dmastate"
+    for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
+        if {$i > 100} {
+            unlkdma
+            error "wrword: dmastate stuck at $dmastate"
+        }
     }
     if {[pin sl_dmafail]} {
         unlkdma

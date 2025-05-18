@@ -1,23 +1,21 @@
 
-default: last16k test
+MACH := $(shell uname -m)
 
-last16k: last16k.c
-	cc -O2 -o last16k last16k.c
+verisim.$(MACH).a: verisim.$(MACH).o verilated.$(MACH).o obj_dir/VZynq__ALL.a
+	rm -f tmp.a
+	cp obj_dir/VZynq__ALL.a tmp.a
+	ar r tmp.a verisim.$(MACH).o verilated.$(MACH).o
+	mv tmp.a verisim.$(MACH).a
 
-test: test.o obj_dir/Vpdp1134__ALL.a
-	g++ -g -o test test.o obj_dir/Vpdp1134__ALL.a
+verisim.$(MACH).o: verisim.cc verisim.h obj_dir/VZynq.h
+	g++ -g -c -o verisim.$(MACH).o -I/usr/share/verilator/include/ verisim.cc
 
-test.o: test.cc obj_dir/Vpdp1134.h
-	g++ -g -c -o test.o -I/usr/share/verilator/include/ test.cc
+verilated.$(MACH).o: /usr/share/verilator/include/verilated.cpp
+	g++ -g -c -o verilated.$(MACH).o -I/usr/share/verilator/include/ /usr/share/verilator/include/verilated.cpp
 
-obj_dir/Vpdp1134__ALL.a: obj_dir/Vpdp1134.cpp obj_dir/verilated.o
-	rm -f obj_dir/Vpdp1134__ALL.a
-	make -C obj_dir -f Vpdp1134.mk
-	ar r obj_dir/Vpdp1134__ALL.a obj_dir/verilated.o
+obj_dir/VZynq__ALL.a:
+	make -C obj_dir -f VZynq.mk
 
-obj_dir/Vpdp1134.cpp, obj_dir/Vpdp1134.h: pdp1134.v
-	verilator --cc pdp1134.v
-
-obj_dir/verilated.o: /usr/share/verilator/include/verilated.cpp
-	g++ -g -c -o obj_dir/verilated.o -I/usr/share/verilator/include/ /usr/share/verilator/include/verilated.cpp
+obj_dir/VZynq.cpp, obj_dir/VZynq.h: ../zynq/bigmem.v ../zynq/dl11.v ../zynq/intctl.v ../zynq/pc11.v ../zynq/rl11.v ../zynq/sim1134.v ../zynq/swlight.v ../zynq/zynq.v
+	verilator --cc --top-module Zynq ../zynq/bigmem.v ../zynq/dl11.v ../zynq/intctl.v ../zynq/pc11.v ../zynq/rl11.v ../zynq/sim1134.v ../zynq/swlight.v ../zynq/zynq.v
 

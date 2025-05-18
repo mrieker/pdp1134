@@ -1,14 +1,18 @@
 CFLAGS ?= -O2 -Werror
 MACH   := $(shell uname -m)
 TCLINC := -I$(shell ./tclinc.sh)
-GPP    := g++ $(CFLAGS) $(TCLINC) -std=c++11 -g -Wall -fPIC
 LNKFLG := -lpthread -lreadline -lrt -l$(shell ./tcllib.sh)
+LIBS   := lib.$(MACH).a
 
 ifeq ($(MACH),armv7l)
 	LNKFLG := $(LNKFLG) -latomic
 endif
+ifeq ($(MACH),x86_64)
+	CFLAGS := $(CFLAGS) -DVERISIM
+	LIBS   := $(LIBS) ../verisim/verisim.$(MACH).a
+endif
 
-LIBS = lib.$(MACH).a
+GPP    := g++ $(CFLAGS) $(TCLINC) -std=c++11 -g -Wall -fPIC
 
 default: z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MACH) z11rl.$(MACH)
 
@@ -19,6 +23,9 @@ lib.$(MACH).a: \
 		z11util.$(MACH).o
 	rm -f lib.$(MACH).a
 	ar rc $@ $^
+
+../verisim/verisim.$(MACH).a:
+	$(MAKE) -C ../verisim verisim.$(MACH).a
 
 %.$(MACH): %.$(MACH).o $(LIBS)
 	$(GPP) -o $@ $^ $(LNKFLG)

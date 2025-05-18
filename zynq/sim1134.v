@@ -20,7 +20,7 @@
 
 // Implementation of PDP-11/34 processor
 
-module pdp1134 (
+module sim1134 (
     input CLOCK,
     input RESET,
 
@@ -51,11 +51,9 @@ module pdp1134 (
     output reg[7:4] bus_bg_out_h,
     output reg bus_npg_out_h,
     output reg halt_grant_out_h
-
-    ,output reg[5:0] state
-    ,output [15:00] r0, r1, r2, r3, r4, r5, r6, r7, ps, r16
 );
 
+    reg[5:0] state;
     localparam[5:0] S_HALT      = 00;
     localparam[5:0] S_HALT2     = 01;
     localparam[5:0] S_FETCH     = 02;
@@ -143,17 +141,6 @@ module pdp1134 (
         gprx = { (regn == 6) & mode[1], regn };
     endfunction
     wire[3:0] cspgprx = gprx (psw[15:14], 6);    // access current mode stack pointer
-
-    assign r0  = gprs[0];
-    assign r1  = gprs[1];
-    assign r2  = gprs[2];
-    assign r3  = gprs[3];
-    assign r4  = gprs[4];
-    assign r5  = gprs[5];
-    assign r6  = gprs[6];
-    assign r7  = gprs[7];
-    assign ps  = psw;
-    assign r16 = gprs[4'o16];
 
     reg[7:0] trapvec;
     localparam[7:0] T_CPUERR  = 8'o004;
@@ -358,7 +345,6 @@ module pdp1134 (
 
                     // check for accessing word at an odd address
                     if (~ membyte & virtaddr[00]) begin
-                        $display ("T_CPUERR: odd address %06o state %02d", virtaddr, state);
                         cpuerr[06] <= 1;
                         state      <= S_ENDINST;
                         trapvec    <= T_CPUERR;
@@ -460,7 +446,6 @@ module pdp1134 (
                         rwdelay        <= 0;
                         rwstate        <= 6;
                     end else if (rwdelay == 1000) begin
-                        $display ("T_CPUERR: ssyn timeout %06o state %02d", physaddr, state);
                         bus_a_out_l    <= 18'o777777;
                         bus_bbsy_out_l <= 1;
                         bus_c_out_l    <= 3;
@@ -694,7 +679,6 @@ module pdp1134 (
                     if (psw[15:14] == 0) begin
                         state      <= S_HALT;
                     end else begin
-                        $display ("T_CPUERR: halt in user mode");
                         cpuerr[07] <= 1;
                         state      <= S_ENDINST;
                         trapvec    <= T_CPUERR;
@@ -1179,7 +1163,6 @@ module pdp1134 (
                     if (trapvec != 0) begin
                         state      <= S_TRAP;
                     end else if (yellowck & (psw[15:14] == 0) & (gprs[6] < STKLIM)) begin
-                        $display ("T_CPUERR: yellow stack error %06o", gprs[6]);
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;

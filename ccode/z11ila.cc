@@ -137,6 +137,6 @@ int main (int argc, char **argv)
 
 static void siginthand (int signum)
 {
-    write (STDOUT_FILENO, "\n", 1);
+    if (write (STDOUT_FILENO, "\n", 1) < 0) { }
     ctrlcflag = true;
 }

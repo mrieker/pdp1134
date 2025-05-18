@@ -54,6 +54,12 @@ Z11Page::Z11Page ()
 
     slat = NULL;
 
+#ifdef VERISIM
+
+    zynqpage = verisim_init ();
+
+#else
+
     zynqfd = open ("/proc/zynqpdp11", O_RDWR);
     if (zynqfd < 0) {
         fprintf (stderr, "Z11Page::Z11Page: error opening /proc/zynqpdp11: %m\n");
@@ -67,6 +73,8 @@ Z11Page::Z11Page ()
     }
 
     zynqpage = (uint32_t volatile *) zynqptr;
+
+#endif
 }
 
 Z11Page::~Z11Page ()
@@ -94,9 +102,9 @@ uint32_t volatile *Z11Page::findev (char const *id, bool (*entry) (void *param, 
 {
     for (int idx = 0; idx < 1024;) {
         uint32_t volatile *dev = &zynqpage[idx];
-        int len = 2 << ((*dev >> 12) & 15);
+        int len = 2 << ((ZRD(*dev) >> 12) & 15);
         if (idx + len > 1024) break;
-        if ((id == NULL) || (((*dev >> 24) == (uint8_t) id[0]) && (((*dev >> 16) & 255) == (uint8_t) id[1]))) {
+        if ((id == NULL) || (((ZRD(*dev) >> 24) == (uint8_t) id[0]) && (((ZRD(*dev) >> 16) & 255) == (uint8_t) id[1]))) {
             if ((entry == NULL) || entry (param, dev)) {
                 if (lockit) locksubdev (dev, len, killit);
                 return dev;
@@ -125,7 +133,7 @@ void Z11Page::locksubdev (uint32_t volatile *start, int nwords, bool killit)
     uint32_t volatile *dev;
     for (int idx = 0; idx < 1024;) {
         dev = &zynqpage[idx];
-        len = 2 << ((*dev >> 12) & 15);
+        len = 2 << ((ZRD(*dev) >> 12) & 15);
         if (idx + len > 1024) break;
         ofs = start - dev;
         if ((ofs >= 0) && (ofs < len)) goto found;
@@ -178,15 +186,15 @@ found:;
 bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
     dmalock ();
-    slat[3] = SL3_DMASTATE0 | SL3_DMAADDR0 * xba;
+    ZWR(slat[3], SL3_DMASTATE0 | SL3_DMAADDR0 * xba);
     for (int i = 0; (slat[3] & SL3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
             fprintf (stderr, "Z11Page::dmaread: dma stuck\n");
             ABORT ();
         }
     }
-    bool ok = ! (slat[3] & SL3_DMAFAIL);
-    *data = (slat[4] & SL4_DMADATA) / SL4_DMADATA0;
+    bool ok = ! (ZRD(slat[3]) & SL3_DMAFAIL);
+    *data = (ZRD(slat[4]) & SL4_DMADATA) / SL4_DMADATA0;
     dmaunlk ();
     return ok;
 }
@@ -196,15 +204,15 @@ bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
 bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 {
     dmalock ();
-    slat[4] = SL4_DMADATA0 * data;
-    slat[3] = SL3_DMASTATE0 | SL3_DMACTRL0 * 2 | SL3_DMAADDR0 * xba;
-    for (int i = 0; (slat[3] & SL3_DMASTATE) != 0; i ++) {
+    ZWR(slat[4], SL4_DMADATA0 * data);
+    ZWR(slat[3], SL3_DMASTATE0 | SL3_DMACTRL0 * 2 | SL3_DMAADDR0 * xba);
+    for (int i = 0; (ZRD(slat[3]) & SL3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
             fprintf (stderr, "Z11Page::dmawrite: dma stuck\n");
             ABORT ();
         }
     }
-    bool ok = ! (slat[3] & SL3_DMAFAIL);
+    bool ok = ! (ZRD(slat[3]) & SL3_DMAFAIL);
     dmaunlk ();
     return ok;
 }
@@ -220,15 +228,15 @@ void Z11Page::dmalock ()
         slat = findev ("SL", NULL, NULL, false, false);
     }
 
-    ASSERT (slat[5] != mypid);
+    ASSERT (ZRD(slat[5]) != mypid);
     int nus = 10;
     while (true) {
-        slat[5] = mypid;
-        uint32_t lkpid = slat[5];
+        ZWR(slat[5], mypid);
+        uint32_t lkpid = ZRD(slat[5]);
         if (lkpid == mypid) break;
         if ((lkpid != 0) && (kill (lkpid, 0) < 0) && (errno == ESRCH)) {
             fprintf (stderr, "Z11Page::dmalock: unlocking from dead %u\n", lkpid);
-            slat[5] = lkpid;
+            ZWR(slat[5], lkpid);
         }
         if (nus < 1000) ++ nus;
         usleep (nus);
@@ -239,8 +247,8 @@ void Z11Page::dmalock ()
 void Z11Page::dmaunlk ()
 {
     ASSERT (SL5_DMALOCK == 0xFFFFFFFFU);
-    ASSERT (slat[5] == mypid);
-    slat[5] = mypid;
+    ASSERT (ZRD(slat[5]) == mypid);
+    ZWR(slat[5], mypid);
 }
 
 // generate a random number

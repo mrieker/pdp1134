@@ -194,12 +194,6 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         devs[DEV_BM] = z11page->findev ("BM", NULL, NULL, false);
         devs[DEV_SL] = z11page->findev ("SL", NULL, NULL, false);
         devs[DEV_DL] = z11page->findev ("DL", NULL, NULL, false);
-#if 000
-        // get pointer to the 32K-word ram
-        // maps each 12-bit word into low 12 bits of 32-bit word
-        // upper 20 bits discarded on write, readback as zeroes
-        extmemptr = z11page->extmem ();
-#endif
     }
 
     if ((objc == 2) && (strcasecmp (Tcl_GetString (objv[1]), "list") == 0)) {
@@ -217,7 +211,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
                 printf ("       ");
             }
             printf ("  %c%c[%2u]  %08X\n",
-                (ptr[0] >> 24) & 0xFFU, (ptr[0] >> 16) & 0xFFU, pte->reg, pte->mask);
+                (ZRD(ptr[0]) >> 24) & 0xFFU, (ZRD(ptr[0]) >> 16) & 0xFFU, pte->reg, pte->mask);
         }
         return TCL_OK;
     }
@@ -327,9 +321,9 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
                 Tcl_SetResultF (interp, "value 0%o too big for %s", val, name);
                 return TCL_ERROR;
             }
-            *ptr = (*ptr & ~ mask) | ((uint32_t) val) * (mask & - mask);
+            ZWR(*ptr, (ZRD(*ptr) & ~ mask) | ((uint32_t) val) * (mask & - mask));
         } else {
-            uint32_t val = (*ptr & mask) / (mask & - mask);
+            uint32_t val = (ZRD(*ptr) & mask) / (mask & - mask);
             gotvals[ngotvals++] = Tcl_NewIntObj (val);
         }
     }

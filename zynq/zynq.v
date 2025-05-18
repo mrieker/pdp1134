@@ -146,9 +146,36 @@ module Zynq (
 
     wire[31:00] regctlh = { 29'b11110, man_hltrq_out_h, sl_hltrq_out_h, hltrq_out_h };    // debug display in z11dump
 
-    // master reset of FPGA when turned off
-    // use for all resets except arm register access (so it can turn resetting off)
-    wire mastereset = ~ RESET_N | (fpgamode == FM_OFF);
+    // wired-and/or of signals from all devices
+    // includes unibus whenever in FM_REAL mode
+    // includes simulator whenever in FM_SIM mode
+
+    reg dev_ac_lo_h;
+    reg dev_bbsy_h;
+    reg dev_dc_lo_h;
+    reg dev_hltgr_l;
+    reg dev_hltld_h;
+    reg dev_hltrq_h;
+    reg dev_init_h;
+    reg dev_intr_h;
+    reg dev_msyn_h;
+    reg dev_npg_l;
+    reg dev_npr_h;
+    reg dev_sack_h;
+    reg dev_ssyn_h;
+
+    reg[1:0] dev_c_h;
+    reg[7:4] dev_bg_l;
+    reg[7:4] dev_br_h;
+    reg[15:00] dev_d_h;
+    reg[17:00] dev_a_h;
+
+    // various levels of reset
+
+    wire powerup = ~ RESET_N;                       // zynq is booting up
+    wire fpgaoff = powerup | (fpgamode == FM_OFF);  // above + fpgamode OFF
+    wire dcislow = fpgaoff | ~ dev_dc_lo_h;         // above + DCLO (ie, resetting PDP)
+    wire businit = dcislow | dev_init_h;            // above + PDP issuing RESET
 
     /////////////////////////////////////////////////////////////////
     //  synchronize and demultiplex signals coming in from unibus  //
@@ -202,7 +229,7 @@ module Zynq (
     wire[1:0] man_rsel_h;
 
     always @(posedge CLOCK) begin
-        if (mastereset) begin
+        if (fpgaoff) begin
             dmx_haltloaded <= 0;
             muxcount <= 64;
         end else begin
@@ -301,34 +328,6 @@ module Zynq (
         end
     end
 
-    ////////////////////////////
-    //  internal bus signals  //
-    ////////////////////////////
-
-    // wired-and/or of signals from all devices
-    // includes unibus whenever in FM_REAL mode
-    // includes simulator whenever in FM_SIM mode
-
-    reg dev_ac_lo_h;
-    reg dev_bbsy_h;
-    reg dev_dc_lo_h;
-    reg dev_hltgr_l;
-    reg dev_hltld_h;
-    reg dev_hltrq_h;
-    reg dev_init_h;
-    reg dev_intr_h;
-    reg dev_msyn_h;
-    reg dev_npg_l;
-    reg dev_npr_h;
-    reg dev_sack_h;
-    reg dev_ssyn_h;
-
-    reg[1:0] dev_c_h;
-    reg[7:4] dev_bg_l;
-    reg[7:4] dev_br_h;
-    reg[15:00] dev_d_h;
-    reg[17:00] dev_a_h;
-
     /////////////////////////////////////////////////////////////
     //  signals coming out of simulator going to internal bus  //
     /////////////////////////////////////////////////////////////
@@ -346,9 +345,11 @@ module Zynq (
     wire sim_npg_out_h;
     wire sim_hltgr_out_h;
 
+    wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
+
     sim1134 siminst (
         .CLOCK (CLOCK),
-        .RESET (mastereset | (fpgamode == FM_SIM)),
+        .RESET (sim_reset_h),
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -580,11 +581,6 @@ module Zynq (
     //  internal devices  //
     ////////////////////////
 
-    wire powerup = ~ RESET_N;
-    wire fpgaoff = powerup | (fpgamode == FM_OFF);
-    wire dcislow = fpgaoff | ~ dev_dc_lo_h;
-    wire businit = dcislow | dev_init_h;
-
     // big memory
     wire bm_ssyn_out_h;
     wire[15:00] bm_d_out_h;
@@ -623,7 +619,7 @@ module Zynq (
 
     pc11 pcinst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .armraddr (readaddr[3:2]),
         .armrdata (pcarmrdata),
@@ -650,7 +646,7 @@ module Zynq (
 
     rl11 rlinst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .armraddr (readaddr[4:2]),
         .armrdata (rlarmrdata),
@@ -679,7 +675,7 @@ module Zynq (
 
     swlight slinst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .armraddr (readaddr[4:2]),
         .armrdata (slarmrdata),
@@ -719,7 +715,7 @@ module Zynq (
 
     dl11 tt0inst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .armraddr (readaddr[3:2]),
         .armrdata (tt0armrdata),
@@ -759,7 +755,7 @@ module Zynq (
 
     intctl irq4inst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .intvec (intvec4),
 
@@ -777,7 +773,7 @@ module Zynq (
 
     intctl irq5inst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .intvec (intvec5),
 
@@ -795,7 +791,7 @@ module Zynq (
 
     intctl irq6inst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .intvec (intvec6),
 
@@ -813,7 +809,7 @@ module Zynq (
 
     intctl irq7inst (
         .CLOCK (CLOCK),
-        .RESET (mastereset),
+        .RESET (fpgaoff),
 
         .intvec (intvec7),
 
@@ -877,7 +873,7 @@ module Zynq (
     wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
-    wire        wor_init_h  = man_init_out_h  | ~ sim_init_out_l;
+    wire        wor_init_h  = man_init_out_h  | ~ (sim_reset_h   | sim_init_out_l);
     wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h  | irq5_intr_out_h  | irq6_intr_out_h | irq7_intr_out_h;
     wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
@@ -922,7 +918,7 @@ module Zynq (
                 dev_hltgr_l = ~ sim_hltgr_out_h;
                 dev_hltld_h = 1;   // wor_hltrq_h is always up-to-date
                 dev_hltrq_h = wor_hltrq_h;
-                dev_init_h  = wor_init_h | mastereset;
+                dev_init_h  = wor_init_h | fpgaoff;
                 dev_intr_h  = wor_intr_h;
                 dev_msyn_h  = wor_msyn_h;
                 dev_npg_l   = ~ sim_npg_out_h;
@@ -1048,7 +1044,7 @@ module Zynq (
     end
 
     always @(posedge CLOCK) begin
-        if (mastereset) begin
+        if (fpgaoff) begin
             ilaafter <= 0;
             ilaarmed <= 0;
             ilatimer <= 0;
