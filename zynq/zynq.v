@@ -685,6 +685,7 @@ module Zynq (
 
         .a_in_h      (dev_a_h),         //<< address from pdp/sim to read switch register or write light register
         .ac_lo_in_h  (dev_ac_lo_h),     //<< power is going down
+        .bbsy_in_h   (dev_bbsy_h),      //<< something is busy using the bus
         .c_in_h      (dev_c_h),         //<< control code from pdp/sim to read switch register or write light register
         .d_in_h      (dev_d_h),         //<< data from pdp/sim to write to light register or data being read from real memory or device
         .dc_lo_in_h  (dev_dc_lo_h),     //<< power is down

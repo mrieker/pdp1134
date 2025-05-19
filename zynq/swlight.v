@@ -35,6 +35,7 @@ module swlight (
 
     input[17:00] a_in_h,
     input ac_lo_in_h,
+    input bbsy_in_h,
     input[1:0] c_in_h,
     input[15:00] d_in_h,
     input dc_lo_in_h,
@@ -228,87 +229,85 @@ module swlight (
 
             // if processor is running, do a non-processor request
             // if processor halted, just start using bus, presumably we are only one that would
-            // take into account that processor may halt after we assert npg but before it asserts npr
+            // take into account that processor may halt after we assert npr but before it asserts npg
             1: begin
-                if (halted | npr_out_h & ~ npg_in_l) begin
-                    // deglitch grant signal in case upstream requested at same time we did
-                    if (dmadelay[2:0] != 4) begin
-                        dmadelay   <= dmadelay + 1;
-                    end else begin
-                        bbsy_out_h <= 1;
-                        dmastate   <= 2;
-                        npr_out_h  <= 0;
-                        sack_out_h <= 1;
-                    end
+                if (halted) begin
+                    dmastate   <= 2;    // halted, make like exam/deposit, and assume we have the bus
+                    npr_out_h  <= 0;
+                end else if (~ npr_out_h) begin
+                    dmadelay   <= 0;    // running, need to do a non-processor request and wait for grant
+                    npr_out_h  <= 1;
+                end else if (npg_in_l) begin
+                    dmadelay   <= 0;    // debounce grant in case something else requested at same time we did
+                end else if (dmadelay[2:0] != 4) begin
+                    dmadelay   <= dmadelay + 1;
                 end else begin
-                    dmadelay <= 0;
-                    // make sure not granted to downstream before we make request
-                    // ...so we don't steal its grant after it may have seen it
-                    if (npg_in_l) begin
-                        npr_out_h  <= 1;
-                    end
+                    dmastate   <= 2;    // debounced grant, acknowledge selection
+                    sack_out_h <= 1;
                 end
             end
 
-            // send address, control and maybe data out
-            // if reading, d_out_h must be 0 so it doesn't stomp on incoming data
-            2: begin
+            // make sure bus not busy doing something else, then send out address, control, data, say bus is busy
+            2: if (~ bbsy_in_h & ~ msyn_in_h & ~ ssyn_in_h) begin
                 a_out_h     <= dmaaddr;
+                bbsy_out_h  <= 1;
                 c_out_h     <= dmactrl;
                 dma_d_out_h <= dmactrl[1] ? dmadata : 0;
                 dmadelay    <= 0;
                 dmastate    <= 3;
+                npr_out_h   <= 0;
             end
 
-            // wait 150nS deskew/decode before sending msyn out
+            // after 150nS, send out msyn
             3: begin
                 if (dmadelay[3:0] != 15) begin
                     dmadelay   <= dmadelay + 1;
+                    sack_out_h <= halted;
                 end else begin
-                    dmastate   <= 4;
                     msyn_out_h <= 1;
+                    dmadelay   <= 0;
+                    dmastate   <= 4;
                 end
             end
 
-            // wait up to 10uS for ssyn reply
-            // if not received, finish up leaving dmafail set
+            // wait up to 10uS for ssyn
             4: begin
                 if (ssyn_in_h) begin
                     dmadelay   <= 0;
                     dmastate   <= 5;
-                end else if (dmadelay != 1023) begin
+                end else if (dmadelay != 1000) begin
                     dmadelay   <= dmadelay + 1;
                 end else begin
-                    dmadelay   <= 0;
-                    dmastate   <= 6;
+                    bbsy_out_h <= 1;
+                    dmastate   <= 0;
                     msyn_out_h <= 0;
                 end
             end
 
-            // wait 150nS for deskewing then clock in read data and drop msyn
+            // wait 150nS then clock in read data and drop msyn
             5: begin
                 if (dmadelay[3:0] != 15) begin
-                    dmadelay   <= dmadelay + 1;
+                    dmadelay <= dmadelay + 1;
                 end else begin
                     if (~ dmactrl[1]) begin
                         dmadata <= d_in_h;
                     end
-                    dmadelay   <= 0;
-                    dmafail    <= 0;
+                    dmadelay   <= dmadelay + 1;
                     dmastate   <= 6;
                     msyn_out_h <= 0;
                 end
             end
 
-            // wait 150nS then drop everything, we're done
+            // wait 150nS then drop everything else and tell arm it completed successfully
             6: begin
                 if (dmadelay[3:0] != 15) begin
-                    dmadelay   <= dmadelay + 1;
-                end else begin
+                    dmadelay    <= dmadelay + 1;
+                end else if (~ ssyn_in_h) begin
                     a_out_h     <= 0;
                     bbsy_out_h  <= 0;
                     c_out_h     <= 0;
                     dma_d_out_h <= 0;
+                    dmafail     <= 0;
                     dmastate    <= 0;
                 end
             end
