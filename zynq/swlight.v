@@ -70,7 +70,7 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C200A : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C200B : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? {
                             enable,         //31
@@ -169,7 +169,7 @@ module swlight (
             hltrq_out_h <= 0;
         end else case (haltstate)
 
-            // wait for somone to push our HALT button
+            // wait for someone to push our HALT button
             // then request processor to halt (assert HLTRQ)
             0: begin
                 if (haltreq) begin
@@ -219,6 +219,18 @@ module swlight (
                 halted <= 1;
             end else if (~ hltrq_in_h & ~ sack_in_h) begin
                 halted <= 0;
+            end
+        end
+
+        // single stepper
+        // - stop requesting processor to halt
+        // - as soon as it starts back up (fetches something), request halt
+        if (~ RESET & ~ armwrite & stepreq) begin
+            if (halted) begin
+                haltreq <= 0;
+            end else if (msyn_in_h) begin
+                haltreq <= 1;
+                stepreq <= 0;
             end
         end
 
@@ -312,17 +324,5 @@ module swlight (
                 end
             end
         endcase
-
-        // single stepper
-        // - stop requesting processor to halt
-        // - as soon as it starts back up, request halt
-        if (stepreq) begin
-            if (~ halted) begin
-                hltrq_out_h <= 1;
-                stepreq <= 0;
-            end else begin
-                hltrq_out_h <= 0;
-            end
-        end
     end
 endmodule

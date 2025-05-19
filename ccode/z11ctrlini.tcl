@@ -4,23 +4,42 @@
 
 proc helpini {} {
     puts ""
-    puts "     dumpmem lo hi - dump memory from lo to hi address"
-    puts "         flickcont - continue processing"
-    puts "         flickinit - halt processor and initialize bus"
-    puts "   flickstart addr - reset processor and start at given address"
-    puts "         flickstep - step processor one instruction then print PC"
-    puts "                     can be used as an halt if processor running"
-    puts "         hardreset - hard reset processor to halted state"
-    puts "           lockdma - lock access to dma controller"
-    puts "           octal x - convert integer x to 6-digit octal string"
-    puts "       rdbyte addr - read byte at given physical address"
-    puts "       rdword addr - read word at given physical address"
-    puts "  wrbyte addr data - write data byte to given physical address"
-    puts "  wrword addr data - write data word to given physical address"
-    puts "           unlkdma - unlock access to dma controller"
+    puts "       bmrdbyte addr - read byte from fpga memory"
+    puts "       bmrdword addr - read word from fpga memory"
+    puts "  bmwrbyte addr data - write byte to fpga memory"
+    puts "  bmwrword addr data - write word to fpga memory"
+    puts "       dumpmem lo hi - dump memory from lo to hi address"
+    puts "           flickcont - continue processing"
+    puts "  flickstart pc [ps] - reset processor and start at given address"
+    puts "           flickstep - step processor one instruction then print PC"
+    puts "                       can be used as an halt if processor running"
+    puts "           hardreset - hard reset processor to halted state"
+    puts "             lockdma - lock access to dma controller"
+    puts "             octal x - convert integer x to 6-digit octal string"
+    puts "         rdbyte addr - read byte at given physical address"
+    puts "         rdword addr - read word at given physical address"
+    puts "    wrbyte addr data - write data byte to given physical address"
+    puts "    wrword addr data - write data word to given physical address"
+    puts "             unlkdma - unlock access to dma controller"
     puts ""
 }
 
+# read byte directly from bigmem (no dma cycle)
+proc bmrdbyte {addr} {
+    if {($addr < 0) || ($addr > 0777777)} {
+        error [format "bmrdbyte: bad address %o" $addr]
+    }
+    pin set bm_armaddr $addr bm_armfunc 4
+    for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
+        if {$i > 100} {
+            error "bmrdbyte: stuck at $x"
+        }
+    }
+    set data [pin bm_armdata]
+    return [expr {($addr & 1) ? ($data >> 8) : ($data & 255)}]
+}
+
+# read word directly from bigmem (no dma cycle)
 proc bmrdword {addr} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "bmrdword: bad address %o" $addr]
@@ -37,6 +56,7 @@ proc bmrdword {addr} {
     return [pin bm_armdata]
 }
 
+# write byte directly to bigmem (no dma cycle)
 proc bmwrbyte {addr data} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "bmwrbyte: bad address %o" $addr]
@@ -52,6 +72,7 @@ proc bmwrbyte {addr data} {
     }
 }
 
+# write word directly to bigmem (no dma cycle)
 proc bmwrword {addr data} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "bmwrword: bad address %o" $addr]
@@ -71,14 +92,24 @@ proc bmwrword {addr data} {
 }
 
 # dump memory
-proc dumpmem {loaddr hiaddr} {
-    for {set addr [expr {$loaddr & 0777740}]} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 040} {
-        for {set j 0} {$j < 16} {incr j} {
-            set data($j) [rdword [expr {$addr + $j * 2}]]
-        }
+proc dumpmem {loaddr hiaddr {rwfunc rdword}} {
+    set loeven [expr {$loaddr & -2}]
+    for {set addr [expr {$loaddr & -040}]} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 040} {
         puts -nonewline " "
         for {set j 15} {$j >= 0} {incr j -1} {
-            puts -nonewline [format " %06o" $data($j)]
+            set a [expr {$addr + $j * 2}]
+            if {($a >= $loeven) && ($a <= $hiaddr)} {
+                set data [$rwfunc $a]
+                if {$a < $loaddr} {
+                    puts -nonewline [format " %03o   " [expr {$data >> 8}]]
+                } elseif {$a == $hiaddr} {
+                    puts -nonewline [format "    %03o" [expr {$data & 255}]]
+                } else {
+                    puts -nonewline [format " %06o" $data]
+                }
+            } else {
+                puts -nonewline "       "
+            }
         }
         puts [format " : %06o" $addr]
     }
@@ -89,36 +120,29 @@ proc flickcont {} {
     pin set sl_haltreq 0
 }
 
-# halt processor and initialize bus
-proc flickinit {} {
-    pin set sl_haltreq 1 sl_businit 1
-    after 100
-    if {! [pin sl_halted]} {
-        error "flickinit: processor failed to halt"
-    }
-    pin set sl_businit 0
-}
-
 # start processor at given address
-proc flickstart {addr} {
-    flickinit
-    wrword 0777707 $addr
+proc flickstart {pc {ps 0340}} {
+    hardreset
+    wrword 0777707 $pc
+    wrword 0777776 $ps
     flickcont
 }
 
-# single step one instruction then print PC
+# single step one instruction then return PC
 # - can also be used as an halt
 proc flickstep {} {
     pin set sl_stepreq 1
-    if {! [pin sl_halted]} {
-        error "flickstep: processor did not halt after step"
+    for {set i 0} {[pin sl_stepreq] || ! [pin sl_halted]} {incr i} {
+        if {$i > 1000} {
+            error "flickstep: processor did not step"
+        }
     }
-    puts "PC=[octal [rdword 0777707]]"
+    return [rdword 0777707]
 }
 
 # hard reset by asserting HLTRQ and strobing AC_LO,DC_LO
 # waits for processor to halt after the reset
-# it theoretically has read the 024/026 power-up vector
+# it theoretically has read the 024/026 power-up vector into PC/PS
 proc hardreset {} {
     pin set sl_haltreq 1    ;# so it halts when started back up
     pin set man_ac_lo_out_h 1 man_dc_lo_out_h 1
