@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314011;
+    localparam VERSION = 32'h31314012;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -338,6 +338,7 @@ module Zynq (
     wire[1:0] sim_c_out_l;
     wire[15:00] sim_d_out_l;
     wire sim_bbsy_out_l;
+    wire sim_hltrq_out_l;
     wire sim_init_out_l;
     wire sim_msyn_out_l;
     wire sim_ssyn_out_l;
@@ -358,7 +359,7 @@ module Zynq (
         .bus_intr_in_l    (~ dev_intr_h),       //<< some device telling cpu it is passing interrupt vector
         .bus_npr_in_l     (~ dev_npr_h),        //<< some device requesting dma cycle
         .bus_sack_in_l    (~ dev_sack_h),       //<< some device acknowledging bg/npg/hltgr signal
-        .halt_rqst_in_l   (~ dev_hltrq_h),      //<< some device is requesting cpu to halt
+        .bus_hltrq_in_l   (~ dev_hltrq_h),      //<< some device (front panel) is requesting cpu to halt
 
         .bus_a_in_l       (~ dev_a_h),          //<< some device passing address of cpu internal register to cpu
         .bus_c_in_l       (~ dev_c_h),          //<< some device passing function for cpu internal register to cpu
@@ -371,13 +372,14 @@ module Zynq (
         .bus_c_out_l      (sim_c_out_l),        //>> cpu is passing function to memory and devices
         .bus_d_out_l      (sim_d_out_l),        //>> cpu is passing write data to memory and devices, or passing read data from cpu internal register
         .bus_bbsy_out_l   (sim_bbsy_out_l),     //>> cpu is busy using the bus as a master
+        .bus_hltrq_out_l  (sim_hltrq_out_l),    //>> cpu is jamming itself in halt (HALT instruction)
         .bus_init_out_l   (sim_init_out_l),     //>> cpu is resetting the bus (RESET instruction)
         .bus_msyn_out_l   (sim_msyn_out_l),     //>> cpu is accessing memory or device register
         .bus_ssyn_out_l   (sim_ssyn_out_l),     //>> cpu has completed a cpu internal register read or write
 
         .bus_bg_out_h     (sim_bg_out_h),       //>> cpu is granting an interrupt request
         .bus_npg_out_h    (sim_npg_out_h),      //>> cpu is granting a dma request
-        .halt_grant_out_h (sim_hltgr_out_h)     //>> cpu is granting an halt request
+        .bus_hltgr_out_h  (sim_hltgr_out_h)     //>> cpu is granting an halt request
     );
 
     ///////////////////////////////////////////////////////
@@ -460,15 +462,15 @@ module Zynq (
         dev_d_h             // data bus outputs
     };
 
+    // count bus cycles
     reg lastdevmsyn;
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
-            lastdevmsyn <= 0;
-            regctli     <= 0;
+            regctli <= 0;
         end else if (~ lastdevmsyn & dev_msyn_h) begin
-            lastdevmsyn <= dev_msyn_h;
-            regctli     <= regctli + 1;
+            regctli <= regctli + 1;
         end
+        lastdevmsyn <= dev_msyn_h;
     end
 
     /////////////////////////////////////
@@ -866,20 +868,20 @@ module Zynq (
     wire        man_ssyn_out_h  = regctla[16];
 
     // wired-or of internal device outputs
-    wire[17:00] wor_a_h     = man_a_out_h     | ~ sim_a_out_l    | sl_a_out_h;
+    wire[17:00] wor_a_h     = man_a_out_h     | ~ sim_a_out_l     | sl_a_out_h;
     wire        wor_ac_lo_h = man_ac_lo_out_h;
-    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h  | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
+    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h   | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
-    wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l    | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h     | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
+    wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l     | sl_c_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h      | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
     wire        wor_dc_lo_h = man_dc_lo_out_h;
-    wire        wor_hltrq_h = man_hltrq_out_h | sl_hltrq_out_h;
-    wire        wor_init_h  = man_init_out_h  | ~ (sim_reset_h   | sim_init_out_l);
-    wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h  | irq5_intr_out_h  | irq6_intr_out_h | irq7_intr_out_h;
-    wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l | sl_msyn_out_h;
+    wire        wor_hltrq_h = man_hltrq_out_h | ~ sim_hltrq_out_l | sl_hltrq_out_h;
+    wire        wor_init_h  = man_init_out_h  | ~ (sim_reset_h    | sim_init_out_l);
+    wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h   | irq5_intr_out_h  | irq6_intr_out_h | irq7_intr_out_h;
+    wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l  | sl_msyn_out_h;
     wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
-    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h  | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h    | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | rl_ssyn_out_h | tt0_ssyn_out_h;
+    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h   | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h     | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | rl_ssyn_out_h | tt0_ssyn_out_h;
 
     assign pa_out_h = 0;
     assign pb_out_h = 0;
@@ -1023,7 +1025,7 @@ module Zynq (
 
     always @(*) begin
         ilacurwd = {
-            8'b0,           //56
+            muxcount,       //56
             dev_a_h,        //38
             dev_ac_lo_h,    //37
             dev_bbsy_h,     //36
@@ -1069,7 +1071,7 @@ module Zynq (
             end else if (ilaarmed | (ilaafter != 0)) begin
 
                 // save word and timestamp if different than previous
-                if (ilaprvwd != ilacurwd) begin
+                if (ilaprvwd[55:00] != ilacurwd[55:00]) begin
                     ilaarray[ilaindex] <= ilacurwd;
                     ilatimes[ilaindex] <= ilatimer;
                     ilaoflow <= ilaoflow | (ilaindex == 4095);
@@ -1080,9 +1082,9 @@ module Zynq (
 
                 // check trigger condition
                 ////if (rsel1_h & muxc) begin   // - hltrq_in_h
-                ////if (~ hltgr_in_l) begin
+                if (~ dev_hltgr_l) begin
                 ////if (wor_msyn_h) begin
-                if (armwrite) begin
+                ////if (armwrite) begin
                     ilaarmed <= 0;
                 end
             end

@@ -93,6 +93,9 @@ proc bmwrword {addr data} {
 
 # dump memory
 proc dumpmem {loaddr hiaddr {rwfunc rdword}} {
+    if {($loaddr < 0) || ($hiaddr > 0777777) || ($hiaddr < $loaddr)} {
+        error "dumpmem: addresses $loaddr $hiaddr out of range or order"
+    }
     set loeven [expr {$loaddr & -2}]
     for {set addr [expr {$loaddr & -040}]} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 040} {
         for {set j 15} {$j >= 0} {incr j -1} {

@@ -304,7 +304,7 @@ module swlight (
                     if (~ dmactrl[1]) begin
                         dmadata <= d_in_h;
                     end
-                    dmadelay   <= dmadelay + 1;
+                    dmadelay   <= 0;
                     dmastate   <= 6;
                     msyn_out_h <= 0;
                 end

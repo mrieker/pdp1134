@@ -64,6 +64,23 @@ module MyBoard (
     wire        bus_sack_l;
     wire        bus_ssyn_l;
 
+    // signals output by our fillin for real pdp
+    wire[17:00] fake_a_l;
+    wire[1:0]   fake_c_l;
+    wire[15:00] fake_d_l;
+    wire        fake_bbsy_l;
+    wire[7:4]   fake_bg_h;
+    wire        fake_hltgr_h;
+    wire        fake_hltrq_l;
+    wire        fake_init_l;
+    wire        fake_msyn_l;
+    wire        fake_npg_h;
+    wire        fake_ssyn_l;
+
+    // signals output by rom card
+    wire[15:00] rom_d_h;
+    wire        rom_ssyn_h;
+
     // signals output by the zynq board
     wire rsel1_h;
     wire rsel2_h;
@@ -88,23 +105,55 @@ module MyBoard (
     wire        zynq_sack_h;
     wire        zynq_ssyn_h;
 
-    // signals output by our fillin for real pdp
-    wire[17:00] fake_a_l;
-    wire[1:0]   fake_c_l;
-    wire[15:00] fake_d_l;
-    wire        fake_bbsy_l;
-    wire[7:4]   fake_bg_h;
-    wire        fake_hltgr_h;
-    wire        fake_init_l;
-    wire        fake_msyn_l;
-    wire        fake_npg_h;
-    wire        fake_ssyn_l;
-
 /***
     always @(posedge CLOCK) begin
         $display ("MyBoard*: bus_bbsy_l=%b fake_bbsy_l=%b zynq_bbsy_h=%b", bus_bbsy_l, fake_bbsy_l, zynq_bbsy_h);
     end
 ***/
+
+    // fillin for the real pdp
+    sim1134 fakeinst (
+        .CLOCK (CLOCK),
+        .RESET (~ RESET_N),
+
+        .bus_ac_lo_in_l   (bus_ac_lo_l),        //<< power supply telling cpu it is shutting down
+        .bus_bbsy_in_l    (bus_bbsy_l),         //<< some device telling cpu it is using the bus as master
+        .bus_br_in_l      (bus_br_l),           //<< some device is requesting an interrupt
+        .bus_dc_lo_in_l   (bus_dc_lo_l),        //<< power supply telling cpu it is off
+        .bus_intr_in_l    (bus_intr_l),         //<< some device telling cpu it is passing interrupt vector
+        .bus_npr_in_l     (bus_npr_l),          //<< some device requesting dma cycle
+        .bus_sack_in_l    (bus_sack_l),         //<< some device acknowledging bg/npg/hltgr signal
+        .bus_hltrq_in_l   (bus_hltrq_l),        //<< some device (front panel) is requesting cpu to halt
+
+        .bus_a_in_l       (bus_a_l),            //<< some device passing address of cpu internal register to cpu
+        .bus_c_in_l       (bus_c_l),            //<< some device passing function for cpu internal register to cpu
+        .bus_d_in_l       (bus_d_l),            //<< some device passing data to be written to cpu internal register
+        .bus_init_in_l    (bus_init_l),         //<< bus is being initialized
+        .bus_msyn_in_l    (bus_msyn_l),         //<< some device is accessing a cpu internal register
+        .bus_ssyn_in_l    (bus_ssyn_l),         //<< some device has completed a device register read or write
+
+        .bus_a_out_l      (fake_a_l),           //>> cpu is passing address to memory and devices
+        .bus_c_out_l      (fake_c_l),           //>> cpu is passing function to memory and devices
+        .bus_d_out_l      (fake_d_l),           //>> cpu is passing write data to memory and devices, or passing read data from cpu internal register
+        .bus_bbsy_out_l   (fake_bbsy_l),        //>> cpu is busy using the bus as a master
+        .bus_hltrq_out_l  (fake_hltrq_l),       //>> cpu is jamming itself in halt (HALT instruction)
+        .bus_init_out_l   (fake_init_l),        //>> cpu is resetting the bus (RESET instruction)
+        .bus_msyn_out_l   (fake_msyn_l),        //>> cpu is accessing memory or device register
+        .bus_ssyn_out_l   (fake_ssyn_l),        //>> cpu has completed a cpu internal register read or write
+
+        .bus_bg_out_h     (fake_bg_h),          //>> cpu is granting an interrupt request
+        .bus_npg_out_h    (fake_npg_h),         //>> cpu is granting a dma request
+        .bus_hltgr_out_h  (fake_hltgr_h)        //>> cpu is granting an halt request
+    );
+
+    // zynq board with block memory
+    m9312 rominst (
+        .CLOCK      (CLOCK),
+        .a_in_h     (~ bus_a_l),
+        .msyn_in_h  (~ bus_msyn_l),
+        .d_out_h    (rom_d_h),
+        .ssyn_out_h (rom_ssyn_h)
+    );
 
     // zynq board with block memory
     wire[16:00] extmemaddr;
@@ -210,55 +259,21 @@ module MyBoard (
         end
     end
 
-    // fillin for the real pdp
-    sim1134 realinst (
-        .CLOCK (CLOCK),
-        .RESET (~ RESET_N),
-
-        .bus_ac_lo_in_l   (bus_ac_lo_l),        //<< power supply telling cpu it is shutting down
-        .bus_bbsy_in_l    (bus_bbsy_l),         //<< some device telling cpu it is using the bus as master
-        .bus_br_in_l      (bus_br_l),           //<< some device is requesting an interrupt
-        .bus_dc_lo_in_l   (bus_dc_lo_l),        //<< power supply telling cpu it is off
-        .bus_intr_in_l    (bus_intr_l),         //<< some device telling cpu it is passing interrupt vector
-        .bus_npr_in_l     (bus_npr_l),          //<< some device requesting dma cycle
-        .bus_sack_in_l    (bus_sack_l),         //<< some device acknowledging bg/npg/hltgr signal
-        .halt_rqst_in_l   (bus_hltrq_l),        //<< some device is requesting cpu to halt
-
-        .bus_a_in_l       (bus_a_l),            //<< some device passing address of cpu internal register to cpu
-        .bus_c_in_l       (bus_c_l),            //<< some device passing function for cpu internal register to cpu
-        .bus_d_in_l       (bus_d_l),            //<< some device passing data to be written to cpu internal register
-        .bus_init_in_l    (bus_init_l),         //<< bus is being initialized
-        .bus_msyn_in_l    (bus_msyn_l),         //<< some device is accessing a cpu internal register
-        .bus_ssyn_in_l    (bus_ssyn_l),         //<< some device has completed a device register read or write
-
-        .bus_a_out_l      (fake_a_l),           //>> cpu is passing address to memory and devices
-        .bus_c_out_l      (fake_c_l),           //>> cpu is passing function to memory and devices
-        .bus_d_out_l      (fake_d_l),           //>> cpu is passing write data to memory and devices, or passing read data from cpu internal register
-        .bus_bbsy_out_l   (fake_bbsy_l),        //>> cpu is busy using the bus as a master
-        .bus_init_out_l   (fake_init_l),        //>> cpu is resetting the bus (RESET instruction)
-        .bus_msyn_out_l   (fake_msyn_l),        //>> cpu is accessing memory or device register
-        .bus_ssyn_out_l   (fake_ssyn_l),        //>> cpu has completed a cpu internal register read or write
-
-        .bus_bg_out_h     (fake_bg_h),          //>> cpu is granting an interrupt request
-        .bus_npg_out_h    (fake_npg_h),         //>> cpu is granting a dma request
-        .halt_grant_out_h (fake_hltgr_h)        //>> cpu is granting an halt request
-    );
-
     // plug the zynq and real pdp boards into the unibus by wire-anding the active-low outputs
-    assign bus_a_l     = fake_a_l    & ~ zynq_a_h;
-    assign bus_ac_lo_l =               ~ zynq_ac_lo_h;
-    assign bus_bbsy_l  = fake_bbsy_l & ~ zynq_bbsy_h;
-    assign bus_br_l    =               ~ zynq_br_h;
-    assign bus_c_l     = fake_c_l    & ~ zynq_c_h;
-    assign bus_d_l     = fake_d_l    & ~ zynq_d_h;
-    assign bus_dc_lo_l =               ~ zynq_dc_lo_h;
-    assign bus_hltrq_l =               ~ zynq_hltrq_h;
-    assign bus_init_l  = fake_init_l & ~ zynq_init_h;
-    assign bus_intr_l  =               ~ zynq_intr_h;
-    assign bus_msyn_l  = fake_msyn_l & ~ zynq_msyn_h;
-    assign bus_npr_l   =               ~ zynq_npr_h;
-    assign bus_pa_l    =               ~ zynq_pa_h;
-    assign bus_pb_l    =               ~ zynq_pb_h;
-    assign bus_sack_l  =               ~ zynq_sack_h;
-    assign bus_ssyn_l  = fake_ssyn_l & ~ zynq_ssyn_h;
+    assign bus_a_l     = fake_a_l     &                ~ zynq_a_h;
+    assign bus_ac_lo_l =                               ~ zynq_ac_lo_h;
+    assign bus_bbsy_l  = fake_bbsy_l  &                ~ zynq_bbsy_h;
+    assign bus_br_l    =                               ~ zynq_br_h;
+    assign bus_c_l     = fake_c_l     &                ~ zynq_c_h;
+    assign bus_d_l     = fake_d_l     & ~ rom_d_h    & ~ zynq_d_h;
+    assign bus_dc_lo_l =                               ~ zynq_dc_lo_h;
+    assign bus_hltrq_l = fake_hltrq_l &                ~ zynq_hltrq_h;
+    assign bus_init_l  = fake_init_l  &                ~ zynq_init_h;
+    assign bus_intr_l  =                               ~ zynq_intr_h;
+    assign bus_msyn_l  = fake_msyn_l  &                ~ zynq_msyn_h;
+    assign bus_npr_l   =                               ~ zynq_npr_h;
+    assign bus_pa_l    =                               ~ zynq_pa_h;
+    assign bus_pb_l    =                               ~ zynq_pb_h;
+    assign bus_sack_l  =                               ~ zynq_sack_h;
+    assign bus_ssyn_l  = fake_ssyn_l  & ~ rom_ssyn_h & ~ zynq_ssyn_h;
 endmodule

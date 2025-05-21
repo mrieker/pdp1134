@@ -33,7 +33,7 @@
 #include "z11defs.h"
 #include "z11util.h"
 
-#define AFTER 4000  // number of samples to take after sample containing trigger
+#define AFTER 96  // number of samples to take after sample containing trigger
 
 static bool volatile ctrlcflag;
 

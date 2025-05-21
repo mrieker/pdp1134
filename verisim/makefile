@@ -3,6 +3,7 @@ MACH   := $(shell uname -m)
 
 VFILES := \
 	myboard.v \
+	m9312.v \
 	../zynq/bigmem.v \
 	../zynq/dl11.v \
 	../zynq/intctl.v \

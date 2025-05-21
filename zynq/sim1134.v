@@ -31,7 +31,7 @@ module sim1134 (
     input bus_intr_in_l,
     input bus_npr_in_l,
     input bus_sack_in_l,
-    input halt_rqst_in_l,
+    input bus_hltrq_in_l,
 
     input[17:00] bus_a_in_l,
     input[1:0] bus_c_in_l,
@@ -44,13 +44,14 @@ module sim1134 (
     output reg[1:0] bus_c_out_l,
     output[15:00] bus_d_out_l,
     output reg bus_bbsy_out_l,
+    output reg bus_hltrq_out_l,
     output reg bus_init_out_l,
     output reg bus_msyn_out_l,
     output reg bus_ssyn_out_l,
 
     output reg[7:4] bus_bg_out_h,
     output reg bus_npg_out_h,
-    output reg halt_grant_out_h
+    output reg bus_hltgr_out_h
 );
 
     reg[5:0] state;
@@ -93,7 +94,7 @@ module sim1134 (
     localparam[5:0] S_EXMTPI    = 36;
     localparam[5:0] S_EXMTPI2   = 37;
     localparam[5:0] S_EXMTPI3   = 38;
-    localparam[5:0] S_ENDINST   = 39;
+    localparam[5:0] S_SERVICE   = 39;
     localparam[5:0] S_NPG       = 40;
     localparam[5:0] S_INTR      = 41;
     localparam[5:0] S_INTR2     = 42;
@@ -276,18 +277,21 @@ module sim1134 (
         brtrue = brtemp ^ instreg[08];
     end
 
+    wire resetting = RESET | ~ bus_ac_lo_in_l & ~ bus_dc_lo_in_l;
+
     // processor main loop
     always @(posedge CLOCK) begin
-        if (RESET | (~ bus_ac_lo_in_l & ~ bus_dc_lo_in_l)) begin
-            bus_a_out_l      <= 18'o777777;
-            bus_c_out_l      <= 3;
-            bus_msyn_out_l   <= 1;
-            bus_ssyn_out_l   <= 1;
-            bus_bg_out_h     <= 0;
-            bus_bbsy_out_l   <= 1;
-            bus_init_out_l   <= 0;
-            bus_npg_out_h    <= 0;
-            halt_grant_out_h <= 0;
+        if (resetting) begin
+            bus_a_out_l     <= 18'o777777;
+            bus_c_out_l     <= 3;
+            bus_msyn_out_l  <= 1;
+            bus_ssyn_out_l  <= 1;
+            bus_bg_out_h    <= 0;
+            bus_bbsy_out_l  <= 1;
+            bus_init_out_l  <= 0;
+            bus_npg_out_h   <= 0;
+            bus_hltrq_out_l <= 1;
+            bus_hltgr_out_h <= 0;
 
             cer_d_out_l <= 16'o177777;
             cpu_d_out_l <= 16'o177777;
@@ -307,7 +311,7 @@ module sim1134 (
             psw         <= 16'o340;     // start in kernel mode with ints disabled
             resdelay    <= 0;           // not doing RESET instruction
             rwstate     <= 0;           // not accessing memory
-            state       <= S_ENDINST;   // start out doing power-up trap after releasing bus_init_out_l
+            state       <= S_SERVICE;   // start out doing power-up trap after releasing bus_init_out_l
             traceck     <= 1;           // check T-bit
             trapping    <= 0;           // not currently doing a trap
             trapvec     <= T_PWRFAIL;   // start out doing power-up trap
@@ -333,7 +337,7 @@ module sim1134 (
         //   memfunc   = cleared to 0 when cycle complete
         //   readdata  = read data for read cycles
         //  other:
-        //   jams state = S_ENDINST with trapvec set if error
+        //   jams state = S_SERVICE with trapvec set if error
         else if (memfunc != 0) begin
             if (trapvec != 0) begin
                 memfunc <= 0;
@@ -346,7 +350,7 @@ module sim1134 (
                     // check for accessing word at an odd address
                     if (~ membyte & virtaddr[00]) begin
                         cpuerr[06] <= 1;
-                        state      <= S_ENDINST;
+                        state      <= S_SERVICE;
                         trapvec    <= T_CPUERR;
                     end
 
@@ -375,7 +379,7 @@ module sim1134 (
                             mmr0[06:05] <= memmode;
                             mmr0[03:01] <= virtaddr[15:13];
                         end
-                        state       <= S_ENDINST;
+                        state       <= S_SERVICE;
                         trapvec     <= T_MMUTRAP;
                     end
 
@@ -386,7 +390,7 @@ module sim1134 (
                             mmr0[06:05] <= memmode;
                             mmr0[03:01] <= virtaddr[15:13];
                         end
-                        state       <= S_ENDINST;
+                        state       <= S_SERVICE;
                         trapvec     <= T_MMUTRAP;
                     end
 
@@ -397,7 +401,7 @@ module sim1134 (
                             mmr0[06:05] <= memmode;
                             mmr0[03:01] <= virtaddr[15:13];
                         end
-                        state       <= S_ENDINST;
+                        state       <= S_SERVICE;
                         trapvec     <= T_MMUTRAP;
                     end
 
@@ -452,7 +456,7 @@ module sim1134 (
                         cpu_d_out_l    <= 16'o177777;
                         bus_msyn_out_l <= 1;
                         cpuerr[04]     <= 1;
-                        state          <= S_ENDINST;
+                        state          <= S_SERVICE;
                         trapvec        <= T_CPUERR;
                     end else begin
                         rwdelay        <= rwdelay + 1;
@@ -599,26 +603,27 @@ module sim1134 (
         else begin
             case (state)
 
-                // assert halt_grant_out_h to let front panel know we are halted
-                // wait for halt_rqst_in_l asserted if not already
+                // assert bus_hltgr_out_h to let front panel know we are halted
+                // wait for bus_hltrq_in_l asserted if not already
                 // ...so we know front panel knows we are halted
                 S_HALT: begin
                     halted <= 1;
-                    halt_grant_out_h <= 1;
-                    if (~ halt_rqst_in_l) begin
+                    bus_hltgr_out_h <= 1;
+                    if (~ bus_hltrq_in_l) begin
                         state <= S_HALT2;
                     end
                 end
 
-                // wait for front panel to negate halt_rqst_in_l
+                // wait for front panel to negate bus_hltrq_in_l
+                // if being jammed by our own bus_hltrq_out_l, only resetting will recover
                 S_HALT2: begin
                     if (~ bus_sack_in_l) begin
-                        halt_grant_out_h <= 0;
-                    end else if (halt_rqst_in_l) begin
-                        halt_grant_out_h <= 0;
+                        bus_hltgr_out_h <= 0;
+                    end else if (bus_hltrq_in_l) begin
+                        bus_hltgr_out_h <= 0;
                         haltck <= 0;
                         halted <= 0;
-                        state  <= S_ENDINST;
+                        state  <= S_SERVICE;
                     end
                 end
 
@@ -670,25 +675,26 @@ module sim1134 (
 
                     // illegal opcode
                     else begin
-                        state   <= S_ENDINST;
+                        state   <= S_SERVICE;
                         trapvec <= T_ILLINST;
                     end
                 end
 
                 S_EXHALT: begin
                     if (psw[15:14] == 0) begin
+                        bus_hltrq_out_l <= 0;
                         state      <= S_HALT;
                     end else begin
                         cpuerr[07] <= 1;
-                        state      <= S_ENDINST;
+                        state      <= S_SERVICE;
                         trapvec    <= T_CPUERR;
                     end
                 end
 
                 // wait for interrupt
                 S_EXWAIT: begin
-                    if (psw[4] | ~ halt_rqst_in_l | intrqst) begin
-                        state <= S_ENDINST;
+                    if (psw[4] | ~ bus_hltrq_in_l | intrqst) begin
+                        state <= S_SERVICE;
                     end
                 end
 
@@ -699,7 +705,7 @@ module sim1134 (
                         resdelay       <= resdelay + 1;
                     end else begin
                         resdelay       <= 0;
-                        state          <= S_ENDINST;
+                        state          <= S_SERVICE;
                     end
                 end
 
@@ -716,7 +722,7 @@ module sim1134 (
 
                 S_EXMARK2: begin
                     gprs[5]       <= readdata;
-                    state         <= S_ENDINST;
+                    state         <= S_SERVICE;
                 end
 
                 // set or clear condition code(s)
@@ -725,20 +731,20 @@ module sim1134 (
                     if (instreg[01]) psw[01] <= instreg[04];
                     if (instreg[02]) psw[02] <= instreg[04];
                     if (instreg[03]) psw[03] <= instreg[04];
-                    state <= S_ENDINST;
+                    state <= S_SERVICE;
                 end
 
                 // if branch condition is true, add displacement to PC
                 S_BRANCH: begin
                     if (brtrue) gprs[7] <= gprs[7] + { { 8 { instreg[07] } }, instreg[06:00], 1'b0 };
-                    state <= S_ENDINST;
+                    state <= S_SERVICE;
                 end
 
                 // subtract one and branch if non-zero
                 S_EXSOB: begin
                     gprs[srcgprx] <= gprs[srcgprx] - 1;
                     if (gprs[srcgprx] != 1) gprs[7] <= gprs[7] - { 9'b0, instreg[05:00], 1'b0 };
-                    state <= S_ENDINST;
+                    state <= S_SERVICE;
                 end
 
                 // start getting source operand
@@ -784,7 +790,7 @@ module sim1134 (
                 S_WAITDST: begin
                     if (iJMP) begin
                         gprs[7]   <= virtaddr;              // put dst address in PC
-                        state     <= S_ENDINST;             // end of instruction
+                        state     <= S_SERVICE;             // end of instruction
                     end
                     else if (iJSR) begin
                         gprs[cspgprx] <= gprs[cspgprx] - 2; // decrement current stack pointer
@@ -897,7 +903,7 @@ module sim1134 (
                                    else psw[01]    <= { 1'b0 };
                     end
 
-                    state <= S_ENDINST;
+                    state <= S_SERVICE;
                 end
 
                 // wait for old register contents pushed on stack
@@ -907,7 +913,7 @@ module sim1134 (
                         gprs[srcgprx] <= gprs[7];
                     end
                     gprs[7] <= readdata;
-                    state   <= S_ENDINST;
+                    state   <= S_SERVICE;
                 end
 
                 S_EXECRTS: begin
@@ -954,13 +960,13 @@ module sim1134 (
                         psw[07:05] <= readdata[07:05];
                     end
                     psw[04:00] <= readdata[04:00];
-                    state      <= S_ENDINST;
+                    state      <= S_SERVICE;
                     traceck    <= ~ instreg[2];     // RTI=2; RTT=6
                 end
 
                 // one of the trap instructions
                 S_EXTRAP: begin
-                    state   <= S_ENDINST;
+                    state   <= S_SERVICE;
                     trapvec <= instrapvec;
                 end
 
@@ -992,7 +998,7 @@ module sim1134 (
                     psw[0] <= psw[0] | (product > 32'h00007FFF) & (product < 32'hFFFF8000);
                     if (~ instreg[06]) gprs[srcgprx] <= product[31:16];
                     gprs[srcgprx1] <= product[15:00];
-                    state  <= S_ENDINST;
+                    state  <= S_SERVICE;
                 end
 
                 // DIV
@@ -1016,7 +1022,7 @@ module sim1134 (
                     if (product[31:15] >= { 1'b0, dstval }) begin
                         psw[00] <= (dstval == 0);
                         psw[01] <= 1;
-                        state   <= S_ENDINST;
+                        state   <= S_SERVICE;
                     end else begin
                         counter <= 15;
                         state   <= S_EXDIV5;
@@ -1040,7 +1046,7 @@ module sim1134 (
                     psw[2] <= product[15:00] == 0;
                     gprs[srcgprx] <= signbit ? - product[15:00] : product[15:00];
                     gprs[srcgprx1] <= srcval[15] ? - product[31:16] : product[31:16];
-                    state  <= S_ENDINST;
+                    state  <= S_SERVICE;
                 end
 
                 // ASH
@@ -1068,7 +1074,7 @@ module sim1134 (
                     gprs[srcgprx]  <= product[31:16];
                     psw[2]         <= product[31:16] == 0;
                     psw[3]         <= product[31];
-                    state          <= S_ENDINST;
+                    state          <= S_SERVICE;
                 end
 
                 // ASHC
@@ -1098,7 +1104,7 @@ module sim1134 (
                     gprs[srcgprx1] <= product[15:00];
                     psw[2]         <= product == 0;
                     psw[3]         <= product[31];
-                    state          <= S_ENDINST;
+                    state          <= S_SERVICE;
                 end
 
                 // move from previous address space
@@ -1124,7 +1130,7 @@ module sim1134 (
                     yellowck      <= 1;
                 end
                 S_EXMFPI3: begin
-                    state         <= S_ENDINST;
+                    state         <= S_SERVICE;
                 end
 
                 // move from current stack to previous address space
@@ -1141,7 +1147,7 @@ module sim1134 (
                 S_EXMTPI2: begin
                     if (instreg[05:03] == 0) begin
                         gprs[gprx(psw[13:12],instreg[02:00])] <= readdata;
-                        state     <= S_ENDINST;
+                        state     <= S_SERVICE;
                     end else begin
                         membyte   <= 0;
                         memfunc   <= MF_WR;
@@ -1152,11 +1158,11 @@ module sim1134 (
                     end
                 end
                 S_EXMTPI3: begin
-                    state         <= S_ENDINST;
+                    state         <= S_SERVICE;
                 end
 
                 // end of instruction, figure out what to do next
-                S_ENDINST: begin
+                S_SERVICE: begin
                     bus_init_out_l <= 1;    // in case we got here from powering up or RESET instruction
 
                     // do traps caused by instruction before checking halt switch
@@ -1177,7 +1183,7 @@ module sim1134 (
 
                     // check halt switch
                     // suppressed first cycle after continuing from halt for single stepping
-                    else if (haltck & ~ halt_rqst_in_l) begin
+                    else if (haltck & ~ bus_hltrq_in_l) begin
                         state <= S_HALT;
                     end
 
@@ -1221,7 +1227,7 @@ module sim1134 (
                 S_NPG: begin
                     bus_npg_out_h <= ~ bus_npr_in_l;
                     if (bus_bbsy_in_l & bus_npr_in_l & bus_sack_in_l) begin
-                        state <= S_ENDINST;
+                        state <= S_SERVICE;
                     end
                 end
 
@@ -1253,7 +1259,7 @@ module sim1134 (
                     if (bus_intr_in_l) begin
                         bus_ssyn_out_l <= 1;
                         if (bus_bbsy_in_l) begin
-                            state <= S_ENDINST;
+                            state <= S_SERVICE;
                         end
                     end
                 end
@@ -1324,7 +1330,7 @@ module sim1134 (
                     psw[15:14] <= dstval[15:14];
                     psw[13:12] <= dstval[15:14] | psw[15:14];
                     psw[11:00] <= dstval[11:00] & 12'o0377;
-                    state      <= S_ENDINST;
+                    state      <= S_SERVICE;
                     trapping   <= 0;
                 end
 
@@ -1340,116 +1346,119 @@ module sim1134 (
         //  SLAVE REGISTERS  //
         ///////////////////////
 
-        // kernel descriptor registers 772300..16  111 111 010 011 00_ __0
-        // kernel address registers    772340..56  111 111 010 011 10_ __0
-        // user descriptor registers   777600..16  111 111 111 110 00_ __0
-        // user address registers      777640..56  111 111 111 110 10_ __0
-        if (((~ bus_a_in_l & 18'o777720) == 18'o772300) | ((~ bus_a_in_l & 18'o777720) == 18'o777600)) begin
-            if (bus_msyn_in_l) begin
-                mmv_d_out_l    <= 16'o177777;
-                bus_ssyn_out_l <= 1;
-            end else begin
-                if (bus_c_in_l[1]) begin
-                    // read register contents
-                    if (bus_a_in_l[05]) begin
-                        mmv_d_out_l <= ~ mmupdrs[mmuprbi] | ~ 16'o077516;
+        if (~ resetting) begin
+
+            // kernel descriptor registers 772300..16  111 111 010 011 00_ __0
+            // kernel address registers    772340..56  111 111 010 011 10_ __0
+            // user descriptor registers   777600..16  111 111 111 110 00_ __0
+            // user address registers      777640..56  111 111 111 110 10_ __0
+            if (((~ bus_a_in_l & 18'o777720) == 18'o772300) | ((~ bus_a_in_l & 18'o777720) == 18'o777600)) begin
+                if (bus_msyn_in_l) begin
+                    mmv_d_out_l    <= 16'o177777;
+                    bus_ssyn_out_l <= 1;
+                end else if (bus_ssyn_out_l) begin
+                    if (bus_c_in_l[1]) begin
+                        // read register contents
+                        if (bus_a_in_l[05]) begin
+                            mmv_d_out_l <= ~ mmupdrs[mmuprbi] | ~ 16'o077516;
+                        end else begin
+                            mmv_d_out_l <= ~ mmupars[mmuprbi] | ~ 16'o007777;
+                        end
                     end else begin
-                        mmv_d_out_l <= ~ mmupars[mmuprbi] | ~ 16'o007777;
-                    end
-                end else begin
-                    // write register contents
-                    mmupdrs[mmuprbi][06]            <= 0;   // always clear W bit
-                    if (bus_c_in_l[0] | ~ bus_a_in_l[00]) begin
-                        if (bus_a_in_l[05]) begin
-                            mmupdrs[mmuprbi][14:08] <= ~ bus_d_in_l[14:08];
-                        end else begin
-                            mmupars[mmuprbi][11:08] <= ~ bus_d_in_l[11:08];
+                        // write register contents
+                        mmupdrs[mmuprbi][06]            <= 0;   // always clear W bit
+                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) begin
+                            if (bus_a_in_l[05]) begin
+                                mmupdrs[mmuprbi][14:08] <= ~ bus_d_in_l[14:08];
+                            end else begin
+                                mmupars[mmuprbi][11:08] <= ~ bus_d_in_l[11:08];
+                            end
+                        end
+                        if (bus_c_in_l[0] |   bus_a_in_l[00]) begin
+                            if (bus_a_in_l[05]) begin
+                                mmupdrs[mmuprbi][03:01] <= ~ bus_d_in_l[03:01];
+                            end else begin
+                                mmupars[mmuprbi][07:00] <= ~ bus_d_in_l[07:00];
+                            end
                         end
                     end
-                    if (bus_c_in_l[0] |   bus_a_in_l[00]) begin
-                        if (bus_a_in_l[05]) begin
-                            mmupdrs[mmuprbi][03:01] <= ~ bus_d_in_l[03:01];
-                        end else begin
-                            mmupars[mmuprbi][07:00] <= ~ bus_d_in_l[07:00];
-                        end
+                    bus_ssyn_out_l <= 0;
+                end
+            end
+
+            // mmr0..mmr2 register access via 777572..777576
+            if ((~ bus_a_in_l & 18'o777772) == 18'o777572) begin
+                if (bus_msyn_in_l) begin
+                    mmr_d_out_l    <= 16'o177777;
+                    bus_ssyn_out_l <= 1;
+                end else if (bus_ssyn_out_l) begin
+                    if (bus_c_in_l[1]) begin
+                        case (bus_a_in_l[02])
+                            1: mmr_d_out_l <= ~ mmr0;
+                            0: mmr_d_out_l <= ~ mmr2;
+                        endcase
+                    end else begin
+                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) case (bus_a_in_l[02])
+                            1: mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
+                            0: mmr2[15:08] <= ~ bus_d_in_l[15:08];
+                        endcase
+                        if (bus_c_in_l[0] |   bus_a_in_l[00]) case (bus_a_in_l[02])
+                            1: mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
+                            0: mmr2[07:00] <= ~ bus_d_in_l[07:00];
+                        endcase
                     end
+                    bus_ssyn_out_l <= 0;
                 end
-                bus_ssyn_out_l <= 0;
             end
-        end
 
-        // mmr0..mmr2 register access via 777572..777576
-        if ((~ bus_a_in_l & 18'o777772) == 18'o777572) begin
-            if (bus_msyn_in_l) begin
-                mmr_d_out_l    <= 16'o177777;
-                bus_ssyn_out_l <= 1;
-            end else begin
-                if (bus_c_in_l[1]) begin
-                    case (bus_a_in_l[02])
-                        1: mmr_d_out_l <= ~ mmr0;
-                        0: mmr_d_out_l <= ~ mmr2;
-                    endcase
-                end else begin
-                    if (bus_c_in_l[0] | ~ bus_a_in_l[00]) case (bus_a_in_l[02])
-                        1: mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
-                        0: mmr2[15:08] <= ~ bus_d_in_l[15:08];
-                    endcase
-                    if (bus_c_in_l[0] |   bus_a_in_l[00]) case (bus_a_in_l[02])
-                        1: mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
-                        0: mmr2[07:00] <= ~ bus_d_in_l[07:00];
-                    endcase
+            // register access via 7777rr
+            if (halted & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
+                if (bus_msyn_in_l) begin
+                    gpr_d_out_l    <= 16'o177777;
+                    bus_ssyn_out_l <= 1;
+                end else if (bus_ssyn_out_l) begin
+                    if (bus_c_in_l[1]) begin
+                        gpr_d_out_l <= ~ gprs[~bus_a_in_l[3:0]];
+                    end else begin
+                        gprs[~bus_a_in_l[3:0]] <= ~ bus_d_in_l;
+                    end
+                    bus_ssyn_out_l <= 0;
                 end
-                bus_ssyn_out_l <= 0;
             end
-        end
 
-        // register access via 7777rr
-        if (halted & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
-            if (bus_msyn_in_l) begin
-                gpr_d_out_l    <= 16'o177777;
-                bus_ssyn_out_l <= 1;
-            end else begin
-                if (bus_c_in_l[1]) begin
-                    gpr_d_out_l <= ~ gprs[~bus_a_in_l[3:0]];
-                end else begin
-                    gprs[~bus_a_in_l[3:0]] <= ~ bus_d_in_l;
+            // cpu error register access via 777766
+            //  [07] = illegal halt
+            //  [06] = odd address
+            //  [04] = unibus timeout
+            //  [03] = yellow stack
+            if ((bus_a_in_l >> 1) == (~ 18'o777766 >> 1)) begin
+                if (bus_msyn_in_l) begin
+                    cer_d_out_l    <= 16'o177777;
+                    bus_ssyn_out_l <= 1;
+                end else if (bus_ssyn_out_l) begin
+                    if (bus_c_in_l[1]) begin
+                        cer_d_out_l <= ~ cpuerr;
+                    end else begin
+                        if (bus_c_in_l[0] | bus_a_in_l[00]) cpuerr[07:00] <= ~ bus_d_in_l[07:00] & 8'o330;
+                    end
+                    bus_ssyn_out_l <= 0;
                 end
-                bus_ssyn_out_l <= 0;
             end
-        end
 
-        // cpu error register access via 777766
-        //  [07] = illegal halt
-        //  [06] = odd address
-        //  [04] = unibus timeout
-        //  [03] = yellow stack
-        if ((bus_a_in_l >> 1) == (~ 18'o777766 >> 1)) begin
-            if (bus_msyn_in_l) begin
-                cer_d_out_l    <= 16'o177777;
-                bus_ssyn_out_l <= 1;
-            end else begin
-                if (bus_c_in_l[1]) begin
-                    cer_d_out_l <= ~ cpuerr;
-                end else begin
-                    if (bus_c_in_l[0] | bus_a_in_l[00]) cpuerr[07:00] <= ~ bus_d_in_l[07:00] & 8'o330;
+            // processor status word access via 777776
+            if ((bus_a_in_l >> 1) == (~ 18'o777776 >> 1)) begin
+                if (bus_msyn_in_l) begin
+                    psw_d_out_l    <= 16'o177777;
+                    bus_ssyn_out_l <= 1;
+                end else if (bus_ssyn_out_l) begin
+                    if (bus_c_in_l[1]) begin
+                        psw_d_out_l <= ~ psw;
+                    end else begin
+                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) psw[15:08] <= ~ bus_d_in_l[15:08];
+                        if (bus_c_in_l[0] |   bus_a_in_l[00]) psw[07:00] <= ~ bus_d_in_l[07:00];
+                    end
+                    bus_ssyn_out_l <= 0;
                 end
-                bus_ssyn_out_l <= 0;
-            end
-        end
-
-        // processor status word access via 777776
-        if ((bus_a_in_l >> 1) == (~ 18'o777776 >> 1)) begin
-            if (bus_msyn_in_l) begin
-                psw_d_out_l    <= 16'o177777;
-                bus_ssyn_out_l <= 1;
-            end else begin
-                if (bus_c_in_l[1]) begin
-                    psw_d_out_l <= ~ psw;
-                end else begin
-                    if (bus_c_in_l[0] | ~ bus_a_in_l[00]) psw[15:08] <= ~ bus_d_in_l[15:08];
-                    if (bus_c_in_l[0] |   bus_a_in_l[00]) psw[07:00] <= ~ bus_d_in_l[07:00];
-                end
-                bus_ssyn_out_l <= 0;
             end
         end
     end
