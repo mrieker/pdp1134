@@ -112,7 +112,7 @@ int main (int argc, char **argv)
 
     Z11Page z11p;
     dlat = z11p.findev ("DL", finddl, &port, true, killit);
-    dlat[3] = DL3_ENAB;        // enable board to process io instructions
+    ZWR(dlat[3], DL3_ENAB);     // enable board to process io instructions
 
     bool stdintty, stdoutty;
     uint64_t nowus;
@@ -156,8 +156,11 @@ int main (int argc, char **argv)
 
         // maybe see if PDP has a character to print
         if (nowus >= readnextprat) {
-            uint32_t xreg = dlat[2];
+            uint32_t xreg = ZRD(dlat[2]);
             if (! (xreg & DL2_XRDY)) {
+
+                // tell PDP it can print another char
+                ZWR(dlat[2], xreg | DL2_XRDY);
 
                 // print character to stdout
                 uint8_t prchar = (xreg & DL2_XBUF) / DL2_XBUF0;
@@ -168,9 +171,6 @@ int main (int argc, char **argv)
                     int rc = write (STDOUT_FILENO, &prchar, 1);
                     if (rc <= 0) ABORT ();
                 }
-
-                // tell PDP it can print another char
-                dlat[2] |= DL2_XRDY;
 
                 // check for another char to print after 1000000/cps usec
                 readnextprat = nowus + 1000000 / cps;
@@ -192,7 +192,7 @@ int main (int argc, char **argv)
                 if (rc <= 0) ABORT ();
                 if ((kbchar == '\\' - '@') && stdintty) break;
                 if (upcase && (kbchar >= 'a') && (kbchar <= 'z')) kbchar -= 'a' - 'A';
-                dlat[1] = (dlat[1] & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar;
+                ZWR(dlat[1], (ZRD(dlat[1]) & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar);
                 readnextkbat = nowus + 1000000 / cps;
             }
         }
@@ -213,7 +213,7 @@ static bool finddl (void *param, uint32_t volatile *dlat)
         fprintf (stderr, "finddl: cannot find DL port %02o\n", port);
         ABORT ();
     }
-    return (dlat[3] & DL3_PORT) / DL3_PORT0 == (uint32_t) port;
+    return (ZRD(dlat[3]) & DL3_PORT) / DL3_PORT0 == (uint32_t) port;
 }
 
 static void sigrunhand (int signum)

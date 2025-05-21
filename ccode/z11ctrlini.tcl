@@ -31,7 +31,7 @@ proc bmrdbyte {addr} {
     }
     pin set bm_armaddr $addr bm_armfunc 4
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             error "bmrdbyte: stuck at $x"
         }
     }
@@ -49,7 +49,7 @@ proc bmrdword {addr} {
     }
     pin set bm_armaddr $addr bm_armfunc 4
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             error "bmrdword: stuck at $x"
         }
     }
@@ -66,7 +66,7 @@ proc bmwrbyte {addr data} {
     }
     pin set bm_armaddr $addr bm_armdata [expr {$data*0401}] bm_armfunc 1
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             error "bmwrbyte: stuck at $x"
         }
     }
@@ -85,7 +85,7 @@ proc bmwrword {addr data} {
     }
     pin set bm_armaddr $addr bm_armdata $data bm_armfunc 3
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             error "bmwrword: stuck at $x"
         }
     }
@@ -95,7 +95,6 @@ proc bmwrword {addr data} {
 proc dumpmem {loaddr hiaddr {rwfunc rdword}} {
     set loeven [expr {$loaddr & -2}]
     for {set addr [expr {$loaddr & -040}]} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 040} {
-        puts -nonewline " "
         for {set j 15} {$j >= 0} {incr j -1} {
             set a [expr {$addr + $j * 2}]
             if {($a >= $loeven) && ($a <= $hiaddr)} {
@@ -107,11 +106,31 @@ proc dumpmem {loaddr hiaddr {rwfunc rdword}} {
                 } else {
                     puts -nonewline [format " %06o" $data]
                 }
+                set bytes([expr {$j*2}]) [expr {$data & 255}]
+                set bytes([expr {$j*2+1}]) [expr {$data >> 8}]
             } else {
                 puts -nonewline "       "
             }
         }
-        puts [format " : %06o" $addr]
+        puts -nonewline [format " : %06o : " $addr]
+        for {set j 0} {$j <= 31} {incr j} {
+            set a [expr {$addr + $j}]
+            if {$a > $hiaddr} break
+            if {$a < $loaddr} {
+                puts -nonewline " "
+            } else {
+                if {($a == $loaddr) || ($j == 0)} {
+                    puts -nonewline "<"
+                }
+                set byte [expr {$bytes($j) & 127}]
+                if {($byte < 32) || ($byte > 126)} {
+                    puts -nonewline "."
+                } else {
+                    puts -nonewline [format "%c" $byte]
+                }
+            }
+        }
+        puts ">"
     }
 }
 
@@ -184,7 +203,7 @@ proc rdbyte {addr} {
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 0 sl_dmastate 1
     for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             unlkdma
             error "rdbyte: dmastate stuck at $dmastate"
         }
@@ -210,7 +229,7 @@ proc rdword {addr} {
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 0 sl_dmastate 1
     for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             unlkdma
             error "rdword: dmastate stuck at $dmastate"
         }
@@ -236,7 +255,7 @@ proc wrbyte {addr data} {
     lockdma
     pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 3 sl_dmadata $data sl_dmastate 1
     for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             unlkdma
             error "wrbyte: dmastate stuck at $dmastate"
         }
@@ -262,7 +281,7 @@ proc wrword {addr data} {
     lockdma
     pin set sl_dmaaddr $addr sl_dmactrl 2 sl_dmadata $data sl_dmastate 1
     for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
-        if {$i > 100} {
+        if {$i > 1000} {
             unlkdma
             error "wrword: dmastate stuck at $dmastate"
         }

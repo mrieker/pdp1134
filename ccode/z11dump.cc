@@ -142,13 +142,13 @@ int main (int argc, char **argv)
     }
     *lxmemrange = NULL;
 
-    Z11Page z8p;
-    uint32_t volatile *pdpat = z8p.findev ("11", NULL, NULL, false);
+    Z11Page z11p;
+    uint32_t volatile *pdpat = z11p.findev ("11", NULL, NULL, false);
 
     // maybe just dump the page and exit
     if (pagemode) {
         uint32_t words[1024];
-        for (int i = 0; i < 1024; i ++) words[i] = pdpat[i];
+        for (int i = 0; i < 1024; i ++) words[i] = ZRD(pdpat[i]);
         int k;
         for (k = 1024; words[--k] == 0xDEADBEEF;) { }
         for (int i = 0; i <= k; i += 8) {
@@ -174,7 +174,7 @@ int main (int argc, char **argv)
         uint32_t z11s[1024];
         if (xmemranges == NULL) {
             for (int i = 0; i < 1024; i ++) {
-                z11s[i] = pdpat[i];
+                z11s[i] = ZRD(pdpat[i]);
             }
         }
 

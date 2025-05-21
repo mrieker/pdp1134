@@ -18,104 +18,79 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-// Test pdp1134.v by sending random instruction stream and checking the bus cycles
+// Interface z11ctrl to verilated zynq code
+// Pretends to be the 4KB Zynq page by doing TCP connection to verimain daemon
+// Call verisim_read() and verisim_write() to access the Zynq-like register page
 
-#include <stdarg.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #define ABORT() do { fprintf (stderr, "ABORT %s %d\n", __FILE__, __LINE__); abort (); } while (0)
 
-#include "obj_dir/VZynq.h"
-
 #include "verisim.h"
 
-static uint32_t extmemarray[1<<17];
+static int confd;
+static pthread_mutex_t conmutex = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t volatile *pageptr;
-static VZynq *vzynq;
 
-static void kerchunk ();
-
+// equivalent of opening /proc/zynqpdp11
+// set up no-access page so any reference that isn;"t wrapped with ZRD() or ZWR() will abort
+// connect to verimain daemon
 uint32_t volatile *verisim_init ()
 {
+    sockaddr_in servaddr;
+    memset (&servaddr, 0, sizeof servaddr);
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons (VeriTCPPORT);
+    if (! inet_aton ("127.0.0.1", &servaddr.sin_addr)) ABORT ();
+
+    confd = socket (AF_INET, SOCK_STREAM, 0);
+    if (confd < 0) ABORT ();
+    if (connect (confd, (sockaddr *)&servaddr, sizeof servaddr) < 0) {
+        fprintf(stderr, "connect %s:%u error: %m\n",
+                inet_ntoa(servaddr.sin_addr), ntohs(servaddr.sin_port));
+        ABORT ();
+    }
+    static int const one = 1;
+    if (setsockopt (confd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one) < 0) ABORT ();
+
     void *ptr = mmap (NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (ptr == MAP_FAILED) ABORT ();
     pageptr = (uint32_t volatile *) ptr;
-
-    vzynq = new VZynq ();
-    vzynq->RESET_N = 0;
-    for (int i = 0; i < 10; i ++) {
-        kerchunk ();
-    }
-    vzynq->RESET_N = 1;
-    for (int i = 0; i < 10; i ++) {
-        kerchunk ();
-    }
-
     return pageptr;
 }
 
+// wrapper for all read accesses to fpga register page
 uint32_t verisim_read (uint32_t volatile *addr)
 {
-    uint32_t index = addr - pageptr;
-    if (index > 1023) ABORT ();
-
-    vzynq->saxi_ARADDR  = index * sizeof *addr;
-    vzynq->saxi_ARVALID = 1;
-    for (int i = 0; ! (vzynq->saxi_ARREADY & vzynq->saxi_ARVALID); i ++) {
-        if (i > 100) ABORT ();
-        kerchunk ();
-    }
-    kerchunk ();
-    vzynq->saxi_ARVALID = 0;
-    vzynq->saxi_RREADY  = 1;
-    for (int i = 0; ! (vzynq->saxi_RREADY & vzynq->saxi_RVALID); i ++) {
-        if (i > 100) ABORT ();
-        kerchunk ();
-    }
-    kerchunk ();
-    uint32_t data = vzynq->saxi_RDATA;
-    vzynq->saxi_RREADY = 0;
-    return data;
+    pthread_mutex_lock (&conmutex);
+    VeriTCPMsg tcpmsg;
+    memset (&tcpmsg, 0, sizeof tcpmsg);
+    tcpmsg.indx = addr - pageptr;
+    if (write (confd, &tcpmsg, sizeof tcpmsg) != (int) sizeof tcpmsg) ABORT ();
+    if (read (confd, &tcpmsg, sizeof tcpmsg) != (int) sizeof tcpmsg) ABORT ();
+    pthread_mutex_unlock (&conmutex);
+    return tcpmsg.data;
 }
 
+// wrapper for all write accesses to fpga register page
 void verisim_write (uint32_t volatile *addr, uint32_t data)
 {
-    uint32_t index = addr - pageptr;
-    if (index > 1023) ABORT ();
-
-    vzynq->saxi_AWADDR  = index * sizeof *addr;
-    vzynq->saxi_AWVALID = 1;
-    vzynq->saxi_WDATA   = data;
-    vzynq->saxi_WVALID  = 1;
-    vzynq->saxi_BREADY  = 1;
-
-    for (int i = 0; vzynq->saxi_AWVALID | vzynq->saxi_WVALID | vzynq->saxi_BREADY; i ++) {
-        if (i > 100) ABORT ();
-        bool awready = vzynq->saxi_AWREADY;
-        bool wready  = vzynq->saxi_WREADY;
-        bool bvalid  = vzynq->saxi_BVALID;
-        kerchunk ();
-        if (awready) vzynq->saxi_AWVALID = 0;
-        if (wready)  vzynq->saxi_WVALID  = 0;
-        if (bvalid)  vzynq->saxi_BREADY  = 0;
-    }
-}
-
-// call with clock still low and input signals just changed
-// returns with output signals updated and clock just set low
-static void kerchunk ()
-{
-    vzynq->eval ();     // let input signals soak in
-    vzynq->CLOCK = 1;   // clock the state
-    vzynq->eval ();     // let new state settle in
-    vzynq->CLOCK = 0;   // get ready for more input changes
-
-    if (vzynq->extmemenab) {
-        if (vzynq->extmemwena & 2) extmemarray[vzynq->extmemaddr] = (extmemarray[vzynq->extmemaddr] & 0x001FF) | (vzynq->extmemdout & 0x3FE00);
-        if (vzynq->extmemwena & 1) extmemarray[vzynq->extmemaddr] = (extmemarray[vzynq->extmemaddr] & 0x3FE00) | (vzynq->extmemdout & 0x001FF);
-        vzynq->extmemdin = extmemarray[vzynq->extmemaddr];
-    }
+    pthread_mutex_lock (&conmutex);
+    VeriTCPMsg tcpmsg;
+    memset (&tcpmsg, 0, sizeof tcpmsg);
+    tcpmsg.indx = addr - pageptr;
+    tcpmsg.data = data;
+    tcpmsg.write = true;
+    if (write (confd, &tcpmsg, sizeof tcpmsg) != (int) sizeof tcpmsg) ABORT ();
+    pthread_mutex_unlock (&conmutex);
 }

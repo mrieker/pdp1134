@@ -23,6 +23,14 @@
 
 #include <stdint.h>
 
+#define VeriTCPPORT 9876
+
+struct VeriTCPMsg {
+    uint32_t data;
+    uint16_t indx;
+    bool write;
+};
+
 uint32_t volatile *verisim_init ();
 uint32_t verisim_read (uint32_t volatile *addr);
 void verisim_write (uint32_t volatile *addr, uint32_t data);
