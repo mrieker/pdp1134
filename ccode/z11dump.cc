@@ -207,7 +207,7 @@ int main (int argc, char **argv)
             printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o%s",       FIELD(Z_RA,a_man_ssyn_out_h),   FIELD(Z_RC,c_ssyn_in_h),       FIELD(Z_RD,d_dev_ssyn_h),   eol);
             printf ("%s", eol);
             printf ("  man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], eol);
-            printf ("  ILA_ARMED=%o  ILA_AFTER=%04o  ILA_OFLOW=%o  ILA_INDEX=%04o%s", FIELD(ILACTL,CTL_ARMED), FIELD(ILACTL,CTL_AFTER), FIELD(ILACTL,CTL_OFLOW), FIELD(ILACTL,CTL_INDEX), eol);
+            printf ("  ILA_ARMED=%o  ILA_AFTER=%05o  ILA_OFLOW=%o  ILA_INDEX=%05o%s", FIELD(ILACTL,ILACTL_ARMED), FIELD(ILACTL,ILACTL_AFTER), FIELD(ILACTL,ILACTL_OFLOW), FIELD(ILACTL,ILACTL_INDEX), eol);
 
             for (int i = 0; i < 1024;) {
                 uint32_t idver = z11s[i];

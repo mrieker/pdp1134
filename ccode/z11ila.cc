@@ -73,7 +73,7 @@ int main (int argc, char **argv)
 
         // tell zynq.v to start collecting samples
         // tell it to stop when collected trigger sample plus AFTER thereafter
-        pdpat[ILACTL] = CTL_ARMED | AFTER * CTL_AFTER0;
+        pdpat[ILACTL] = ILACTL_ARMED | AFTER * ILACTL_AFTER0;
         printf ("armed\n");
 
         if (signal (SIGINT, siginthand) != SIG_DFL) ABORT ();
@@ -81,56 +81,134 @@ int main (int argc, char **argv)
         // wait for sampling to stop
         while (true) {
             ctl = pdpat[ILACTL];
-            if ((ctl & (CTL_ARMED | CTL_AFTER)) == 0) break;
+            if ((ctl & (ILACTL_ARMED | ILACTL_AFTER)) == 0) break;
             if (ctrlcflag) break;
             usleep (10000);
         }
     }
+
+    // stop collection if not already
     pdpat[ILACTL] = 0;
 
     // get limits of entries to print
-    uint32_t earliestentry = (ctl & CTL_INDEX) / CTL_INDEX0;
-    uint32_t numfilledentries = CTL_DEPTH;
-    if (! (ctl & CTL_OFLOW)) {
-        earliestentry = 0;
-        numfilledentries = (ctl & CTL_INDEX) / CTL_INDEX0;
-    }
-    uint32_t numaftertrigger = AFTER - (ctl & CTL_AFTER) / CTL_AFTER0;
+    uint32_t earliestentry = (ctl & ILACTL_OFLOW) ? (ctl & ILACTL_INDEX) / ILACTL_INDEX0 : 0;
+    uint32_t numfilledentries = (ctl & ILACTL_OFLOW) ? ILACTL_DEPTH : (ctl & ILACTL_INDEX) / ILACTL_INDEX0;
+    uint32_t numaftertrigger = AFTER - (ctl & ILACTL_AFTER) / ILACTL_AFTER0;
     printf ("ctl=%08X  earliestentry=%u  numfilledentries=%u  numaftertrigger=%u\n", ctl, earliestentry, numfilledentries, numaftertrigger);
 
+    bool dmxhltrq = false;
+    bool dmxnpr   = false;
+    uint32_t dmxa = 0;
+    uint32_t dmxc = 0;
+    uint32_t dmxd = 0;
+    uint32_t lastrsel = 0;
+    uint32_t lastmuxn = 0;
+
     // loop through entries in the array
-    uint32_t basetime = 0;
     for (uint32_t i = 0; i < numfilledentries; i ++) {
 
         // read next entry from array
-        uint32_t index = (earliestentry + i) & (CTL_DEPTH - 1);
-        pdpat[ILACTL] = index * CTL_INDEX0;
-        if (i == 0) basetime = pdpat[ILATIM];
-        uint32_t deltatime  = pdpat[ILATIM] - basetime;
-        uint64_t thisentry  = ((uint64_t) pdpat[ILADAT+1] << 32) | pdpat[ILADAT+0];
+        uint32_t index = (earliestentry + i) & (ILACTL_DEPTH - 1);
+        pdpat[ILACTL] = index * ILACTL_INDEX0;
+        uint64_t thisentry = ((uint64_t) pdpat[ILADAT+1] << 32) | pdpat[ILADAT+0];
+        uint32_t thisentex = pdpat[ILATIM];
 
-        printf ("[%04o] %2u.%08u0  %03o %06o %o %o %02o %02o %o %06o %o %o %o %o %o %o %o %o %o %o\n",
-            index, deltatime / 100000000, deltatime % 100000000,   // 10nS per tick
+        uint32_t thisrsel = (thisentry >> 47) & 3;
+        uint32_t thismuxn = (thisentry >> 49) & 077777;
+        if (thisrsel != lastrsel) switch (lastrsel) {
+            case 1: {
+                dmxd &= ~ 0177662;
+                dmxhltrq = false;
+                if (lastmuxn & 020000) dmxd |= 0004000; // b
+                if (lastmuxn & 010000) dmxhltrq = true; // c
+                if (lastmuxn & 002000) dmxd |= 0100000; // e
+                if (lastmuxn & 001000) dmxd |= 0040000; // f
+                if (lastmuxn & 000400) dmxd |= 0020000; // h
+                if (lastmuxn & 000200) dmxd |= 0010000; // j
+                if (lastmuxn & 000100) dmxd |= 0002000; // k
+                if (lastmuxn & 000040) dmxd |= 0001000; // l
+                if (lastmuxn & 000020) dmxd |= 0000400; // m
+                if (lastmuxn & 000010) dmxd |= 0000200; // n
+                if (lastmuxn & 000004) dmxd |= 0000020; // p
+                if (lastmuxn & 000002) dmxd |= 0000040; // r
+                if (lastmuxn & 000001) dmxd |= 0000002; // s
+                break;
+            }
+            case 2: {
+                dmxa &= ~ 0710004;
+                dmxc &= ~ 2;
+                dmxd &= ~ 0000115;
+                if (lastmuxn & 040000) dmxa |= 0010000; // a
+                if (lastmuxn & 020000) dmxa |= 0400000; // b
+                if (lastmuxn & 010000) dmxa |= 0000004; // c
+                if (lastmuxn & 004000) dmxd |= 0000001; // d
+                if (lastmuxn & 002000) dmxd |= 0000010; // e
+                if (lastmuxn & 001000) dmxd |= 0000004; // f
+                if (lastmuxn & 000400) dmxd |= 0000100; // h
+                if (lastmuxn & 000010) dmxa |= 0100000; // n
+                if (lastmuxn & 000004) dmxa |= 0200000; // p
+                if (lastmuxn & 000002) dmxc |= 2;       // r
+                break;
+            }
+            case 3: {
+                dmxa  &= ~ 0067773;
+                dmxc  &= ~ 1;
+                dmxnpr = false;
+                if (lastmuxn & 040000) dmxa |= 0000002; // a
+                if (lastmuxn & 020000) dmxa |= 0040000; // b
+                if (lastmuxn & 010000) dmxa |= 0004000; // c
+                if (lastmuxn & 004000) dmxa |= 0002000; // d
+                if (lastmuxn & 002000) dmxa |= 0001000; // e
+                if (lastmuxn & 001000) dmxa |= 0000100; // f
+                if (lastmuxn & 000400) dmxa |= 0000040; // h
+                if (lastmuxn & 000200) dmxnpr = true;   // j
+                if (lastmuxn & 000100) dmxa |= 0000001; // k
+                if (lastmuxn & 000040) dmxc |= 1;       // l
+                if (lastmuxn & 000020) dmxa |= 0020000; // m
+                if (lastmuxn & 000010) dmxa |= 0000400; // n
+                if (lastmuxn & 000004) dmxa |= 0000200; // p
+                if (lastmuxn & 000002) dmxa |= 0000020; // r
+                if (lastmuxn & 000001) dmxa |= 0000010; // s
+                break;
+            }
+        }
 
-            (unsigned) (thisentry >> 56) & 0377,    // muxcount
-            (unsigned) (thisentry >> 38) & 0777777, // dev_a_in_h
-            (unsigned) (thisentry >> 37) & 1,       // dev_ac_lo_in_h,
-            (unsigned) (thisentry >> 36) & 1,       // dev_bbsy_in_h,
-            (unsigned) (thisentry >> 32) & 017,     // dev_bg_in_l,
-            (unsigned) (thisentry >> 28) & 017,     // dmx_br_in_h,
-            (unsigned) (thisentry >> 26) & 3,       // dev_c_in_h,
-            (unsigned) (thisentry >> 10) & 0177777, // dev_d_in_h,
-            (unsigned) (thisentry >>  9) & 1,       // dev_dc_lo_in_h,
-            (unsigned) (thisentry >>  8) & 1,       // dev_hltgr_in_l,
-            (unsigned) (thisentry >>  7) & 1,       // dev_hltrq_in_h,
-            (unsigned) (thisentry >>  6) & 1,       // dev_init_in_h,
-            (unsigned) (thisentry >>  5) & 1,       // dev_intr_in_h,
-            (unsigned) (thisentry >>  4) & 1,       // dev_msyn_in_h,
-            (unsigned) (thisentry >>  3) & 1,       // dev_npg_in_l,
-            (unsigned) (thisentry >>  2) & 1,       // dmx_npr_in_h,
-            (unsigned) (thisentry >>  1) & 1,       // dev_sack_in_h,
-            (unsigned) (thisentry >>  0) & 1        // dev_ssyn_in_h
+        printf ("[%5u]  %06o %o %o %06o  %05o %o  %o %o %o %o %o  %o %o %o %o %o %o  %06o %o %06o  %06o %o %06o %o %o\n",
+            i,                                      // 10nS per tick
+
+            (unsigned) (thisentex >> 16) & 0177774, // dmx_a_in_h[15:02]
+            (unsigned) (thisentex >> 17) & 1,       // del_msyn_in_h
+            (unsigned) (thisentex >> 16) & 1,       // del_ssyn_in_h
+            (unsigned) (thisentex >>  0) & 0177777, // dma_d_in_h
+
+            (unsigned) thismuxn,                    // muxn
+            (unsigned) thisrsel,                    // rsel
+
+            (unsigned) (thisentry >> 46) & 1,       // bbsy_in_h,
+            (unsigned) (thisentry >> 45) & 1,       // msyn_in_h,
+            (unsigned) (thisentry >> 44) & 1,       // npg_in_l,
+            (unsigned) (thisentry >> 43) & 1,       // sack_in_h,
+            (unsigned) (thisentry >> 42) & 1,       // ssyn_in_h
+
+            (unsigned) (thisentry >> 41) & 1,       // bbsy_out_h,
+            (unsigned) (thisentry >> 40) & 1,       // msyn_out_h,
+            (unsigned) (thisentry >> 39) & 1,       // npg_out_l,
+            (unsigned) (thisentry >> 38) & 1,       // npr_out_h,
+            (unsigned) (thisentry >> 37) & 1,       // sack_out_h,
+            (unsigned) (thisentry >> 36) & 1,       // ssyn_out_h
+            (unsigned) (thisentry >> 18) & 0777777, // a_out_h
+            (unsigned) (thisentry >> 16) & 3,       // c_out_h,
+            (unsigned) (thisentry >>  0) & 0177777, // d_out_h,
+
+            (unsigned) dmxa,
+            (unsigned) dmxc,
+            (unsigned) dmxd,
+            (unsigned) dmxhltrq,
+            (unsigned) dmxnpr
         );
+
+        lastmuxn = thismuxn;
+        lastrsel = thisrsel;
     }
     return 0;
 }

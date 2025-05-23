@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314012;
+    localparam VERSION = 32'h31314013;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -125,9 +125,9 @@ module Zynq (
 
     reg[11:02] readaddr, writeaddr;
 
-    reg[63:00] ilaarray[4095:0], ilardata, ilacurwd, ilaprvwd;
-    reg[31:00] ilatimes[4095:0], ilatimer, ilartime;
-    reg[11:00] ilaafter, ilaindex;
+    localparam ILAADDRBITS = 13;    // 13 = 8K = 81.92uS
+    reg[95:00] ilaarray[(1<<ILAADDRBITS)-1:0], ilardata, ilacurwd;
+    reg[14:00] ilaafter, ilaindex;
     reg ilaarmed, ilaoflow;
 
     // we don't do anything with these
@@ -158,11 +158,13 @@ module Zynq (
     reg dev_hltrq_h;
     reg dev_init_h;
     reg dev_intr_h;
-    reg dev_msyn_h;
     reg dev_npg_l;
     reg dev_npr_h;
     reg dev_sack_h;
-    reg dev_ssyn_h;
+    reg dev_del_msyn_h;
+    reg dev_syn_msyn_h;
+    reg dev_del_ssyn_h;
+    reg dev_syn_ssyn_h;
 
     reg[1:0] dev_c_h;
     reg[7:4] dev_bg_l;
@@ -222,9 +224,10 @@ module Zynq (
     reg del_ssyn_in_h;
 
     reg[7:0] muxcount, mmuxdelay, smuxdelay;
-    assign rsel1_h = muxcount[7:6] == 1;
-    assign rsel2_h = muxcount[7:6] == 2;
-    assign rsel3_h = muxcount[7:6] == 3;
+    wire[1:0] rseln = muxcount[7:6];
+    assign rsel1_h  = rseln == 1;
+    assign rsel2_h  = rseln == 2;
+    assign rsel3_h  = rseln == 3;
 
     wire[1:0] man_rsel_h;
 
@@ -365,8 +368,8 @@ module Zynq (
         .bus_c_in_l       (~ dev_c_h),          //<< some device passing function for cpu internal register to cpu
         .bus_d_in_l       (~ dev_d_h),          //<< some device passing data to be written to cpu internal register
         .bus_init_in_l    (~ dev_init_h),       //<< bus is being initialized
-        .bus_msyn_in_l    (~ dev_msyn_h),       //<< some device is accessing a cpu internal register
-        .bus_ssyn_in_l    (~ dev_ssyn_h),       //<< some device has completed a device register read or write
+        .bus_msyn_in_l    (~ dev_del_msyn_h),   //<< some device is accessing a cpu internal register
+        .bus_ssyn_in_l    (~ dev_del_ssyn_h),   //<< some device has completed a device register read or write
 
         .bus_a_out_l      (sim_a_out_l),        //>> cpu is passing address to memory and devices
         .bus_c_out_l      (sim_c_out_l),        //>> cpu is passing function to memory and devices
@@ -430,12 +433,12 @@ module Zynq (
         dev_hltrq_h,
         dev_init_h,
         dev_intr_h,
-        dev_msyn_h,
+        dev_del_msyn_h,
         dev_npg_l,
         dev_npr_h,
         2'b0,
         dev_sack_h,
-        dev_ssyn_h,
+        dev_del_ssyn_h,
 
         dev_a_h         // address bus outputs
     };
@@ -467,10 +470,10 @@ module Zynq (
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
             regctli <= 0;
-        end else if (~ lastdevmsyn & dev_msyn_h) begin
+        end else if (~ lastdevmsyn & dev_syn_msyn_h) begin
             regctli <= regctli + 1;
         end
-        lastdevmsyn <= dev_msyn_h;
+        lastdevmsyn <= dev_syn_msyn_h;
     end
 
     /////////////////////////////////////
@@ -490,8 +493,8 @@ module Zynq (
         (readaddr        == 10'b0000000111) ? regctlg     :
         (readaddr        == 10'b0000001000) ? regctlh     :
         (readaddr        == 10'b0000001001) ? regctli     :
-        (readaddr        == 10'b0000011100) ? { ilaarmed, 3'b0, ilaafter, ilaoflow, 3'b0, ilaindex } :
-        (readaddr        == 10'b0000011101) ? { ilartime } :
+        (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
+        (readaddr        == 10'b0000011101) ? { ilardata[95:64] } :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
         (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
         (readaddr[11:05] ==  7'b0000100)    ? bmarmrdata  :
@@ -602,7 +605,7 @@ module Zynq (
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
         .d_in_h (dev_d_h),
-        .msyn_in_h (dev_msyn_h),
+        .msyn_in_h (dev_del_msyn_h),
 
         .d_out_h (bm_d_out_h),
         .ssyn_out_h (bm_ssyn_out_h),
@@ -636,7 +639,7 @@ module Zynq (
         .c_in_h (dev_c_h),
         .d_in_h (dev_d_h),
         .init_in_h (dev_init_h),
-        .msyn_in_h (dev_msyn_h),
+        .msyn_in_h (dev_del_msyn_h),
 
         .d_out_h (pc_d_out_h),
         .ssyn_out_h (pc_ssyn_out_h));
@@ -663,7 +666,7 @@ module Zynq (
         .c_in_h (dev_c_h),
         .d_in_h (dev_d_h),
         .init_in_h (dev_init_h),
-        .msyn_in_h (dev_msyn_h),
+        .msyn_in_h (dev_del_msyn_h),
 
         .d_out_h (rl_d_out_h),
         .ssyn_out_h (rl_ssyn_out_h));
@@ -695,10 +698,12 @@ module Zynq (
         .hltld_in_h  (dev_hltld_h),     //<< dev_hltrq_h is updated this cycle
         .hltrq_in_h  (dev_hltrq_h),     //<< something (such as pdp original front panel or this thing) is requesting halt
         .init_in_h   (dev_init_h),      //<< bus init signal from pdp/sim for RESET instruction
-        .msyn_in_h   (dev_msyn_h),      //<< signal from pdp/sim when reading/writing switch/light register
         .npg_in_l    (dev_npg_l),       //<< pdp/sim says it is ok to do a DMA transfer
         .sack_in_h   (dev_sack_h),      //<< signal from pdp/sim/device indicating it is acknowledging a grant
-        .ssyn_in_h   (dev_ssyn_h),      //<< signal from pdp/sim/device indicating data transfer complete
+        .syn_msyn_in_h (dev_syn_msyn_h), //<< signal from pdp/sim when reading/writing switch/light register
+        .syn_ssyn_in_h (dev_syn_ssyn_h), //<< signal from pdp/sim/device indicating data transfer complete
+        .del_msyn_in_h (dev_del_msyn_h), //<< signal from pdp/sim when reading/writing switch/light register
+        .del_ssyn_in_h (dev_del_ssyn_h), //<< signal from pdp/sim/device indicating data transfer complete
 
         .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
         .bbsy_out_h  (sl_bbsy_out_h),   //>> front panel is using the bus
@@ -733,7 +738,7 @@ module Zynq (
         .c_in_h (dev_c_h),
         .d_in_h (dev_d_h),
         .init_in_h (dev_init_h),
-        .msyn_in_h (dev_msyn_h),
+        .msyn_in_h (dev_del_msyn_h),
 
         .d_out_h (tt0_d_out_h),
         .ssyn_out_h (tt0_ssyn_out_h));
@@ -766,7 +771,7 @@ module Zynq (
         .bg_in_l   (dev_bg_l[4]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_ssyn_h),
+        .ssyn_in_h (dev_del_ssyn_h),
 
         .bbsy_out_h (irq4_bbsy_out_h),
         .br_out_h   (irq_br_out_h[4]),
@@ -784,7 +789,7 @@ module Zynq (
         .bg_in_l   (dev_bg_l[5]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_ssyn_h),
+        .ssyn_in_h (dev_del_ssyn_h),
 
         .bbsy_out_h (irq5_bbsy_out_h),
         .br_out_h   (irq_br_out_h[5]),
@@ -802,7 +807,7 @@ module Zynq (
         .bg_in_l   (dev_bg_l[6]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_ssyn_h),
+        .ssyn_in_h (dev_del_ssyn_h),
 
         .bbsy_out_h (irq6_bbsy_out_h),
         .br_out_h   (irq_br_out_h[6]),
@@ -820,7 +825,7 @@ module Zynq (
         .bg_in_l   (dev_bg_l[7]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_ssyn_h),
+        .ssyn_in_h (dev_del_ssyn_h),
 
         .bbsy_out_h (irq7_bbsy_out_h),
         .br_out_h   (irq_br_out_h[7]),
@@ -923,11 +928,13 @@ module Zynq (
                 dev_hltrq_h = wor_hltrq_h;
                 dev_init_h  = wor_init_h | fpgaoff;
                 dev_intr_h  = wor_intr_h;
-                dev_msyn_h  = wor_msyn_h;
+                dev_del_msyn_h  = wor_msyn_h;
+                dev_syn_msyn_h  = wor_msyn_h;
                 dev_npg_l   = ~ sim_npg_out_h;
                 dev_npr_h   = wor_npr_h;
                 dev_sack_h  = wor_sack_h;
-                dev_ssyn_h  = wor_ssyn_h;
+                dev_del_ssyn_h  = wor_ssyn_h;
+                dev_syn_ssyn_h  = wor_ssyn_h;
             end
 
             FM_REAL: begin
@@ -965,11 +972,13 @@ module Zynq (
                 dev_hltrq_h = dmx_hltrq_in_h;
                 dev_init_h  = syn_init_in_h;
                 dev_intr_h  = syn_intr_in_h;
-                dev_msyn_h  = del_msyn_in_h;
                 dev_npg_l   = syn_npg_in_l;
                 dev_npr_h   = dmx_npr_in_h;
                 dev_sack_h  = syn_sack_in_h;
-                dev_ssyn_h  = del_ssyn_in_h;
+                dev_del_msyn_h = del_msyn_in_h;
+                dev_syn_msyn_h = syn_msyn_in_h;
+                dev_del_ssyn_h = del_ssyn_in_h;
+                dev_syn_ssyn_h = syn_ssyn_in_h;
             end
 
             // manual pin testing (edgepintest.tcl)
@@ -1003,11 +1012,13 @@ module Zynq (
                 dev_hltrq_h =  0;
                 dev_init_h  =  0;
                 dev_intr_h  =  0;
-                dev_msyn_h  =  0;
                 dev_npg_l   =  1;
                 dev_npr_h   =  0;
                 dev_sack_h  =  0;
-                dev_ssyn_h  =  0;
+                dev_del_msyn_h =  0;
+                dev_syn_msyn_h =  0;
+                dev_del_ssyn_h =  0;
+                dev_syn_ssyn_h =  0;
             end
         endcase
     end
@@ -1025,24 +1036,57 @@ module Zynq (
 
     always @(*) begin
         ilacurwd = {
-            muxcount,       //56
-            dev_a_h,        //38
-            dev_ac_lo_h,    //37
-            dev_bbsy_h,     //36
-            dev_bg_l,       //32
-            dev_br_h,       //28
-            dev_c_h,        //26
-            dev_d_h,        //10
-            dev_dc_lo_h,    //09
-            dev_hltgr_l,    //08
-            dev_hltrq_h,    //07
-            dev_init_h,     //06
-            dev_intr_h,     //05
-            dev_msyn_h,     //04
-            dev_npg_l,      //03
-            dev_npr_h,      //02
-            dev_sack_h,     //01
-            dev_ssyn_h      //00
+            dmx_a_in_h[15:02],  //82
+            del_msyn_in_h,      //81
+            del_ssyn_in_h,      //80
+            dmx_d_in_h,         //64
+            muxa,               //63
+            muxb,               //62
+            muxc,               //61
+            muxd,               //60
+            muxe,               //59
+            muxf,               //58
+            muxh,               //57
+            muxj,               //56
+            muxk,               //55
+            muxl,               //54
+            muxm,               //53
+            muxn,               //52
+            muxp,               //51
+            muxr,               //50
+            muxs,               //49
+            rseln,              //47
+            bbsy_in_h,          //46
+            msyn_in_h,          //45
+            npg_in_l,           //44
+            sack_in_h,          //43
+            ssyn_in_h,          //42
+            bbsy_out_h,         //41
+            msyn_out_h,         //40
+            npg_out_l,          //39
+            npr_out_h,          //38
+            sack_out_h,         //37
+            ssyn_out_h,         //36
+            a_out_h,            //18
+            c_out_h,            //16
+            d_out_h             //00
+/***
+            ac_lo_in_h,
+            dc_lo_in_h,
+            hltgr_in_l,
+            init_in_h,
+            intr_in_h,
+            bg_in_l,
+            ac_lo_out_h,
+            dc_lo_out_h,
+            hltrq_out_h,
+            init_out_h,
+            intr_out_h,
+            pa_out_h,
+            pb_out_h,
+            bg_out_l,
+            br_out_h,
+***/
         };
     end
 
@@ -1050,35 +1094,26 @@ module Zynq (
         if (fpgaoff) begin
             ilaafter <= 0;
             ilaarmed <= 0;
-            ilatimer <= 0;
+            ilaindex <= 0;
         end else begin
-            ilatimer <= ilatimer + 1;
-
             if (armwrite & (writeaddr == 10'b0000011100)) begin
 
                 // arm processor is writing control register
-                ilaarmed <= saxi_WDATA[31];
-                ilaafter <= saxi_WDATA[27:16];
-                ilaoflow <= saxi_WDATA[15];
-                ilaindex <= saxi_WDATA[11:00];
+                ilaarmed                    <= saxi_WDATA[31];
+                ilaafter[ILAADDRBITS-01:00] <= saxi_WDATA[ILAADDRBITS+15:16];
+                ilaoflow                    <= saxi_WDATA[15];
+                ilaindex[ILAADDRBITS-01:00] <= saxi_WDATA[ILAADDRBITS-01:00];
 
-                ilardata <= ilaarray[saxi_WDATA[11:00]];
-                ilartime <= ilatimes[saxi_WDATA[11:00]];
-
-                ilaprvwd <= ~ ilacurwd;
+                ilardata <= ilaarray[saxi_WDATA[ILAADDRBITS-01:00]];
 
             // capture signals while before trigger and for ilaafter*(idivid+1) cycles thereafter
             end else if (ilaarmed | (ilaafter != 0)) begin
 
-                // save word and timestamp if different than previous
-                if (ilaprvwd[55:00] != ilacurwd[55:00]) begin
-                    ilaarray[ilaindex] <= ilacurwd;
-                    ilatimes[ilaindex] <= ilatimer;
-                    ilaoflow <= ilaoflow | (ilaindex == 4095);
-                    ilaindex <= ilaindex + 1;
-                    ilaprvwd <= ilacurwd;
-                    if (~ ilaarmed) ilaafter <= ilaafter - 1;
-                end
+                // save word
+                ilaarray[ilaindex[ILAADDRBITS-01:00]] <= ilacurwd;
+                ilaoflow <= ilaoflow | (ilaindex[ILAADDRBITS-01:00] == (1 << ILAADDRBITS) - 1);
+                ilaindex[ILAADDRBITS-01:00] <= ilaindex[ILAADDRBITS-01:00] + 1;
+                if (~ ilaarmed) ilaafter <= ilaafter - 1;
 
                 // check trigger condition
                 ////if (rsel1_h & muxc) begin   // - hltrq_in_h

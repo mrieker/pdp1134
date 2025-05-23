@@ -43,10 +43,12 @@ module swlight (
     input hltld_in_h,
     input hltrq_in_h,
     input init_in_h,
-    input msyn_in_h,
     input npg_in_l,
     input sack_in_h,
-    input ssyn_in_h,
+    input syn_msyn_in_h,    // coming from bus, synchronized to 100MHz clock
+    input syn_ssyn_in_h,
+    input del_msyn_in_h,    // coming from bus, delayed for all multiplexed signals
+    input del_ssyn_in_h,
 
     output reg[17:00] a_out_h,
     output reg bbsy_out_h,
@@ -70,7 +72,7 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C200B : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C200C : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? {
                             enable,         //31
@@ -141,7 +143,7 @@ module swlight (
         end
 
         // something on unibus is accessing a 777570 register
-        else if (~ msyn_in_h) begin
+        else if (~ del_msyn_in_h) begin
             swr_d_out_h <= 0;
             ssyn_out_h  <= 0;
         end else if (enable & ({ a_in_h[17:01], 1'b0 } == 18'o777570) & ~ ssyn_out_h) begin
@@ -228,7 +230,7 @@ module swlight (
         if (~ RESET & ~ armwrite & stepreq) begin
             if (halted) begin
                 haltreq <= 0;
-            end else if (msyn_in_h) begin
+            end else if (syn_msyn_in_h) begin
                 haltreq <= 1;
                 stepreq <= 0;
             end
@@ -260,7 +262,7 @@ module swlight (
             end
 
             // make sure bus not busy doing something else, then send out address, control, data, say bus is busy
-            2: if (~ bbsy_in_h & ~ msyn_in_h & ~ ssyn_in_h) begin
+            2: if (~ bbsy_in_h & ~ syn_msyn_in_h & ~ syn_ssyn_in_h) begin
                 a_out_h     <= dmaaddr;
                 bbsy_out_h  <= 1;
                 c_out_h     <= dmactrl;
@@ -284,7 +286,7 @@ module swlight (
 
             // wait up to 10uS for ssyn
             4: begin
-                if (ssyn_in_h) begin
+                if (del_ssyn_in_h) begin
                     dmadelay   <= 0;
                     dmastate   <= 5;
                 end else if (dmadelay != 1000) begin
@@ -314,7 +316,7 @@ module swlight (
             6: begin
                 if (dmadelay[3:0] != 15) begin
                     dmadelay    <= dmadelay + 1;
-                end else if (~ ssyn_in_h) begin
+                end else if (~ del_ssyn_in_h) begin
                     a_out_h     <= 0;
                     bbsy_out_h  <= 0;
                     c_out_h     <= 0;
