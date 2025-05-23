@@ -68,19 +68,19 @@ int main (int argc, char **argv)
 
     uint32_t ctl;
     if (asisflag) {
-        ctl = pdpat[ILACTL];
+        ctl = ZRD(pdpat[ILACTL]);
     } else {
 
         // tell zynq.v to start collecting samples
         // tell it to stop when collected trigger sample plus AFTER thereafter
-        pdpat[ILACTL] = ILACTL_ARMED | AFTER * ILACTL_AFTER0;
+        ZWR(pdpat[ILACTL], ILACTL_ARMED | AFTER * ILACTL_AFTER0);
         printf ("armed\n");
 
         if (signal (SIGINT, siginthand) != SIG_DFL) ABORT ();
 
         // wait for sampling to stop
         while (true) {
-            ctl = pdpat[ILACTL];
+            ctl = ZRD(pdpat[ILACTL]);
             if ((ctl & (ILACTL_ARMED | ILACTL_AFTER)) == 0) break;
             if (ctrlcflag) break;
             usleep (10000);
@@ -88,7 +88,7 @@ int main (int argc, char **argv)
     }
 
     // stop collection if not already
-    pdpat[ILACTL] = 0;
+    ZWR(pdpat[ILACTL], 0);
 
     // get limits of entries to print
     uint32_t earliestentry = (ctl & ILACTL_OFLOW) ? (ctl & ILACTL_INDEX) / ILACTL_INDEX0 : 0;
@@ -109,9 +109,9 @@ int main (int argc, char **argv)
 
         // read next entry from array
         uint32_t index = (earliestentry + i) & (ILACTL_DEPTH - 1);
-        pdpat[ILACTL] = index * ILACTL_INDEX0;
-        uint64_t thisentry = ((uint64_t) pdpat[ILADAT+1] << 32) | pdpat[ILADAT+0];
-        uint32_t thisentex = pdpat[ILATIM];
+        ZWR(pdpat[ILACTL], index * ILACTL_INDEX0);
+        uint64_t thisentry = ((uint64_t) ZRD(pdpat[ILADAT+1]) << 32) | ZRD(pdpat[ILADAT+0]);
+        uint32_t thisentex = ZRD(pdpat[ILATIM]);
 
         uint32_t thisrsel = (thisentry >> 47) & 3;
         uint32_t thismuxn = (thisentry >> 49) & 077777;

@@ -140,5 +140,7 @@
 #define SL2_HALTSTATE 0x00380000U
 #define SL2_HLTRQOUTH 0x00040000U   // swlight.v is requesting processor to halt
 #define SL2_HALTINS   0x00020000U   // processor has HALT instr in its IR
+#define SL2_IRQLEV    0x0001C000U   // interrupt request level 4..7
+#define SL2_IRQVEC    0x00003FC0U   // interrupt request vector[7:0]
 
 #endif

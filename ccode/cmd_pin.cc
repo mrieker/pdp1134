@@ -153,6 +153,8 @@ static PinDef const pindefs[] = {
     { "sl_haltstate",    DEV_SL, 2,    0x00380000,        0, false },
     { "sl_hltrq_out_h",  DEV_SL, 2,    0x00040000,        0, false },
     { "sl_haltins",      DEV_SL, 2,    0x00020000,        0, false },
+    { "sl_irqlev",       DEV_SL, 2,    SL2_IRQLEV,        0, true  },
+    { "sl_irqvec",       DEV_SL, 2,    SL2_IRQVEC,        2, true  },
     { "sl_dmastate",     DEV_SL, 3,    0xE0000000,        0, true  },
     { "sl_dmafail",      DEV_SL, 3,    0x10000000,        0, false },
     { "sl_dmactrl",      DEV_SL, 3,    0x0C000000,        0, true  },

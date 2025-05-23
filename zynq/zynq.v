@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314013;
+    localparam VERSION = 32'h31314015;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -675,6 +675,8 @@ module Zynq (
     wire sl_bbsy_out_h, sl_hltrq_out_h, sl_msyn_out_h;
     wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
     wire[1:0] sl_c_out_h;
+    wire[2:0] sl_irqlev;
+    wire[7:2] sl_irqvec;
     wire[15:00] sl_d_out_h;
     wire[17:00] sl_a_out_h;
 
@@ -704,6 +706,9 @@ module Zynq (
         .syn_ssyn_in_h (dev_syn_ssyn_h), //<< signal from pdp/sim/device indicating data transfer complete
         .del_msyn_in_h (dev_del_msyn_h), //<< signal from pdp/sim when reading/writing switch/light register
         .del_ssyn_in_h (dev_del_ssyn_h), //<< signal from pdp/sim/device indicating data transfer complete
+
+        .irqlev (sl_irqlev),            //>> arm requesting interrupt
+        .irqvec (sl_irqvec),
 
         .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
         .bbsy_out_h  (sl_bbsy_out_h),   //>> front panel is using the bus
@@ -749,10 +754,10 @@ module Zynq (
 
     // generate interrupt request cycles from simple request/vector lines from internal devices
 
-    wire[7:0] intvec4 = pcintreq ? pcintvec : tt0intreq ? tt0intvec : 1;
-    wire[7:0] intvec5 = rlintreq ? rlintvec : 1;
-    wire[7:0] intvec6 = 1;
-    wire[7:0] intvec7 = 1;
+    wire[7:0] intvec4 = (sl_irqlev == 4) ? { sl_irqvec, 2'b0 } : pcintreq ? pcintvec : tt0intreq ? tt0intvec : 1;
+    wire[7:0] intvec5 = (sl_irqlev == 5) ? { sl_irqvec, 2'b0 } : rlintreq ? rlintvec : 1;
+    wire[7:0] intvec6 = (sl_irqlev == 6) ? { sl_irqvec, 2'b0 } : 1;
+    wire[7:0] intvec7 = (sl_irqlev == 7) ? { sl_irqvec, 2'b0 } : 1;
 
     wire irq4_bbsy_out_h, irq4_intr_out_h, irq4_sack_out_h;
     wire irq5_bbsy_out_h, irq5_intr_out_h, irq5_sack_out_h;
@@ -771,7 +776,8 @@ module Zynq (
         .bg_in_l   (dev_bg_l[4]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_del_ssyn_h),
+        .syn_msyn_in_h (dev_syn_msyn_h),
+        .syn_ssyn_in_h (dev_syn_ssyn_h),
 
         .bbsy_out_h (irq4_bbsy_out_h),
         .br_out_h   (irq_br_out_h[4]),
@@ -789,7 +795,8 @@ module Zynq (
         .bg_in_l   (dev_bg_l[5]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_del_ssyn_h),
+        .syn_msyn_in_h (dev_syn_msyn_h),
+        .syn_ssyn_in_h (dev_syn_ssyn_h),
 
         .bbsy_out_h (irq5_bbsy_out_h),
         .br_out_h   (irq_br_out_h[5]),
@@ -807,7 +814,8 @@ module Zynq (
         .bg_in_l   (dev_bg_l[6]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_del_ssyn_h),
+        .syn_msyn_in_h (dev_syn_msyn_h),
+        .syn_ssyn_in_h (dev_syn_ssyn_h),
 
         .bbsy_out_h (irq6_bbsy_out_h),
         .br_out_h   (irq_br_out_h[6]),
@@ -825,7 +833,8 @@ module Zynq (
         .bg_in_l   (dev_bg_l[7]),
         .init_in_h (dev_init_h),
         .sack_in_h (dev_sack_h),
-        .ssyn_in_h (dev_del_ssyn_h),
+        .syn_msyn_in_h (dev_syn_msyn_h),
+        .syn_ssyn_in_h (dev_syn_ssyn_h),
 
         .bbsy_out_h (irq7_bbsy_out_h),
         .br_out_h   (irq_br_out_h[7]),

@@ -50,6 +50,9 @@ module swlight (
     input del_msyn_in_h,    // coming from bus, delayed for all multiplexed signals
     input del_ssyn_in_h,
 
+    output reg[2:0] irqlev,
+    output reg[7:2] irqvec,
+
     output reg[17:00] a_out_h,
     output reg bbsy_out_h,
     output reg[1:0] c_out_h,
@@ -72,7 +75,7 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C200C : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h534C200D : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? {
                             enable,         //31
@@ -83,7 +86,9 @@ module swlight (
                             haltstate,      //19
                             hltrq_out_h,    //18
                             haltins,        //17
-                            17'b0 } :
+                            irqlev,         //14
+                            irqvec,         //08
+                            8'b0 } :
                       (armraddr == 3) ? { dmastate, dmafail, dmactrl, 8'b0, dmaaddr } :
                       (armraddr == 4) ? { 16'b0, dmadata } :
                       (armraddr == 5) ? { dmalock } :
@@ -108,6 +113,7 @@ module swlight (
             dma_d_out_h <= 0;
             dmastate    <= 0;
             haltins     <= 0;
+            irqlev      <= 0;
             msyn_out_h  <= 0;
             npr_out_h   <= 0;
             sack_out_h  <= 0;
@@ -125,6 +131,8 @@ module swlight (
                     enable   <= armwdata[31];
                     haltreq  <= armwdata[30];
                     stepreq  <= armwdata[28];
+                    irqlev   <= armwdata[16:14];
+                    irqvec   <= armwdata[13:08];
                 end
                 3: if (dmastate == 0) begin
                     dmaaddr  <= armwdata[17:00];
@@ -151,6 +159,7 @@ module swlight (
             if (c_in_h[1]) begin
                 if (~ c_in_h[0] |   a_in_h[00]) lights[15:08] <= d_in_h[15:08];
                 if (~ c_in_h[0] | ~ a_in_h[00]) lights[07:00] <= d_in_h[07:00];
+                if (d_in_h == 0) irqlev <= 0;
             end else begin
                 swr_d_out_h <= switches;
             end

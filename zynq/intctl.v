@@ -33,7 +33,8 @@ module intctl (
     input bg_in_l,
     input init_in_h,
     input sack_in_h,
-    input ssyn_in_h,
+    input syn_msyn_in_h,
+    input syn_ssyn_in_h,
 
     output reg bbsy_out_h,
     output reg br_out_h,
@@ -70,14 +71,14 @@ module intctl (
                     br_out_h   <= 0;
                     sack_out_h <= 1;
                 end
-            end else if (sack_out_h & ~ bbsy_in_h & bg_in_l & ~ ssyn_in_h) begin
+            end else if (sack_out_h & ~ bbsy_in_h & bg_in_l & ~ syn_msyn_in_h & ~ syn_ssyn_in_h) begin
                 if (~ intvec[0]) begin
                     bbsy_out_h <= 1;
                     d_out_h    <= { 8'b0, intvec[7:2], 2'b0 };
                     intr_out_h <= 1;
                 end
                 sack_out_h <= 0;
-            end else if (bbsy_out_h & ssyn_in_h) begin
+            end else if (bbsy_out_h & syn_ssyn_in_h) begin
                 bbsy_out_h <= 0;
                 d_out_h    <= 0;
                 intr_out_h <= 0;
