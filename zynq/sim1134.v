@@ -916,6 +916,7 @@ module sim1134 (
                     state   <= S_SERVICE;
                 end
 
+                // start popping word from stack
                 S_EXECRTS: begin
                     gprs[cspgprx] <= gprs[cspgprx] + 2;
                     membyte  <= 0;
@@ -924,6 +925,9 @@ module sim1134 (
                     state    <= S_EXECRTS2;
                     virtaddr <= gprs[cspgprx];
                 end
+                // rts pc: pop => pc
+                //   else: rd  => pc
+                //         pop => rd
                 S_EXECRTS2: begin
                     if (instreg[02:00] != 7) begin
                         gprs[7] <= gprs[dstgprx];

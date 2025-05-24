@@ -64,7 +64,8 @@ proc bmwrbyte {addr data} {
     if {($data < 0) || ($data > 0377)} {
         error [format "bmwrbyte: bad data %o" $data]
     }
-    pin set bm_armaddr $addr bm_armdata [expr {$data*0401}] bm_armfunc 1
+    set data [expr {$data * 0401}]
+    pin set bm_armaddr $addr bm_armdata $data bm_armfunc 1
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
         if {$i > 1000} {
             error "bmwrbyte: stuck at $x"
@@ -179,6 +180,34 @@ proc hardreset {} {
     }
 }
 
+# load from MACRO11 listing
+proc loadlst {lstname} {
+    set lstfile [open $lstname]
+    while {[gets $lstfile lstline] >= 0} {
+        set addr 0[string trim [string range $lstline 8 15]]
+        if {[string length $addr] == 7} {
+            for {set i 15} {$i < 38} {incr i 8} {
+                set digits 0[string trim [string range $lstline $i [expr {$i + 7}]]]
+                switch [string length $digits] {
+                    1 { }
+                    4 {
+                        wrbyte $addr $digits
+                        incr addr 1
+                    }
+                    7 {
+                        wrword $addr $digits
+                        incr addr 2
+                    }
+                    default {
+                        error "bad data $digits at addr $addr"
+                    }
+                }
+            }
+        }
+    }
+    close $lstfile
+}
+
 # lock acess to dma controller
 proc lockdma {} {
     set lockedby [pin sl_dmalock]
@@ -254,9 +283,9 @@ proc wrbyte {addr data} {
     if {($data < 0) || ($data > 0377)} {
         error [format "wrbyte: bad data %o" $data]
     }
-    if {$addr & 1} {set data [expr {$data << 8}]}
+    set data [expr {$data * 0401}]
     lockdma
-    pin set sl_dmaaddr [expr {$addr & 0777776}] sl_dmactrl 3 sl_dmadata $data sl_dmastate 1
+    pin set sl_dmaaddr $addr sl_dmactrl 3 sl_dmadata $data sl_dmastate 1
     for {set i 0} {[set dmastate [pin sl_dmastate]] != 0} {incr i} {
         if {$i > 1000} {
             unlkdma

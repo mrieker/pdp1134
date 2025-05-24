@@ -332,13 +332,19 @@ void *rlthread (void *dummy)
                 case 1: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
-                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) goto hnferr;
+                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
+                        goto hnferr;
+                    }
                     uint16_t trk = (rlda >> 6) & 1;
                     uint16_t cyl =  rlda >> 7;
 
                     do {
                         uint16_t sec = rlda & 63;
-                        if (sec >= SECPERTRK) goto hnferr;
+                        if (sec >= SECPERTRK) {
+                            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       sec=%02o\n", sec);
+                            goto hnferr;
+                        }
 
                         uint16_t buf[WRDPERSEC];
                         uint32_t off = (((uint32_t) cyl * TRKPERCYL + trk) * SECPERTRK + sec) * sizeof buf;
@@ -385,6 +391,7 @@ void *rlthread (void *dummy)
                     int32_t newcyl = latestpositions[drivesel] >> 7;
                     if (rlda & 4) newcyl += rlda >> 7;
                              else newcyl -= rlda >> 7;
+                    if (debug > 1) fprintf (stderr, "IODevRL11::rlthread:       newcyl=%d\n", newcyl);
                     if (newcyl < 0) newcyl = 0;
                     if (newcyl > NCYLS - 1) newcyl = NCYLS - 1;
 
@@ -405,13 +412,19 @@ void *rlthread (void *dummy)
                 case 5: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
-                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) goto hnferr;
+                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
+                        goto hnferr;
+                    }
                     uint16_t trk = (rlda >> 6) & 1;
                     uint16_t cyl =  rlda >> 7;
 
                     do {
                         uint16_t sec = rlda & 63;
-                        if (sec >= SECPERTRK) goto hnferr;
+                        if (sec >= SECPERTRK) {
+                            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       sec=%02o\n", sec);
+                            goto hnferr;
+                        }
 
                         uint32_t xbasave = rlxba;
                         uint16_t buf[WRDPERSEC];
@@ -444,13 +457,19 @@ void *rlthread (void *dummy)
                 case 6: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
-                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) goto hnferr;
+                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
+                        goto hnferr;
+                    }
                     uint16_t trk = (rlda >> 6) & 1;
                     uint16_t cyl =  rlda >> 7;
 
                     do {
                         uint16_t sec = rlda & 63;
-                        if (sec >= SECPERTRK) goto hnferr;
+                        if (sec >= SECPERTRK) {
+                            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       sec=%02o\n", sec);
+                            goto hnferr;
+                        }
 
                         uint16_t buf[WRDPERSEC];
                         uint32_t off = (((uint32_t) cyl * TRKPERCYL + trk) * SECPERTRK + sec) * sizeof buf;

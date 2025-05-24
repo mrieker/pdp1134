@@ -1,0 +1,550 @@
+
+	RLCS = 174400
+	RLBA = 174402
+	RLDA = 174404
+	RLMP = 174406
+
+	RLCSWR = 112	; write data + request interrupt
+	RLCSRD = 114	; read data + request interrupt
+
+	PDR0 = 172300
+	PDR1 = 172302
+	PDR2 = 172304
+	PDR3 = 172306
+	PDR4 = 172310
+	PDR5 = 172312
+	PDR6 = 172314
+	PDR7 = 172316
+	PAR0 = 172340
+	PAR1 = 172342
+	PAR2 = 172344
+	PAR3 = 172346
+	PAR4 = 172350
+	PAR5 = 172352
+	PAR6 = 172354
+	PAR7 = 172356
+	MMR0 = 177572
+
+	;T.NEXT = 0	; link to next on queue
+	T.SVR2 = 02
+	T.SVR3 = 04
+	T.SVR4 = 06
+	T.SVR5 = 10
+	T.SVSP = 12	; saved stack pointer
+	T.SVPC = 14
+	T.PAR1 = 16
+	T.PAR2 = 20
+	T.PAR3 = 22
+	T.PAR4 = 24
+	T.PAR5 = 26
+	T.PAR6 = 30
+	T.SIZE = 32
+
+	NBLKS = 4096.	; number of blocks to use for testing (max 40960.)
+
+	ZZ = .
+
+	.word	0,0
+	.word	trap04,0340
+	.word	trap10,0340
+
+	. = ZZ + 160
+	.word	rlintr
+	.word	000340
+
+	. = ZZ + 400
+
+start:
+	mtps	#340
+	mov	#stktop,sp
+
+	jsr	r5,prascz
+		.asciz	"starting..."<15><12>
+
+	; init mmu for identity mapping to start
+	mov	#PAR0,r0
+	mov	#10,r1
+	clr	r2
+100$:
+	mov	#077406,PDR0-PAR0(r0)
+	mov	r2,(r0)+
+	add	#0200,r2
+	sob	r1,100$
+	mov	#7600,-(r0)
+	mov	#1,@#MMR0
+
+	; make thread block for this thread
+	; - it handles testing drive 0
+	mov	#dr0thr,r0	; point to thread block
+	mov	r0,curthr	; say it is current while we're at it
+	mov	#200,r1		; use identity mapping for pages 1..6
+	clr	r3		; pass 0 as drive number
+	jsr	r5,thinit
+		.word	stktop
+		.word	tstart
+
+;;	mov	#dr1thr,r0
+;;	mov	#1,r3
+;;	jsr	r5,thinit
+;;		.word	stktop
+;;		.word	tstart
+
+;;	mov	#dr2thr,r0
+;;	mov	#2,r3
+;;	jsr	r5,thinit
+;; 		.word	stktop
+;;		.word	tstart
+
+tstart:
+	; r3 = drive number
+	mov	r3,drivno
+
+	jsr	r5,prascz
+		.asciz	"filling"<15><12>
+
+	; make sure controller is ready before using it
+	; ...in case some other thread got it going first
+	jsr	pc,rlwait
+
+	; fill drive with random numbers
+	clr	r4
+	mov	#NBLKS/2,r5
+100$:
+	mov	seed,blseed(r4)	; save seed for block pair
+	mov	#256.,r2	; fill buffer with randoms for two blocks
+	mov	#blbuff,r3
+200$:
+	jsr	pc,random
+	mov	r0,(r3)+
+	sob	r2,200$
+
+	mov	#256.,r0	; word count for two blocks
+	mov	#blbuff,r1	; buffer virt addr
+	mov	drivno,r2	; drive number
+	mov	r4,r3		; block number
+	jsr	r5,rlrwlb	; write logical blocks
+		.word	RLCSWR
+
+	add	#2,r4		; on to next block pair
+	sob	r5,100$
+
+	jsr	r5,prascz
+		.asciz	"testing"<15><12>
+
+bgloop:
+	jsr	pc,random	; get random block number
+	mov	r0,r1
+	clr	r0
+	div	#NBLKS/2,r0
+	mov	r1,r4		; read block pair
+	asl	r4
+	mov	#blbuff,r1
+	mov	#256.,r0
+	mov	drivno,r2
+	mov	r4,r3
+	jsr	r5,rlrwlb
+		.word	RLCSRD
+
+	mov	seed,-(sp)
+	mov	blseed(r4),seed
+
+	mov	#256.,r2	; compare with what it should be
+	mov	#blbuff,r3
+100$:
+	jsr	pc,random
+	cmp	r0,(r3)+
+	bne	badata
+	sob	r2,100$
+
+	mov	(sp)+,seed
+
+	br	bgloop
+
+badata:
+	jsr	r5,prascz
+		.asciz	"bad data"<15><12>
+		.even
+	halt
+	br	.-2
+
+
+
+; read or write logical blocks
+;  input:
+;   r0 = word count
+;   r1 = buffer virt addr
+;   r2 = drive number 0..3
+;   r3 = block number 0..40959
+;   r5 = call linkags
+;  scratch:
+;   r0..r3
+rlrwlb:
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+
+	jsr	pc,rlseek	; select cylinder and head
+
+	mov	(sp)+,r0	; set up word count
+	neg	r0
+	mov	r0,@#RLMP
+
+	mov	@sp,r0		; get buffer page addr register
+	ash	#-14,r0
+	bic	#177761,r0
+	mov	PAR0(r0),r0
+	clr	r1
+	ashc	#-12,r0		; upper 2 bits in r0, bottom bits in r1
+	mov	(sp)+,r2	; add in virt page offset
+	bic	#160000,r2
+	add	r2,r1
+	adc	r0
+	mov	r1,@#RLBA
+	ash	#4,r0		; upper 2 bits go to RLCS<05:04>
+	mov	(sp)+,r1	; drive number goes to RLCS<09:08>
+	swab	r1
+	bis	r1,r0
+
+	mov	(sp)+,r3	; block number
+	clr	r2
+	div	#40.,r2		; -> r2 = track; r3 = sector
+	ash	#6,r2		; make disk address
+	bis	r3,r2
+	mov	r2,@#RLDA
+
+	bis	(r5)+,r0	; get read/write command + request interrupt
+	mov	r0,@#RLCS
+	jsr	pc,rlwait	; wait for completion then check for errors
+
+	rts	r5
+
+; start seeking the track for the given block number
+;  input:
+;   r2 = drive number 0..3
+;   r3 = block number 0..40959
+;  scratch:
+;   r0,r1,r2,r3
+rlseek:
+	clr	r0		; split out sector number
+	mov	r3,r1
+	div	#40.,r0		; -> r0 = track; r1 = sector
+	mov	r0,r3
+
+	swab	r2		; drive select -> bits 09:08
+	add	#110,r2		; int enable; read header
+	mov	r2,@#RLCS
+	jsr	pc,rlwait	; wait for controller ready, check errors
+	mov	@#RLMP,r0	; get header's disk address
+	ash	#-6,r0		; get current track
+	bic	#176000,r0
+
+	; r0 = current track
+	; r2 = drive select / 110
+	; r3 = target track
+
+	mov	r0,r1		; get current cyl - target cyl
+	bis	#1,r1
+	sub	r3,r1
+	asr	r1
+	bne	100$		; -> different, seek required
+
+	xor	r3,r0		; see if head select different
+	asr	r0
+	bcc	400$
+
+100$:
+	; r1 = current - target cylinder
+	; r2 = drive select / 110
+	; r3 = target track
+
+	ash	#7,r1		; shift cylinder difference
+	bcc	200$		; -> current gt target, negative direction
+	neg	r1		; target gt current, get abs value
+	bis	#4,r1		; and use positive direction
+200$:
+
+	asr	r3		; set up head select
+	bcc	300$
+	bis	#20,r1
+300$:
+	inc	r1		; <00> must be a 1
+	mov	r1,@#RLDA	; set disk address register
+	add	#006-010,r2	; start seeking
+	mov	r2,@#RLCS
+	jsr	pc,rlwait	; wait for controller ready, check errors
+				; - seek still in progress
+400$:
+	rts	pc
+
+; wait for controller ready, check for errors
+;  scratch:
+;   r0,r1
+rlwait:
+	mov	@#RLCS,r0		; see if controller is busy
+	bmi	200$			; -> error
+	tstb	r0
+	bmi	100$			; if not, return immediately
+	mov	curthr,r0		; put thread block on end of waiting for interrupt queue
+	clr	@r0
+	mov	r0,@rlwfit
+	mov	r0,rlwfit
+	jsr	pc,thwait		; find something else to run or wait for interrupt
+	br	rlwait			; check status again
+100$:
+	rts	pc			; ready without error, return
+200$:
+	mov	r0,-(sp)		; save error status
+	jsr	r5,prascz		; print message
+		.asciz	"error RLCS="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" at PC="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt				; hang forever
+	br	.-2
+
+rlwfiq:	.word	0			; queue of threads waiting for RL controller interrupt
+rlwfit:	.word	rlwfiq			; queue tail
+
+; interrupt handler for RL11
+rlintr:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+
+	bic	#100,@#RLCS		; clear interrupt enable
+	mov	rlwfiq,r0		; see if any thread waiting for interrupt
+	beq	200$
+	mov	@r0,rlwfiq		; unlink from queue
+	bne	100$
+	mov	#rlwfiq,rlwfit
+100$:
+	jsr	pc,thwake		; wake the thread up
+200$:
+
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+;;	br	retint
+
+; return from interrupt
+; but if about to return to a wait instruction, skip over it
+retint:
+	cmp	@0(sp),#1
+	bne	100$
+	add	#2,@sp
+100$:
+	rti
+
+
+
+seed:	.word	123456
+
+; get a 16-bit random nmber
+random:
+	mov	seed,r0
+	mul	#13671,r0
+	add	r1,r0
+	inc	r0
+	mov	r0,seed
+	rts	pc
+
+
+
+curthr:	.word	0	; currently running thread
+runthr:	.word	0	; threads waiting for cpu
+runend:	.word	runthr	; T.NEXT of last thread on runthr list
+
+; initialize thread
+;  input:
+;   r0 = thread to initialize
+;   r1 = PAR1 value
+;   r2..r4 = initial contents
+;   @sp = initial r5 contents
+;   0(r5) = initial sp
+;   2(r5) = initial pc
+;   r5+4 = return address
+;  output:
+;   r1 = incremented
+;   r5 = initial r5 contents
+;  scratch:
+;   r0,r2
+thinit:
+	mov	r0,@r0
+	mov	r2,T.SVR2(r0)
+	mov	r3,T.SVR3(r0)
+	mov	r4,T.SVR4(r0)
+	mov	@sp,T.SVR5(r0)
+	mov	(r5)+,T.SVSP(r0)
+	mov	(r5)+,T.SVPC(r0)
+
+	add	#T.PAR1,r0
+	mov	#6,r2
+100$:
+	mov	r1,(r0)+
+	add	#200,r1
+	sob	r2,100$
+	rts	r5
+
+; save current thread registers
+; find another one that is runnable
+; if none, wait for interrupt
+;  input:
+;   ps = interrupts disabled
+;   @(sp)+ = return address
+;  output:
+;   ps = interrupts disabled
+;  scratch:
+;   r0,r1
+thwait:
+	mov	curthr,r0
+	mov	r2,T.SVR2(r0)
+	mov	r3,T.SVR3(r0)
+	mov	r4,T.SVR4(r0)
+	mov	r5,T.SVR5(r0)
+	mov	(sp)+,T.SVPC(r0)
+	mov	sp,T.SVSP(r0)
+
+100$:
+	mov	runthr,r0		; see if anything runnable
+	beq	400$
+	mov	@r0,runthr		; dequeue it
+	bne	200$
+	mov	#runthr,runend
+200$:
+	mov	r0,@r0			; mark as current thread
+	mov	r0,curthr
+	add	#T.PAR1,r0		; load up memory mapped pages
+	mov	#PAR1,r1
+	mov	#6,r2
+300$:
+	mov	(r0)+,(r1)+
+	sob	r2,300$
+	mov	T.SVR2-T.PAR6-2(r0),r2	; restore registers
+	mov	T.SVR3-T.PAR6-2(r0),r3
+	mov	T.SVR4-T.PAR6-2(r0),r4
+	mov	T.SVR5-T.PAR6-2(r0),r5
+	mov	T.SVSP-T.PAR6-2(r0),sp
+	jmp	@T.SVPC-T.PAR6-2(r0)	; resume after jsr pc,thwait call
+400$:
+	mov	rollem,r0		; runthr queue empty, roll lights
+	mtps	#0
+	wait				; ...with a wait instruction
+	asl	r0
+	adc	r0
+	mov	r0,rollem
+	mtps	#340			; then check again
+	br	100$
+
+rollem:	.word	77
+
+; wake a thread
+;  input:
+;   r0 = thread to be woken
+;   ps = interrupts disabled
+;   @(sp)+ = return address
+thwake:
+	mov	r0,@runend	; put on end of run queue
+	mov	r0,runend
+	clr	@r0
+	rts	pc
+
+
+
+trap04:
+	mov	#4,-(sp)
+	br	trapxx
+trap10:
+	mov	#10,-(sp)
+trapxx:
+	jsr	r5,prascz
+		.asciz	<15><12>"trap"
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PS="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt
+	br	.-2
+
+; print asciz string following the jsr r5 call
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	jsr	pc,prchar
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	jsr	pc,prchar
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	jsr	pc,prchar
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	jsr	pc,prchar
+	mov	#12,r0
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+prchar:
+	tstb	@#177564
+	bpl	prchar
+	movb	r0,@#177566
+	rts	pc
+
+
+
+dr0thr:	.blkb	T.SIZE
+dr1thr:	.blkb	T.SIZE
+dr2thr:	.blkb	T.SIZE
+
+; per-thread space (48KB)
+
+	. = ZZ + 0020000
+
+drivno:	.blkw	1
+
+blbuff:	.blkw	256.
+
+blseed:	.blkw	NBLKS/2
+
+stkbot:	.blkw	256.
+	. = ZZ + 0160000
+stktop:
+
+	.end

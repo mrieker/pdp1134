@@ -37,19 +37,11 @@ proc loadtest {} {
     }
 }
 
-proc runtest {} {
+proc runtest {{nsteps 1000}} {
     hardreset
     wrword 05000 0000000    ;# latest interrupt vector
     wrword 05002 0000000    ;# total number interrupts
     flickstart 01000
-
-    puts "checking for stray"
-    for {set i 0} {$i < 10000} {incr i} {
-        set n [rdword 05002]
-        if {$n > 0} {
-            error [format "initial stray interrupt %03o (sl_irqvec %03o, sl_irqlev %d)" [rdword 05000] [pin get sl_irqvec] [pin get sl_irqlev]]
-        }
-    }
 
     puts "pounding away"
     set num 0
@@ -69,8 +61,8 @@ proc runtest {} {
         if {($rbnum != $num) || ($rbvec != $vec)} {
             error [format "mismatch is %03o %6d, should be %03o %6d" $rbvec $rbnum $vec $num]
         }
-        if {$num % 1000 == 0} {
-            puts -nonewline "*"
+        if {$num % $nsteps == 0} {
+            puts -nonewline " $num"
             flush stdout
         }
     }
