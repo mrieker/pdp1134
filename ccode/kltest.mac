@@ -1,0 +1,64 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; Test rl11.v and z11rl.cc (and dma and interrupts, etc)
+
+;   $ ../MACRO11/src/macro11 -o kltest.obj -l kltest.lst kltest.mac
+;   $ ./z11ctrl
+;   > pin set fpgamode 2 bm_enablo 0xFFFFFFFF kl_enable 1 sl_enable 1
+;   > hardreset
+;   > loadlst kltest.lst
+;   > flickstart 0400
+;   $ ./z11dump  to observe light register counting at 1Hz
+
+	LKS = 177546
+
+	NBLKS = 4096.	; number of blocks to use for testing (max 40960.)
+
+	ZZ = .
+
+	. = ZZ + 100
+	.word	klintr
+	.word	000300
+
+	. = ZZ + 400
+
+start:
+	mov	#1000,sp
+	clr	r0
+	clr	r1
+	mov	#100,@#LKS
+	mtps	#0
+100$:
+	wait
+	br	100$
+
+klintr:
+	mov	#100,@#LKS
+	inc	r0
+	cmp	r0,#74
+	bne	100$
+	clr	r0
+	inc	r1
+	mov	r1,@#177570
+100$:
+	rti
+
+	.end
