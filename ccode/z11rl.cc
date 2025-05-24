@@ -319,7 +319,7 @@ void *rlthread (void *dummy)
                 seekdelay = seekdoneats[drivesel] - nowus;
             }
 
-            if (debug > 1) fprintf (stderr, "IODevRL11::rlthread:       xba=%06o dsel=%u fd=%3d\n", rlxba, drivesel, fd);
+            if (debug > 1) fprintf (stderr, "IODevRL11::rlthread:       xba=%06o dsel=%u fd=%d\n", rlxba, drivesel, fd);
 
             switch ((rlcs >> 1) & 7) {
 
