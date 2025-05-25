@@ -24,6 +24,9 @@ module sim1134 (
     input CLOCK,
     input RESET,
 
+    output[15:00] pcout, psout,
+    output[5:0] stout,
+
     input bus_ac_lo_in_l,
     input bus_bbsy_in_l,
     input[7:4] bus_br_in_l,
@@ -97,8 +100,6 @@ module sim1134 (
     localparam[5:0] S_SERVICE   = 39;
     localparam[5:0] S_NPG       = 40;
     localparam[5:0] S_INTR      = 41;
-    localparam[5:0] S_INTR2     = 42;
-    localparam[5:0] S_INTR3     = 43;
     localparam[5:0] S_TRAP      = 44;
     localparam[5:0] S_TRAP2     = 45;
     localparam[5:0] S_TRAP3     = 46;
@@ -143,6 +144,10 @@ module sim1134 (
     endfunction
     wire[3:0] cspgprx = gprx (psw[15:14], 6);    // access current mode stack pointer
 
+    assign pcout = gprs[7];
+    assign psout = psw;
+    assign stout = state;
+
     reg[7:0] trapvec;
     localparam[7:0] T_CPUERR  = 8'o004;
     localparam[7:0] T_ILLINST = 8'o010;
@@ -163,6 +168,7 @@ module sim1134 (
     wire iRESET = (instreg == 5);
     wire iRTT   = (instreg == 6);
     wire iJMP   = (instreg[15:06] == 10'o0001) & (instreg[05:03] != 0);
+    wire iRTS   = (instreg[15:03] == 12'o0020);
     wire iSWAB  = (instreg[15:06] == 10'o0003);
     wire iJSR   = (instreg[15:09] ==   7'o004) & (instreg[05:03] != 0);
     wire iCLRb  = (instreg[14:06] ==   9'o050);
@@ -217,10 +223,11 @@ module sim1134 (
     wire[15:00] getopinc = (byteinstr & ~ getopmode[3] & (getopmode[2:1] != 3)) ? 1 : 2;
     wire[3:0]   getgprx  = gprx (psw[15:14], getopmode[2:0]);
 
-    wire intrqst = (~ bus_br_in_l[7] & (psw[07:05] < 7)) |
-                   (~ bus_br_in_l[6] & (psw[07:05] < 6)) |
-                   (~ bus_br_in_l[5] & (psw[07:05] < 5)) |
-                   (~ bus_br_in_l[4] & (psw[07:05] < 4));
+    wire intreq4 = ~ bus_br_in_l[4] & (psw[07:05] < 4);
+    wire intreq5 = ~ bus_br_in_l[5] & (psw[07:05] < 5);
+    wire intreq6 = ~ bus_br_in_l[6] & (psw[07:05] < 6);
+    wire intreq7 = ~ bus_br_in_l[7] & (psw[07:05] < 7);
+    wire intrqst = intreq4 | intreq5 | intreq6 | intreq7;
 
     reg[15:00] mmupars[15:00];
     reg[15:00] mmupdrs[15:00];
@@ -239,7 +246,7 @@ module sim1134 (
     reg[15:00] dstval, result, srcval;
     reg[31:00] product;
     reg[3:0] counter;
-    reg[3:0] intrdelay;
+    reg[2:0] intrdelay;
     reg aclock, haltck, halted, nopushpspc, traceck, trapping, yellowck;
 
     localparam[1:0] MF_RD = 1;  // do a DATI cycle
@@ -305,6 +312,7 @@ module sim1134 (
             getopaddr   <= 0;           // not getting operand address
             haltck      <= 1;           // check for halt when we get going
             halted      <= 0;           // starting out by reading power-up vector
+            intrdelay   <= 0;           // set up to be ready to receive interrupt vector
             memfunc     <= 0;           // not doing any memory function
             mmr0        <= 0;           // not using mmu to begin with
             nopushpspc  <= 1;           // don't push PC/PS when doing power-up trap
@@ -663,6 +671,7 @@ module sim1134 (
                     end
 
                     // misc
+                    else if (iRTS) state <= S_EXECRTS;
                     else if (iEMT | iTRAP | iBPT | iIOT) state <= S_EXTRAP;
                     else if (iBXX) state <= S_BRANCH;
                     else if (iRTI | iRTT) state <= S_EXRTIT;
@@ -691,10 +700,13 @@ module sim1134 (
                     end
                 end
 
-                // wait for interrupt
+                // wait for interrupt or halt
+                // process nprs meanwhile
                 S_EXWAIT: begin
-                    if (psw[4] | ~ bus_hltrq_in_l | intrqst) begin
+                    if ((psw[4] | ~ bus_hltrq_in_l | intrqst) & ~ bus_npg_out_h) begin
                         state <= S_SERVICE;
+                    end else begin
+                        bus_npg_out_h <= ~ bus_npr_in_l;
                     end
                 end
 
@@ -933,6 +945,7 @@ module sim1134 (
                         gprs[7] <= gprs[dstgprx];
                     end
                     gprs[dstgprx] <= readdata;
+                    state <= S_SERVICE;
                 end
 
                 // start reading new PC from stack
@@ -1197,16 +1210,16 @@ module sim1134 (
                     end
 
                     // check interrupts
-                    else if (bus_sack_in_l & ~ bus_br_in_l[7] & (psw[7:5] < 7)) begin
+                    else if (bus_sack_in_l & intreq7) begin
                         bus_bg_out_h[7] <= 1;
                         state <= S_INTR;
-                    end else if (bus_sack_in_l & ~ bus_br_in_l[6] & (psw[7:5] < 6)) begin
+                    end else if (bus_sack_in_l & intreq6) begin
                         bus_bg_out_h[6] <= 1;
                         state <= S_INTR;
-                    end else if (bus_sack_in_l & ~ bus_br_in_l[5] & (psw[7:5] < 5)) begin
+                    end else if (bus_sack_in_l & intreq5) begin
                         bus_bg_out_h[5] <= 1;
                         state <= S_INTR;
-                    end else if (bus_sack_in_l & ~ bus_br_in_l[4] & (psw[7:5] < 4)) begin
+                    end else if (bus_sack_in_l & intreq4) begin
                         bus_bg_out_h[4] <= 1;
                         state <= S_INTR;
                     end
@@ -1236,35 +1249,35 @@ module sim1134 (
                 end
 
                 // something is interrupting, grant has been sent
-                // wait for select acknowledge
+                // get interrupt vector while waiting for cycle to complete
                 S_INTR: begin
+
+                    // drop the grant when device acknowledges selection
                     if (~ bus_sack_in_l) begin
-                        bus_bg_out_h  <= 0;
-                        intrdelay <= 0;
-                        state     <= S_INTR2;
+                        bus_bg_out_h <= 0;
                     end
-                end
 
-                // wait for device to send interrupt vector
-                // then wait 80nS before strobing in the vector
-                S_INTR2: begin
-                    if (~ bus_intr_in_l) begin
-                        if (intrdelay != 8) intrdelay <= intrdelay + 1;
-                        else begin
-                            bus_ssyn_out_l <= 0;
-                            state   <= S_INTR3;
-                            trapvec <= ~ bus_d_in_l[07:00];
-                        end
-                    end
-                end
-
-                // wait for interrupting device to release bus
-                S_INTR3: begin
+                    // do vector transfer 80nS after device asserts INTR
                     if (bus_intr_in_l) begin
-                        bus_ssyn_out_l <= 1;
-                        if (bus_bbsy_in_l) begin
-                            state <= S_SERVICE;
-                        end
+                        bus_ssyn_out_l <= 1;                // transfer is complete
+                        intrdelay <= 0;                     // set up to count 80nS
+                    end else if (intrdelay != 7) begin      // see if has been 80nS since INTR
+                        intrdelay <= intrdelay + 1;
+                    end else if (bus_ssyn_out_l) begin      // clock in first time after 80nS is up
+                        bus_ssyn_out_l <= 0;                // tell device transfer complete
+                        intrdelay <= 0;                     // reset delay line for next time
+                        trapvec   <= ~ bus_d_in_l[07:00];   // save interrupt vector
+                    end
+
+                    // cycle completes when BBSY, BR[n], INTR, SACK are all negated
+                    // ignore any BR[n] that has a negated BG[n], we only care about the BR[n] we granted
+                    // maybe we didn't get a vector if device changed its mind
+                    if (bus_bbsy_in_l & bus_intr_in_l & bus_sack_in_l &
+                            (~ bus_bg_out_h[4] | bus_br_in_l[4]) &
+                            (~ bus_bg_out_h[5] | bus_br_in_l[5]) &
+                            (~ bus_bg_out_h[6] | bus_br_in_l[6]) &
+                            (~ bus_bg_out_h[7] | bus_br_in_l[7])) begin
+                        state <= S_SERVICE;                 // process vector if we got one, or go on to next instruction, etc
                     end
                 end
 

@@ -19,16 +19,26 @@
 ;;    http://www.gnu.org/licenses/gpl-2.0.html
 
 ; Test rl11.v and z11rl.cc (and dma and interrupts, etc)
+;  test 1 drive:   56KB memory
+;  test 2 drives: 104KB memory
+;  test 3 drives: 152KB memory
+;  test 4 drives: 200KB memory
 
 ;   $ ../MACRO11/src/macro11 -o rltest.obj -l rltest.lst rltest.mac
 ;   $ ./z11ctrl
-;   > pin set fpgamode 2 bm_enablo 0xFFFFFFFF bm_enabhi 0x3FFFFFFF
+;   > pin set fpgamode 2
+;   > pin set bm_enablo 0x3FFF     bm_enabhi 0       ;#  56KB
+;   > pin set bm_enablo 0x3FFFFFF  bm_enabhi 0       ;# 104KB
+;   > pin set bm_enablo 0xFFFFFFFF bm_enabhi 0x3F    ;# 152KB < use this for example given
+;   > pin set bm_enablo 0xFFFFFFFF bm_enabhi 0x3FFFF ;# 200KB
+;   > pin set bm_enablo 0          bm_enabhi 0x30000 ;# 200KB w/192KB hardware memory
 ;   > hardreset
 ;   > loadlst rltest.lst
 ;       on another screen:  $ ./z11rl -loadrw 0 ~/disk0.rl02 -loadrw 1 ~/disk1.rl02 -loadrw 2 ~/disk2.rl02
 ;       on another screen:  $ ./z11dl -cps 960
+;   > pin set sl_enable 1 sl_switches 7
 ;   > flickstart 0400
-;   $ ./z11dump
+;   $ ./z11dump    to see it working
 
 	RLCS = 174400
 	RLBA = 174402
@@ -56,6 +66,8 @@
 	PAR7 = 172356
 	MMR0 = 177572
 
+	SWLI = 177570
+
 	;T.NEXT = 0	; link to next on queue
 	T.SVR2 = 02
 	T.SVR3 = 04
@@ -77,8 +89,10 @@
 	ZZ = .
 
 	.word	0,0
-	.word	trap04,0340
-	.word	trap10,0340
+	.word	trap04,0340	; bus error
+	.word	trap10,0340	; ill instr
+	.word	trap14,0340	; bpt/trace
+	.word	trap20,0340	; iot (prchar)
 
 	. = ZZ + 160
 	.word	rlintr
@@ -105,29 +119,52 @@ start:
 	mov	#7600,-(r0)
 	mov	#1,@#MMR0
 
-	; make thread block for thread that handles drive 0
+	mov	#200,r1		; first thread uses identity mapping for pages 1..6
+				; subsequent threads use different mem for pages 1..6
+
+	; init thread block for thread that handles drive 0
+	bit	#01,@#SWLI
+	beq	200$
 	mov	#dr0thr,r0	; point to thread block
-	mov	#200,r1		; use identity mapping for pages 1..6
 	clr	r3		; pass 0 as drive number
 	jsr	r5,thinit
 		.word	stktop
 		.word	tstart
+200$:
 
-	; other threads use their own memory for pages 1..6
+	; init thread blocks for any other selected drives
+	bit	#02,@#SWLI
+	beq	300$
 	mov	#dr1thr,r0
 	mov	#1,r3
 	jsr	r5,thinit
 		.word	stktop
 		.word	tstart
+300$:
 
+	bit	#04,@#SWLI
+	beq	400$
 	mov	#dr2thr,r0
 	mov	#2,r3
 	jsr	r5,thinit
 		.word	stktop
 		.word	tstart
+400$:
+
+	bit	#10,@#SWLI
+	beq	500$
+	mov	#dr3thr,r0
+	mov	#3,r3
+	jsr	r5,thinit
+		.word	stktop
+		.word	tstart
+500$:
 
 	; grab a runnable thread
 	jmp	thbegn
+;;;;	mov	#360,-(sp)	;;;; turn trace trap on
+;;;;	mov	#thbegn,-(sp)	;;;;
+;;;;	rti			;;;;
 
 	; testing starts here in per-thread context
 
@@ -150,6 +187,41 @@ tstart:
 	clr	r4
 	mov	#NBLKS/2,r5
 100$:
+	jsr	pc,wbrand	; fill block pair with random numbers
+
+	add	#2,r4		; on to next block pair
+	sob	r5,100$
+
+	jsr	r5,prascz
+		.asciz	"testing drive "
+		.even
+	mov	drivno,r1
+	jsr	pc,prdcml
+	jsr	pc,prcrlf
+
+bgloop:
+	jsr	pc,random	; get random block number
+	mov	r0,r1
+	clr	r0
+	div	#NBLKS/2,r0
+	mov	r1,r4		; read block pair
+	asl	r4
+	jsr	pc,random	; but do a write about 1/4 the time
+	bit	#3,r0
+	bne	100$
+	jsr	pc,wbrand
+	br	bgloop
+100$:
+	jsr	pc,rbrand
+	br	bgloop
+
+; fill blockpair with random data
+;  input:
+;   r4 = block number (must be even)
+;   drivno = drive number
+;  scratch:
+;   r0..r3
+wbrand:
 	mov	seed,blseed(r4)	; save seed for block pair
 	mov	#256.,r2	; fill buffer with randoms for two blocks
 	mov	#blbuff,r3
@@ -164,20 +236,15 @@ tstart:
 	mov	r4,r3		; block number
 	jsr	r5,rlrwlb	; write logical blocks
 		.word	RLCSWR
+	rts	pc
 
-	add	#2,r4		; on to next block pair
-	sob	r5,100$
-
-	jsr	r5,prascz
-		.asciz	"testing"<15><12>
-
-bgloop:
-	jsr	pc,random	; get random block number
-	mov	r0,r1
-	clr	r0
-	div	#NBLKS/2,r0
-	mov	r1,r4		; read block pair
-	asl	r4
+; verify blockpair contains correct random data
+;  input:
+;   r4 = block number (must be even)
+;   drivno = drive number
+;  scratch:
+;   r0..r3
+rbrand:
 	mov	#blbuff,r1
 	mov	#256.,r0
 	mov	drivno,r2
@@ -197,13 +264,20 @@ bgloop:
 	sob	r2,100$
 
 	mov	(sp)+,seed
-
-	br	bgloop
+	rts	pc
 
 badata:
 	jsr	r5,prascz
-		.asciz	"bad data"<15><12>
+		.asciz	"bad data drive "
 		.even
+	mov	drivno,r1
+	jsr	pc,prdcml
+	jsr	r5,prascz
+		.asciz	" block "
+		.even
+	mov	r4,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
 	halt
 	br	.-2
 
@@ -567,11 +641,29 @@ trapxx:
 	halt
 	br	.-2
 
+trap14:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz " PC="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz " PS="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	rtt
+
 ; print asciz string following the jsr r5 call
 prascz:
 	movb	(r5)+,r0
 	beq	100$
-	jsr	pc,prchar
+	iot
 	br	prascz
 100$:
 	inc	r5
@@ -586,13 +678,13 @@ prascz:
 proct6:
 	mov	#30,r0
 	ashc	#1,r0
-	jsr	pc,prchar
+	iot
 	mov	r2,-(sp)
 	mov	#5,r2
 100$:
 	mov	#6,r0
 	ashc	#3,r0
-	jsr	pc,prchar
+	iot
 	sob	r2,100$
 	mov	(sp)+,r2
 	rts	pc
@@ -613,7 +705,7 @@ prdcml:
 	bne	100$
 	mov	(sp)+,r0
 200$:
-	jsr	pc,prchar
+	iot
 	mov	(sp)+,r0
 	bne	200$
 	rts	pc
@@ -623,25 +715,29 @@ prdcml:
 ;   r0
 prcrlf:
 	mov	#15,r0
-	jsr	pc,prchar
+	iot
 	mov	#12,r0
+	iot
+	rts	pc
 
 ; print single character in r0
 ;  input:
 ;   r0 = character to print
-prchar:
+trap20:
 	tstb	@#177564
-	bpl	prchar
+	bpl	trap20
 	movb	r0,@#177566
-	rts	pc
+	rti
 
 
 
 dr0thr:	.blkb	T.SIZE
 dr1thr:	.blkb	T.SIZE
 dr2thr:	.blkb	T.SIZE
+dr3thr:	.blkb	T.SIZE
 
-; per-thread space (48KB)
+; per-thread space
+; pages 1..6 (48KB)
 
 	. = ZZ + 0020000
 

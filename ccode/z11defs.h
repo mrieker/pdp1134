@@ -31,6 +31,8 @@
 #define Z_RE 5
 #define Z_RF 6
 #define Z_RG 7
+#define Z_RJ 10
+#define Z_RK 11
 
 #define a_man_d_out_h     (0177777U << 0)
 #define a_man_ssyn_out_h  (1U << 16)
@@ -120,6 +122,10 @@
 
 #define g_dmx_d_in_h  (0177777U << 16)
 #define g_dev_d_h     (0177777U <<  0)
+
+#define j_simpc (0x0000FFFFU)
+#define j_simps (0xFFFF0000U)
+#define k_simst (0x0000003FU)
 
 #define ILACTL 034
 #define ILATIM 035

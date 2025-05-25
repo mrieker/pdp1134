@@ -325,12 +325,15 @@ void *rlthread (void *dummy)
 
                 // NOP
                 case 0: {
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   nop\n");
                     break;
                 }
 
                 // WRITE CHECK
                 case 1: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
+
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   writecheck wc=%05u da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
                     if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
                         if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
@@ -372,6 +375,7 @@ void *rlthread (void *dummy)
 
                 // GET STATUS
                 case 2: {
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   getstatus\n");
                     if (rlda & 8) {                     // reset
                         vcs[drivesel] = false;
                     }
@@ -388,6 +392,8 @@ void *rlthread (void *dummy)
                 case 3: {
                     if (fd < 0) goto opierr;
 
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   seek da=%06o\n", rlda);
+
                     int32_t newcyl = latestpositions[drivesel] >> 7;
                     if (rlda & 4) newcyl += rlda >> 7;
                              else newcyl -= rlda >> 7;
@@ -403,6 +409,7 @@ void *rlthread (void *dummy)
 
                 // READ HEADER
                 case 4: {
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   readheader\n");
                     usleep (AVGROTUS + seekdelay);
                     rlmp = latestpositions[drivesel] | nowus % SECPERTRK;
                     break;
@@ -411,6 +418,8 @@ void *rlthread (void *dummy)
                 // WRITE DATA
                 case 5: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
+
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   writedata wc=%05u da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
                     if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
                         if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
@@ -457,6 +466,8 @@ void *rlthread (void *dummy)
                 case 6: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   readdata wc=%05u da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+
                     if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
                         if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
                         goto hnferr;
@@ -496,6 +507,7 @@ void *rlthread (void *dummy)
 
                 // READ DATA WITHOUT HEADER CHECK
                 case 7: {
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   read data without header check\n");
                     goto opierr;
                 }
             }

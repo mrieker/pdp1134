@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314016;
+    localparam VERSION = 32'h31314017;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -126,7 +126,7 @@ module Zynq (
     reg[11:02] readaddr, writeaddr;
 
     localparam ILAADDRBITS = 13;    // 13 = 8K = 81.92uS
-    reg[95:00] ilaarray[(1<<ILAADDRBITS)-1:0], ilardata, ilacurwd;
+    reg[63:00] ilaarray[(1<<ILAADDRBITS)-1:0], ilardata, ilacurwd;
     reg[14:00] ilaafter, ilaindex;
     reg ilaarmed, ilaoflow;
 
@@ -136,6 +136,7 @@ module Zynq (
 
     // arm writes these to control fpga
     reg[31:00] regctla, regctlb, regctli;
+    wire[31:00] regctlj, regctlk;
 
     // regctla[31:30] determine overall FPGA mode
     wire[1:0] fpgamode = regctla[31:30];
@@ -144,7 +145,7 @@ module Zynq (
     localparam FM_REAL = 2;     // real - connected to outside signals
     localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
 
-    wire[31:00] regctlh = 0;    // debug display in z11dump
+    wire[31:00] regctlh;        // debug display in z11dump
 
     // wired-and/or of signals from all devices
     // includes unibus whenever in FM_REAL mode
@@ -351,9 +352,15 @@ module Zynq (
 
     wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
 
+    assign regctlk[31:06] = 0;
+
     sim1134 siminst (
         .CLOCK (CLOCK),
         .RESET (sim_reset_h),
+
+        .pcout (regctlj[15:00]),
+        .psout (regctlj[31:16]),
+        .stout (regctlk[05:00]),
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -493,8 +500,10 @@ module Zynq (
         (readaddr        == 10'b0000000111) ? regctlg     :
         (readaddr        == 10'b0000001000) ? regctlh     :
         (readaddr        == 10'b0000001001) ? regctli     :
+        (readaddr        == 10'b0000001010) ? regctlj     :
+        (readaddr        == 10'b0000001011) ? regctlk     :
         (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
-        (readaddr        == 10'b0000011101) ? { ilardata[95:64] } :
+        (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
         (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
         (readaddr[11:05] ==  7'b0000100)    ? bmarmrdata  :
@@ -958,6 +967,7 @@ module Zynq (
                 dev_ac_lo_h = wor_ac_lo_h;
                 dev_bbsy_h  = wor_bbsy_h;
                 dev_bg_l    = ~ sim_bg_out_h;
+                dev_br_h    = wor_br_h;
                 dev_c_h     = wor_c_h;
                 dev_d_h     = wor_d_h;
                 dev_dc_lo_h = wor_dc_lo_h;
@@ -1061,6 +1071,9 @@ module Zynq (
         endcase
     end
 
+    // debug register on z11dump page
+    assign regctlh = { 16'hABCD, 5'b0, dev_bbsy_h, dev_intr_h, dev_sack_h, sim_bg_out_h, dev_br_h };
+
     /////////////////////////////////
     //  integrated logic analyzer  //
     /////////////////////////////////
@@ -1074,59 +1087,42 @@ module Zynq (
 
     always @(*) begin
         ilacurwd = {
-            dmx_a_in_h[15:02],  //82
-            del_msyn_in_h,      //81
-            del_ssyn_in_h,      //80
-            dmx_d_in_h,         //64
-            muxa,               //63
-            muxb,               //62
-            muxc,               //61
-            muxd,               //60
-            muxe,               //59
-            muxf,               //58
-            muxh,               //57
-            muxj,               //56
-            muxk,               //55
-            muxl,               //54
-            muxm,               //53
-            muxn,               //52
-            muxp,               //51
-            muxr,               //50
-            muxs,               //49
-            rseln,              //47
-            bbsy_in_h,          //46
-            msyn_in_h,          //45
-            npg_in_l,           //44
-            sack_in_h,          //43
-            ssyn_in_h,          //42
-            bbsy_out_h,         //41
-            msyn_out_h,         //40
-            npg_out_l,          //39
-            npr_out_h,          //38
-            sack_out_h,         //37
-            ssyn_out_h,         //36
-            a_out_h,            //18
-            c_out_h,            //16
-            d_out_h             //00
+            wor_intr_h,         //63
+            rlintreq,           //62
+            intvec5,            //54
+
+////        dev_a_h,            //36
+            6'b0,               //48
+            regctlk[5:0],       //42 simst
+            2'b0,               //40
+            sim_bg_out_h,       //36
+
+            dev_bbsy_h,         //35
+            dev_bg_l,           //31
+            dev_br_h,           //27
+            dev_c_h,            //25
+            regctlj[31:16],     //09 simps[15:00]
+////        dev_d_h,            //09
+            dev_init_h,         //08
+            dev_intr_h,         //07
+            dev_del_msyn_h,     //06
+            dev_syn_msyn_h,     //05
+            dev_npg_l,          //04
+            dev_npr_h,          //03
+            dev_sack_h,         //02
+            dev_del_ssyn_h,     //01
+            dev_syn_ssyn_h      //00
 /***
-            ac_lo_in_h,
-            dc_lo_in_h,
-            hltgr_in_l,
-            init_in_h,
-            intr_in_h,
-            bg_in_l,
-            ac_lo_out_h,
-            dc_lo_out_h,
-            hltrq_out_h,
-            init_out_h,
-            intr_out_h,
-            pa_out_h,
-            pb_out_h,
-            bg_out_l,
-            br_out_h,
+            dev_ac_lo_h,        //40
+            dev_dc_lo_h,        //12
+            dev_hltgr_l,        //11
+            dev_hltld_h,        //10
+            dev_hltrq_h,        //09
 ***/
         };
     end
+
+    wire ilatrigr = (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
 
     always @(posedge CLOCK) begin
         if (fpgaoff) begin
@@ -1154,10 +1150,7 @@ module Zynq (
                 if (~ ilaarmed) ilaafter <= ilaafter - 1;
 
                 // check trigger condition
-                ////if (rsel1_h & muxc) begin   // - hltrq_in_h
-                if (~ dev_hltgr_l) begin
-                ////if (wor_msyn_h) begin
-                ////if (armwrite) begin
+                if (ilatrigr) begin
                     ilaarmed <= 0;
                 end
             end

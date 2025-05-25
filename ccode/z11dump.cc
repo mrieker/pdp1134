@@ -202,9 +202,9 @@ int main (int argc, char **argv)
             printf ("   man_intr_out_h=%o        intr_in_h=%o       dev_intr_h=%o%s",       FIELD(Z_RA,a_man_intr_out_h),   FIELD(Z_RC,c_intr_in_h),       FIELD(Z_RD,d_dev_intr_h),   eol);
             printf ("   man_msyn_out_h=%o        msyn_in_h=%o       dev_msyn_h=%o%s",       FIELD(Z_RA,a_man_msyn_out_h),   FIELD(Z_RC,c_msyn_in_h),       FIELD(Z_RD,d_dev_msyn_h),   eol);
             printf ("    man_npg_out_l=%o         npg_in_l=%o        dev_npg_l=%o%s",       FIELD(Z_RA,a_man_npg_out_l),    FIELD(Z_RC,c_npg_in_l),        FIELD(Z_RD,d_dev_npg_l),    eol);
-            printf ("    man_npr_out_h=%o     dmx_npr_in_h=%o        dev_npr_h=%o%s",       FIELD(Z_RA,a_man_npr_out_h),    FIELD(Z_RE,e_dmx_npr_in_h),    FIELD(Z_RD,d_dev_npr_h),    eol);
-            printf ("   man_sack_out_h=%o        sack_in_h=%o       dev_sack_h=%o%s",       FIELD(Z_RA,a_man_sack_out_h),   FIELD(Z_RC,c_sack_in_h),       FIELD(Z_RD,d_dev_sack_h),   eol);
-            printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o%s",       FIELD(Z_RA,a_man_ssyn_out_h),   FIELD(Z_RC,c_ssyn_in_h),       FIELD(Z_RD,d_dev_ssyn_h),   eol);
+            printf ("    man_npr_out_h=%o     dmx_npr_in_h=%o        dev_npr_h=%o       simst=%02u%s", FIELD(Z_RA,a_man_npr_out_h),  FIELD(Z_RE,e_dmx_npr_in_h), FIELD(Z_RD,d_dev_npr_h),  FIELD(Z_RK,k_simst), eol);
+            printf ("   man_sack_out_h=%o        sack_in_h=%o       dev_sack_h=%o       simpc=%06o%s", FIELD(Z_RA,a_man_sack_out_h), FIELD(Z_RC,c_sack_in_h),    FIELD(Z_RD,d_dev_sack_h), FIELD(Z_RJ,j_simpc), eol);
+            printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o       simps=%06o%s", FIELD(Z_RA,a_man_ssyn_out_h), FIELD(Z_RC,c_ssyn_in_h),    FIELD(Z_RD,d_dev_ssyn_h), FIELD(Z_RJ,j_simps), eol);
             printf ("%s", eol);
             printf ("  man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], eol);
             printf ("  ILA_ARMED=%o  ILA_AFTER=%05o  ILA_OFLOW=%o  ILA_INDEX=%05o%s", FIELD(ILACTL,ILACTL_ARMED), FIELD(ILACTL,ILACTL_AFTER), FIELD(ILACTL,ILACTL_OFLOW), FIELD(ILACTL,ILACTL_INDEX), eol);
