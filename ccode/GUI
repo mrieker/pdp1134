@@ -1,0 +1,10 @@
+#!/bin/bash
+#
+#  Run GUI program
+#
+dir=`dirname $0`
+unm=`uname -m`
+$dir/loadmod.sh
+export CLASSPATH=$0.jar
+export LD_LIBRARY_PATH=$dir
+exec java -Dunamem=$unm GUI "$@"

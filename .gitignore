@@ -4,14 +4,17 @@
 *-backups
 *.class
 *.ftb
+*.jar
 *.lst
 *.o
 *.obj
+*.so
 *.x86_64
 .nfs*
 div
 fp-info-cache
 gerber
+GUIZynqPage.h
 obj_dir
 pix
 test
