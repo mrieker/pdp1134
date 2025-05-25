@@ -294,6 +294,7 @@ module swlight (
             end
 
             // wait up to 10uS for ssyn
+            // if timeout, release everything and leave dmafail set
             4: begin
                 if (del_ssyn_in_h) begin
                     dmadelay   <= 0;
@@ -301,7 +302,7 @@ module swlight (
                 end else if (dmadelay != 1000) begin
                     dmadelay   <= dmadelay + 1;
                 end else begin
-                    bbsy_out_h <= 1;
+                    bbsy_out_h <= 0;
                     dmastate   <= 0;
                     msyn_out_h <= 0;
                 end

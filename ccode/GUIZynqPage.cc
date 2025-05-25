@@ -96,9 +96,9 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_reset
     slat[2] |= SL2_HALTREQ;     // so it halts when started back up
     pdpat[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
     usleep (200000);
-    pdpat[Z_RA] &= a_man_dc_lo_out_h;
+    pdpat[Z_RA] &= ~ a_man_dc_lo_out_h;
     usleep (1000);
-    pdpat[Z_RA] &= a_man_ac_lo_out_h;
+    pdpat[Z_RA] &= ~ a_man_ac_lo_out_h;
     return 0;
 }
 
@@ -176,6 +176,10 @@ JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
   (JNIEnv *env, jclass klass, jint addr)
 {
+    // shortcut to read switch register
+    if (addr == 0777570) return slat[1] & 0xFFFF;
+
+    // long way around for everything else
     uint16_t data;
     return z11page->dmaread (addr, &data) ? ((uint32_t) data) : -1;
 }

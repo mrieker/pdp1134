@@ -20,14 +20,17 @@
 
 // GUI panel
 
-// ./GUI -randmem -printinstr
-// ./GUI ../silly/doubleroll.oct
+// run directly on zturn:
+//  ./GUI
 
 // can also do client/server:
 //  on zturn:
 //   ./GUI -listen 1234
 //  on homepc/raspi:
-//   ./GUI -connect zturn:1234 -randmem -printinstr
+//   ./GUI -connect zturn:1234
+
+// apt install default-jdk
+// ln -s /usr/lib/jvm/java-11-openjdk-armhf /opt/jdk
 
 import java.awt.Color;
 import java.awt.Dimension;
@@ -53,6 +56,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 public class GUI extends JPanel {
+
+    public final static Color ledoncolor = Color.CYAN;
 
     public final static int UPDMS = 100;
 
@@ -529,6 +534,8 @@ public class GUI extends JPanel {
     public static StartButton startbutton;
     public static ResetButton resetbutton;
 
+    public static JLabel messagelabel;
+
     // update display with processor state
     public final static ActionListener updisplay =
         new ActionListener () {
@@ -735,6 +742,11 @@ public class GUI extends JPanel {
 
         buttonbox1.add (runled = new LED ());
         buttonbox1.add (berrled = new LED ());
+
+        JPanel messagebox = new JPanel ();
+        add (messagebox);
+        messagebox.add (messagelabel = new JLabel ());
+        messagelabel.setText (" ");
     }
 
     public static JLabel centeredLabel (String label)
@@ -817,7 +829,7 @@ public class GUI extends JPanel {
         {
             g.setColor (Color.GRAY);
             g.fillArc (P - 3, P - 3, D + 6, D + 6, 0, 360);
-            Color ledcolor = ison ? Color.RED : Color.BLACK;
+            Color ledcolor = ison ? ledoncolor : Color.BLACK;
             g.setColor (ledcolor);
             g.fillArc (P, P, D, D, 0, 360);
         }
@@ -843,7 +855,7 @@ public class GUI extends JPanel {
         public void actionPerformed (ActionEvent ae)
         {
             setOn (! ison);
-            access.setsr (readswitches () & 077777);
+            access.setsr (readswitches () & 0177777);
         }
 
         public void setOn (boolean on)
@@ -859,7 +871,7 @@ public class GUI extends JPanel {
         {
             g.setColor (Color.GRAY);
             g.fillArc (P - 3, P - 3, D + 6, D + 6, 0, 360);
-            Color ledcolor = ison ? Color.RED : Color.BLACK;
+            Color ledcolor = ison ? ledoncolor : Color.BLACK;
             g.setColor (ledcolor);
             g.fillArc (P, P, D, D, 0, 360);
         }
@@ -875,7 +887,9 @@ public class GUI extends JPanel {
         @Override  // ActionListener
         public void actionPerformed (ActionEvent ae)
         {
+            messagelabel.setText ("stepping processor");
             access.step ();
+            if (checkforhalt ()) displaypcps ();
             updisplay.actionPerformed (null);
         }
     }
@@ -887,6 +901,38 @@ public class GUI extends JPanel {
     public static int loadedaddress;
     public static int autoincloadedaddress;
 
+    public static boolean checkforhalt ()
+    {
+        for (int i = 0; GUIZynqPage.running (); i ++) {
+            if (i > 100000) {
+                messagelabel.setText ("processor failed to halt");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static void displaypcps ()
+    {
+        int pc = access.rdmem (0777707);
+        String text = "";
+        if (pc >= 0) {
+            loadedaddress = pc;
+            autoincloadedaddress = 0;
+            writeaddrleds (pc);
+            text += String.format ("stopped at PC %06o", pc);
+        } else {
+            text += "stopped at PC unknown";
+        }
+        int ps = access.rdmem (0777776);
+        if (ps >= 0) {
+            text += String.format (", stopped at PS %06o", ps);
+        } else {
+            text += "stopped at PS unknown";
+        }
+        messagelabel.setText (text);
+    }
+
     // - load address button
     public static class LdAdButton extends MemButton {
         public LdAdButton ()
@@ -897,10 +943,12 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            messagelabel.setText ("");
             autoincloadedaddress = 0;
             loadedaddress = readswitches () & 0777777;
             writeaddrleds (loadedaddress);
             writedataleds (0);
+            messagelabel.setText (String.format ("loaded address %06o", loadedaddress));
         }
     }
 
@@ -914,6 +962,7 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            messagelabel.setText ("");
             if (autoincloadedaddress < 0) {
                 int inc = ((loadedaddress >= 0777700) && (loadedaddress <= 0777717)) ? 1 : 2;
                 loadedaddress = (loadedaddress + inc) & 0777777;
@@ -923,6 +972,8 @@ public class GUI extends JPanel {
             berrled.setOn (rc < 0);
             writedataleds (rc & 0177777);
             autoincloadedaddress = -1;
+            if (rc < 0) messagelabel.setText (String.format ("examined address %06o, bus timed out", loadedaddress));
+            else messagelabel.setText (String.format ("examined address %06o, data %06o", loadedaddress, rc & 0177777));
         }
     }
 
@@ -936,6 +987,7 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            messagelabel.setText ("");
             if (autoincloadedaddress > 0) {
                 int inc = ((loadedaddress >= 0777700) && (loadedaddress <= 0777717)) ? 1 : 2;
                 loadedaddress = (loadedaddress + inc) & 0777777;
@@ -946,6 +998,8 @@ public class GUI extends JPanel {
             berrled.setOn (rc < 0);
             writedataleds (data);
             autoincloadedaddress = 1;
+            if (rc < 0) messagelabel.setText (String.format ("deposited to address %06o, bus timed out", loadedaddress));
+            else messagelabel.setText (String.format ("deposited to address %06o, data %06o", loadedaddress, data));
         }
     }
 
@@ -959,7 +1013,9 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
-            access.reset ();
+            messagelabel.setText ("halting processor");
+            access.halt ();
+            if (checkforhalt ()) displaypcps ();
             updisplay.actionPerformed (null);
         }
     }
@@ -974,7 +1030,8 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
-            access.reset ();
+            messagelabel.setText ("resuming processor");
+            access.cont ();
             updisplay.actionPerformed (null);
         }
     }
@@ -989,7 +1046,9 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            messagelabel.setText ("resetting processor");
             access.reset ();
+            checkforhalt ();
             updisplay.actionPerformed (null);
         }
     }
@@ -1004,10 +1063,19 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            messagelabel.setText ("resetting processor");
             access.reset ();
-            access.wrmem (0777707, loadedaddress);
-            access.wrmem (0777776, 0340);
-            access.cont  ();
+            if (checkforhalt ()) {
+                messagelabel.setText ("writing PC and PS");
+                if (access.wrmem (0777707, loadedaddress) < 0) {
+                    messagelabel.setText ("writing PC failed");
+                } else if (access.wrmem (0777776, 0340) < 0) {
+                    messagelabel.setText ("writing PS failed");
+                } else {
+                    messagelabel.setText ("resuming processor");
+                    access.cont  ();
+                }
+            }
             updisplay.actionPerformed (null);
         }
     }
