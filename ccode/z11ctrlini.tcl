@@ -10,10 +10,12 @@ proc helpini {} {
     puts "  bmwrword addr data - write word to fpga memory"
     puts "       dumpmem lo hi - dump memory from lo to hi address"
     puts "           flickcont - continue processing"
-    puts "  flickstart pc [ps] - reset processor and start at given address"
+    puts "  flickstart pc \[ps\] - reset processor and start at given address"
     puts "           flickstep - step processor one instruction then print PC"
     puts "                       can be used as an halt if processor running"
     puts "           hardreset - hard reset processor to halted state"
+    puts "             loadbin - load binary tape file, return start address"
+    puts "             loadlst - load from MACRO11 listing"
     puts "             lockdma - lock access to dma controller"
     puts "             octal x - convert integer x to 6-digit octal string"
     puts "         rdbyte addr - read byte at given physical address"
@@ -178,6 +180,83 @@ proc hardreset {} {
             error "hardreset: processor did not halt"
         }
     }
+}
+
+# load binary tape file
+# returns start address
+proc loadbin {binname} {
+    set binfile [open $binname]
+    fconfigure $binfile -translation binary
+    set state "lolead"
+    while {$state != "done"} {
+        set ch [read $binfile 1]
+        if {$ch == ""} {
+            error "no termination block"
+        }
+        scan $ch "%c" by
+        switch $state {
+            "lolead" {
+                if {$by == 1} {
+                    set state "hilead"
+                    set cksum 1
+                } elseif {$by != 0} {
+                    error "bad leader byte $by"
+                }
+            }
+            "hilead" {
+                if {$by != 0} {
+                    error "bad 2nd leader byte $by"
+                }
+                set state "losize"
+            }
+            "losize" {
+                incr cksum $by
+                set size $by
+                set state "hisize"
+            }
+            "hisize" {
+                incr cksum $by
+                incr size [expr {$by << 8}]
+                if {$size < 6} {
+                    error "bad size $size"
+                }
+                incr size -6
+                set state "loaddr"
+            }
+            "loaddr" {
+                incr cksum $by
+                set addr $by
+                set state "hiaddr"
+            }
+            "hiaddr" {
+                incr cksum $by
+                incr addr [expr {$by << 8}]
+                puts [format "loadbin: loading %06o at %06o" $size $addr]
+                set state [expr {($size == 0) ? "end" : "data"}]
+            }
+            "data" {
+                incr cksum $by
+                if {$size > 0} {
+                    wrbyte $addr $by
+                    incr addr
+                    incr size -1
+                } elseif {($cksum & 255) != 0} {
+                    error "bad checksum $cksum ending at $addr"
+                } else {
+                    set state "lolead"
+                }
+            }
+            "end" {
+                incr cksum $by
+                if {($cksum & 255) != 0} {
+                    error "bad checksum $cksum ending at $addr"
+                }
+                set state "done"
+            }
+        }
+    }
+    close $binfile
+    return $addr
 }
 
 # load from MACRO11 listing
