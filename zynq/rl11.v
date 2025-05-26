@@ -43,18 +43,17 @@ module rl11
     output reg ssyn_out_h);
 
     reg enable;
-    reg[15:00] rlba, rlda, rlmp, rhda, rhcrc;
+    reg[15:00] rlba, rlda, rlmp1, rlmp2, rlmp3;
     reg rlcs_15, rlcs_14, rlcs_00;
     reg[13:01] rlcs_1301;
     reg[3:0] driveerrors, drivereadys;
     wire[1:0] driveselect = rlcs_1301[09:08];
-    reg[1:0] mpmux;
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2001 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h524C2002 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rlba,  rlcs_15, rlcs_14, rlcs_1301, rlcs_00 } :
-                      (armraddr == 2) ? { rlmp,  rlda } :
-                      (armraddr == 3) ? { rhcrc, rhda } :
-                      (armraddr == 4) ? { 22'b0, mpmux, driveerrors, drivereadys } :
+                      (armraddr == 2) ? { rlmp1, rlda  } :
+                      (armraddr == 3) ? { rlmp3, rlmp2 } :
+                      (armraddr == 4) ? { 24'b0, driveerrors, drivereadys } :
                       (armraddr == 5) ? { enable, 5'b0, INTVEC, ADDR } :
                       32'hDEADBEEF;
 
@@ -75,8 +74,6 @@ module rl11
                 drivereadys <= 0;
             end
 
-            mpmux <= 0;
-
             rlcs_1301   <= 13'b0000001000000;
             rlba[15:00] <= 0;
             rlda[15:00] <= 0;
@@ -93,15 +90,14 @@ module rl11
                     rlcs_1301 <= armwdata[13:01];
                 end
                 2: begin
-                    rlmp  <= armwdata[31:16];
+                    rlmp1 <= armwdata[31:16];
                     rlda  <= armwdata[15:00];
                 end
                 3: begin
-                    rhcrc <= armwdata[31:16];
-                    rhda  <= armwdata[15:00];
+                    rlmp3 <= armwdata[31:16];
+                    rlmp2 <= armwdata[15:00];
                 end
                 4: begin
-                    mpmux       <= armwdata[09:08];
                     driveerrors <= armwdata[07:04];
                     drivereadys <= armwdata[03:00];
                 end
@@ -153,10 +149,14 @@ module rl11
                     // pdp writing multi-purpose
                     3: begin
                         if (~ c_in_h[0] |   a_in_h[00]) begin
-                            rlmp[15:08] <= d_in_h[15:08];
+                            rlmp1[15:08] <= d_in_h[15:08];
+                            rlmp2[15:08] <= d_in_h[15:08];
+                            rlmp3[15:08] <= d_in_h[15:08];
                         end
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                            rlmp[07:00] <= d_in_h[07:00];
+                            rlmp1[07:00] <= d_in_h[07:00];
+                            rlmp2[07:00] <= d_in_h[07:00];
+                            rlmp3[07:00] <= d_in_h[07:00];
                         end
                     end
                 endcase
@@ -167,12 +167,7 @@ module rl11
                     0: begin d_out_h <= { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 }; end
                     1: begin d_out_h <= rlba; end
                     2: begin d_out_h <= rlda; end
-                    3: case (mpmux)
-                        0: d_out_h <= rlmp;
-                        1: begin d_out_h <= rhda;  mpmux <= 2; end
-                        2: begin d_out_h <= 0;     mpmux <= 3; end
-                        3: begin d_out_h <= rhcrc; mpmux <= 0; end
-                    endcase
+                    3: begin d_out_h <= rlmp1; rlmp1 <= rlmp2; rlmp2 <= rlmp3; rlmp3 <= rlmp1; end
                 endcase
             end
         end

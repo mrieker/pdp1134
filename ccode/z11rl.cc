@@ -57,13 +57,13 @@
 #define RL1_RLCS  0x0000FFFFU
 #define RL1_RLBA  0xFFFF0000U
 #define RL2_RLDA  0x0000FFFFU
-#define RL2_RLMP  0xFFFF0000U
-#define RL3_RHDA  0x0000FFFFU
-#define RL3_RHCRC 0xFFFF0000U
+#define RL2_RLMP1 0xFFFF0000U
+#define RL3_RLMP2 0x0000FFFFU
+#define RL3_RLMP3 0xFFFF0000U
 #define RL4_DRDY  0x0000000FU
 #define RL4_DERR  0x000000F0U
-#define RL4_MPMUX 0x00000100U
 #define RL5_ENAB  0x80000000U
+#define RL4_DRDY0 (RL4_DRDY & - RL4_DRDY)
 
 #define RFLD(n,m) ((rlat[n] & m) / (m & - m))
 
@@ -295,13 +295,18 @@ void *rlthread (void *dummy)
 
         LOCKIT;
 
+        struct timespec nowts;
+        if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
+        uint64_t nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
+
         uint16_t rlcs = RFLD (1, RL1_RLCS);
         if (! (rlcs & 0x0080)) {
             uint16_t rlba = RFLD (1, RL1_RLBA) & 0xFFFEU;
             uint16_t rlda = RFLD (2, RL2_RLDA);
-            uint16_t rlmp = RFLD (2, RL2_RLMP);
+            uint16_t rlmp = RFLD (2, RL2_RLMP1);
+            uint16_t rlmp2, rlmp3;
 
-            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread: start RLCS=%04X RLBA=%04X RLDA=%04X RLMP=%04X\n", rlcs, rlba, rlda, rlmp);
+            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread: start RLCS=%06o RLBA=%06o RLDA=%06o RLMP=%06o\n", rlcs, rlba, rlda, rlmp);
 
             uint32_t rlxba = ((rlcs & 0x30) << 12) + rlba;
 
@@ -309,10 +314,7 @@ void *rlthread (void *dummy)
 
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];
-
-            struct timespec nowts;
-            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
-            uint64_t nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
+            rlat[4] &= ~ (RL4_DRDY0 << drivesel);
 
             uint32_t seekdelay = 0;
             if (seekdoneats[drivesel] > nowus) {
@@ -333,7 +335,7 @@ void *rlthread (void *dummy)
                 case 1: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
-                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   writecheck wc=%05u da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   writecheck wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
                     if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
                         if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
@@ -383,6 +385,7 @@ void *rlthread (void *dummy)
                     if (ros[drivesel]) rlmp |= 0x2000U; // write locked
                     if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
                     rlmp |= latestpositions[drivesel] & 0x0040U; // head select
+                    if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk
                     if (seekdelay > 0) rlmp |= 0x0004U; // seeking
                     else if (fd >= 0)  rlmp |= 0x0005U; // 'lock on'
                     break;
@@ -411,15 +414,17 @@ void *rlthread (void *dummy)
                 case 4: {
                     if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   readheader\n");
                     usleep (AVGROTUS + seekdelay);
-                    rlmp = latestpositions[drivesel] | nowus % SECPERTRK;
-                    break;
+                    rlmp  = latestpositions[drivesel] | nowus % SECPERTRK;
+                    rlmp2 = 0;
+                    rlmp3 = 0;
+                    goto rhddone;
                 }
 
                 // WRITE DATA
                 case 5: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
-                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   writedata wc=%05u da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   writedata wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
                     if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
                         if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
@@ -466,7 +471,7 @@ void *rlthread (void *dummy)
                 case 6: {
                     usleep (AVGROTUS + (65536 - rlmp) * USPERWRD + seekdelay);
 
-                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   readdata wc=%05u da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+                    if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:   readdata wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
                     if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
                         if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
@@ -524,11 +529,29 @@ void *rlthread (void *dummy)
         nxmerr:;
             rlcs |= 8U << 10;                       // non-existant memory
         alldone:;
+            rlmp3 = rlmp2 = rlmp;
+        rhddone:;
             rlcs    = (rlcs & ~ 0x30) | 0x80 | ((rlxba >> 12) & 0x30);
-            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:  done RLCS=%04X RLBA=%04X RLDA=%04X RLMP=%04X\n", rlcs, rlba, rlda, rlmp);
+            rlat[3] = ((uint32_t) rlmp3 << 16) | rlmp2;
+            uint32_t r3 = rlat[3];
             rlat[2] = ((uint32_t) rlmp  << 16) | rlda;
+            uint32_t r2 = rlat[2];
             rlat[1] = ((uint32_t) rlxba << 16) | rlcs;
+            uint32_t r1 = rlat[1];
+            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:  done RLCS=%06o RLBA=%06o RLDA=%06o RLMP=%06o %06o %06o\n",
+                    r1 & 0xFFFFU, r1 >> 16, r2 & 0xFFFFU, r2 >> 16, r3 & 0xFFFFU, r3 >> 16);
+
+            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
+            nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
         }
+
+        // always update drive readies
+        uint32_t drdy = 0;
+        for (int i = 4; -- i >= 0;) {
+            drdy += drdy + ((fds[i] >= 0) && (seekdoneats[i] <= nowus));
+        }
+        rlat[4] = (rlat[4] & ~ RL4_DRDY) | drdy * RL4_DRDY0;
+
         UNLKIT;
     }
 
