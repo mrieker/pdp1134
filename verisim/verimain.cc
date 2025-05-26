@@ -51,6 +51,8 @@ static void kerchunk ();
 
 int main (int argc, char **argv)
 {
+    setlinebuf (stdout);
+
     sockaddr_in servaddr;
     memset (&servaddr, 0, sizeof servaddr);
     servaddr.sin_family = AF_INET;

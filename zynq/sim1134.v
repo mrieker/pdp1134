@@ -168,7 +168,7 @@ module sim1134 (
     wire iRESET = (instreg == 5);
     wire iRTT   = (instreg == 6);
     wire iJMP   = (instreg[15:06] == 10'o0001) & (instreg[05:03] != 0);
-    wire iRTS   = (instreg[15:03] == 12'o0020);
+    wire iRTS   = (instreg[15:03] == 13'o0020);
     wire iSWAB  = (instreg[15:06] == 10'o0003);
     wire iJSR   = (instreg[15:09] ==   7'o004) & (instreg[05:03] != 0);
     wire iCLRb  = (instreg[14:06] ==   9'o050);

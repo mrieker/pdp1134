@@ -111,10 +111,17 @@ module MyBoard (
     end
 ***/
 
+    wire[15:00] sim_pcout, sim_psout;
+    wire[5:0] sim_stout;
+
     // fillin for the real pdp
     sim1134 fakeinst (
         .CLOCK (CLOCK),
         .RESET (~ RESET_N),
+
+        .pcout (sim_pcout),
+        .psout (sim_psout),
+        .stout (sim_stout),
 
         .bus_ac_lo_in_l   (bus_ac_lo_l),        //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (bus_bbsy_l),         //<< some device telling cpu it is using the bus as master

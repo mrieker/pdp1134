@@ -45,7 +45,7 @@ module dl11
     reg enable;
     reg[15:00] rcsr, rbuf, xcsr, xbuf;
 
-    assign armrdata = (armraddr == 0) ? 32'h444C1001 : // [31:16] = 'DL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h444C1002 : // [31:16] = 'DL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rbuf, rcsr } :
                       (armraddr == 2) ? { xbuf, xcsr } :
                       { enable, 5'b0, INTVEC, ADDR };
@@ -61,7 +61,7 @@ module dl11
                 enable <= 0;
             end
             rcsr       <= 0;
-            xcsr       <= 0;
+            xcsr       <= 16'o200;
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end
