@@ -23,9 +23,9 @@ public class GUIZynqPage {
 
     public native static int addr ();
     public native static int data ();
-    public native static int lreg ();
-    public native static int sreg ();
-    public native static boolean running ();
+    public native static int getlr ();
+    public native static int getsr ();
+    public native static int running ();
     public native static void setsr (int sr);
 
     public native static int rdmem (int addr);

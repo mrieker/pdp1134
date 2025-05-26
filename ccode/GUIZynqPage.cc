@@ -126,10 +126,10 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_data
 
 /*
  * Class:     GUIZynqPage
- * Method:    lreg
+ * Method:    getlr
  * Signature: ()I
  */
-JNIEXPORT jint JNICALL Java_GUIZynqPage_lreg
+JNIEXPORT jint JNICALL Java_GUIZynqPage_getlr
   (JNIEnv *env, jclass klass)
 {
     return (slat[1] >> 16) & 0xFFFF;
@@ -137,10 +137,10 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_lreg
 
 /*
  * Class:     GUIZynqPage
- * Method:    sreg
+ * Method:    getsr
  * Signature: ()I
  */
-JNIEXPORT jint JNICALL Java_GUIZynqPage_sreg
+JNIEXPORT jint JNICALL Java_GUIZynqPage_getsr
   (JNIEnv *env, jclass klass)
 {
     return slat[1] & 0xFFFF;
@@ -149,12 +149,13 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_sreg
 /*
  * Class:     GUIZynqPage
  * Method:    running
- * Signature: ()Z
+ * Signature: ()I
  */
-JNIEXPORT jboolean JNICALL Java_GUIZynqPage_running
+JNIEXPORT jint JNICALL Java_GUIZynqPage_running
   (JNIEnv *env, jclass klass)
 {
-    return ! (slat[2] & SL2_HALTED);
+    if (! (slat[2] & SL2_HALTED)) return 1;     //  1 = running
+    return (slat[2] & SL2_HALTINS) ? -1 : 0;    // -1 = halt instr; 0 = requested halt
 }
 
 /*
@@ -176,10 +177,6 @@ JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
   (JNIEnv *env, jclass klass, jint addr)
 {
-    // shortcut to read switch register
-    if (addr == 0777570) return slat[1] & 0xFFFF;
-
-    // long way around for everything else
     uint16_t data;
     return z11page->dmaread (addr, &data) ? ((uint32_t) data) : -1;
 }

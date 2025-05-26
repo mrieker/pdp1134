@@ -72,11 +72,11 @@ public class GUI extends JPanel {
 
     // access the processor one way or another
     public abstract static class IAccess {
-        public int     addr;
-        public int     data;
-        public int     lreg;
-        public int     sreg;
-        public boolean running;
+        public int addr;
+        public int data;
+        public int lreg;
+        public int sreg;
+        public int running;
 
         public abstract void sample ();
         public abstract void step ();
@@ -216,7 +216,7 @@ public class GUI extends JPanel {
                     sample[5] = (byte)(access.lreg >>  8);
                     sample[6] = (byte)(access.sreg);
                     sample[7] = (byte)(access.sreg >>  8);
-                    sample[8] = (byte)(access.running ? 1 : 0);
+                    sample[8] = (byte)(access.running);
 
                     ostream.write (sample, 0, 7);
                     break;
@@ -379,7 +379,7 @@ public class GUI extends JPanel {
             data = ((samplebytes[3] & 0xFF) << 8) | (samplebytes[2] & 0xFF);
             lreg = ((samplebytes[5] & 0xFF) << 8) | (samplebytes[4] & 0xFF);
             sreg = ((samplebytes[7] & 0xFF) << 8) | (samplebytes[6] & 0xFF);
-            running = samplebytes[8] != 0;
+            running = samplebytes[8];
         }
 
         @Override
@@ -474,8 +474,8 @@ public class GUI extends JPanel {
         {
             addr = GUIZynqPage.addr ();
             data = GUIZynqPage.data ();
-            lreg = GUIZynqPage.lreg ();
-            sreg = GUIZynqPage.sreg ();
+            lreg = GUIZynqPage.getlr ();
+            sreg = GUIZynqPage.getsr ();
             running = GUIZynqPage.running ();
         }
 
@@ -544,19 +544,51 @@ public class GUI extends JPanel {
             {
                 // read values from zynq fpga (either directly or via tcp)
                 access.sample ();
-                int     addr = access.addr;
-                int     data = access.data;
-                int     lreg = access.lreg;
-                boolean running = access.running;
 
                 // update display LEDs
-                writeaddrleds (addr);
-                writedataleds (data);
-                writelregleds (lreg);
-                runled.setOn  (running);
+                writeaddrleds (access.addr);
+                writedataleds (access.data);
+                writelregleds (access.lreg);
+                runled.setOn  (access.running > 0);
                 berrled.setOn (false);
+
+                // update grayed buttons based on running state
+                //  running = +1 : processor is running
+                //             0 : processor halted but is resumable
+                //            -1 : processor halted, reset required
+                if (lastrunning != access.running) {
+                    lastrunning = access.running;
+                    ldadbutton.setEnabled  (lastrunning <= 0);
+                    exambutton.setEnabled  (lastrunning <= 0);
+                    depbutton.setEnabled   (lastrunning <= 0);
+                    haltbutton.setEnabled  (lastrunning  > 0);
+                    stepbutton.setEnabled  (lastrunning == 0);
+                    contbutton.setEnabled  (lastrunning == 0);
+                    startbutton.setEnabled (lastrunning <= 0);
+                    resetbutton.setEnabled (true);
+                }
+
+                // if halted, display PC,PS
+                if (access.running <= 0) {
+                    displaypcps ();
+                }
+
+                // start automatic updates while running
+                if ((access.running > 0) && (runupdatimer == null)) {
+                    runupdatimer = new Timer (UPDMS, updisplay);
+                    runupdatimer.start ();
+                }
+
+                // stop automatic updates while halted so we don't munch addr & data leds, etc
+                if ((access.running <= 0) && (runupdatimer != null)) {
+                    runupdatimer.stop ();
+                    runupdatimer = null;
+                }
             }
         };
+
+    public static int lastrunning = 12345;
+    public static Timer runupdatimer;
 
     // build the display
     public GUI ()
@@ -877,6 +909,10 @@ public class GUI extends JPanel {
         }
     }
 
+    ///////////////////////////////
+    // PROCESSOR CONTROL BUTTONS //
+    ///////////////////////////////
+
     public static class StepButton extends JButton implements ActionListener {
         public StepButton ()
         {
@@ -888,22 +924,95 @@ public class GUI extends JPanel {
         public void actionPerformed (ActionEvent ae)
         {
             messagelabel.setText ("stepping processor");
-            access.step ();
-            if (checkforhalt ()) displaypcps ();
+            access.step ();                     // tell processor to step single instruction
+            checkforhalt ();                    // make sure it halted
+            updisplay.actionPerformed (null);   // update display
+        }
+    }
+
+    // - stop processing instructions
+    public static class HaltButton extends MemButton {
+        public HaltButton ()
+        {
+            super ("HALT");
+        }
+
+        @Override  // MemButton
+        public void actionPerformed (ActionEvent ae)
+        {
+            messagelabel.setText ("halting processor");
+            access.halt ();                     // tell processor to stop executing instructions
+            checkforhalt ();                    // make sure it halted
+            updisplay.actionPerformed (null);   // update display
+        }
+    }
+
+    // - continue processing instructions
+    public static class ContButton extends MemButton {
+        public ContButton ()
+        {
+            super ("CONT");
+        }
+
+        @Override  // MemButton
+        public void actionPerformed (ActionEvent ae)
+        {
+            messagelabel.setText ("resuming processor");
+            access.cont ();
+            messagelabel.setText ("processor resumed");
             updisplay.actionPerformed (null);
         }
     }
 
-    ///////////////////////////
-    // MEMORY ACCESS BUTTONS //
-    ///////////////////////////
+    // - reset I/O devices and processor
+    public static class ResetButton extends MemButton {
+        public ResetButton ()
+        {
+            super ("RESET");
+        }
 
-    public static int loadedaddress;
-    public static int autoincloadedaddress;
+        @Override  // MemButton
+        public void actionPerformed (ActionEvent ae)
+        {
+            messagelabel.setText ("resetting processor");
+            access.reset ();
+            checkforhalt ();
+            messagelabel.setText ("processor reset complete");
+            updisplay.actionPerformed (null);
+        }
+    }
 
+    // - start running program after resetting processor
+    public static class StartButton extends MemButton {
+        public StartButton ()
+        {
+            super ("START");
+        }
+
+        @Override  // MemButton
+        public void actionPerformed (ActionEvent ae)
+        {
+            messagelabel.setText ("resetting processor");
+            access.reset ();
+            if (checkforhalt ()) {
+                messagelabel.setText ("writing PC and PS");
+                if (access.wrmem (0777707, loadedaddress) < 0) {
+                    messagelabel.setText ("writing PC failed");
+                } else if (access.wrmem (0777776, 0340) < 0) {
+                    messagelabel.setText ("writing PS failed");
+                } else {
+                    messagelabel.setText (String.format ("starting at %06o", loadedaddress));
+                    access.cont  ();
+                }
+            }
+            updisplay.actionPerformed (null);
+        }
+    }
+
+    // halt was requested, wait here for processor to actually halt
     public static boolean checkforhalt ()
     {
-        for (int i = 0; GUIZynqPage.running (); i ++) {
+        for (int i = 0; GUIZynqPage.running () > 0; i ++) {
             if (i > 100000) {
                 messagelabel.setText ("processor failed to halt");
                 return false;
@@ -912,6 +1021,7 @@ public class GUI extends JPanel {
         return true;
     }
 
+    // processor just halted, display PC and PS
     public static void displaypcps ()
     {
         int pc = access.rdmem (0777707);
@@ -926,12 +1036,19 @@ public class GUI extends JPanel {
         }
         int ps = access.rdmem (0777776);
         if (ps >= 0) {
-            text += String.format (", stopped at PS %06o", ps);
+            text += String.format (", PS %06o", ps);
         } else {
-            text += "stopped at PS unknown";
+            text += ", PS unknown";
         }
         messagelabel.setText (text);
     }
+
+    ///////////////////////////
+    // MEMORY ACCESS BUTTONS //
+    ///////////////////////////
+
+    public static int loadedaddress;
+    public static int autoincloadedaddress;
 
     // - load address button
     public static class LdAdButton extends MemButton {
@@ -946,6 +1063,9 @@ public class GUI extends JPanel {
             messagelabel.setText ("");
             autoincloadedaddress = 0;
             loadedaddress = readswitches () & 0777777;
+            if ((loadedaddress < 0777700) || (loadedaddress > 0777717)) {
+                loadedaddress &= 0777776;
+            }
             writeaddrleds (loadedaddress);
             writedataleds (0);
             messagelabel.setText (String.format ("loaded address %06o", loadedaddress));
@@ -1000,83 +1120,6 @@ public class GUI extends JPanel {
             autoincloadedaddress = 1;
             if (rc < 0) messagelabel.setText (String.format ("deposited to address %06o, bus timed out", loadedaddress));
             else messagelabel.setText (String.format ("deposited to address %06o, data %06o", loadedaddress, data));
-        }
-    }
-
-    // - stop processing instructions
-    public static class HaltButton extends MemButton {
-        public HaltButton ()
-        {
-            super ("HALT");
-        }
-
-        @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
-        {
-            messagelabel.setText ("halting processor");
-            access.halt ();
-            if (checkforhalt ()) displaypcps ();
-            updisplay.actionPerformed (null);
-        }
-    }
-
-    // - continue processing instructions
-    public static class ContButton extends MemButton {
-        public ContButton ()
-        {
-            super ("CONT");
-        }
-
-        @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
-        {
-            messagelabel.setText ("resuming processor");
-            access.cont ();
-            updisplay.actionPerformed (null);
-        }
-    }
-
-    // - reset I/O devices and processor
-    public static class ResetButton extends MemButton {
-        public ResetButton ()
-        {
-            super ("RESET");
-        }
-
-        @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
-        {
-            messagelabel.setText ("resetting processor");
-            access.reset ();
-            checkforhalt ();
-            updisplay.actionPerformed (null);
-        }
-    }
-
-    // - start running program after resetting processor
-    public static class StartButton extends MemButton {
-        public StartButton ()
-        {
-            super ("START");
-        }
-
-        @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
-        {
-            messagelabel.setText ("resetting processor");
-            access.reset ();
-            if (checkforhalt ()) {
-                messagelabel.setText ("writing PC and PS");
-                if (access.wrmem (0777707, loadedaddress) < 0) {
-                    messagelabel.setText ("writing PC failed");
-                } else if (access.wrmem (0777776, 0340) < 0) {
-                    messagelabel.setText ("writing PS failed");
-                } else {
-                    messagelabel.setText ("resuming processor");
-                    access.cont  ();
-                }
-            }
-            updisplay.actionPerformed (null);
         }
     }
 
