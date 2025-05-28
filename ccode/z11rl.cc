@@ -65,7 +65,7 @@
 #define RL5_ENAB  0x80000000U
 #define RL4_DRDY0 (RL4_DRDY & - RL4_DRDY)
 
-#define RFLD(n,m) ((rlat[n] & m) / (m & - m))
+#define RFLD(n,m) ((ZRD(rlat[n]) & m) / (m & - m))
 
 static bool ros[4], vcs[4];
 static int debug;
@@ -156,7 +156,7 @@ int main (int argc, char **argv)
 
     z11p  = new Z11Page ();
     rlat = z11p->findev ("RL", NULL, NULL, true, killit);
-    rlat[5] = RL5_ENAB;     // enable board to process io instructions
+    ZWR(rlat[5], RL5_ENAB);     // enable board to process io instructions
 
     debug = 0;
     char const *dbgenv = getenv ("z11rl_debug");
@@ -314,7 +314,7 @@ void *rlthread (void *dummy)
 
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];
-            rlat[4] &= ~ (RL4_DRDY0 << drivesel);
+            ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));
 
             uint32_t seekdelay = 0;
             if (seekdoneats[drivesel] > nowus) {
@@ -532,12 +532,12 @@ void *rlthread (void *dummy)
             rlmp3 = rlmp2 = rlmp;
         rhddone:;
             rlcs    = (rlcs & ~ 0x30) | 0x80 | ((rlxba >> 12) & 0x30);
-            rlat[3] = ((uint32_t) rlmp3 << 16) | rlmp2;
-            uint32_t r3 = rlat[3];
-            rlat[2] = ((uint32_t) rlmp  << 16) | rlda;
-            uint32_t r2 = rlat[2];
-            rlat[1] = ((uint32_t) rlxba << 16) | rlcs;
-            uint32_t r1 = rlat[1];
+            ZWR(rlat[3], ((uint32_t) rlmp3 << 16) | rlmp2);
+            uint32_t r3 = ZRD(rlat[3]);
+            ZWR(rlat[2], ((uint32_t) rlmp  << 16) | rlda);
+            uint32_t r2 = ZRD(rlat[2]);
+            ZWR(rlat[1], ((uint32_t) rlxba << 16) | rlcs);
+            uint32_t r1 = ZRD(rlat[1]);
             if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:  done RLCS=%06o RLBA=%06o RLDA=%06o RLMP=%06o %06o %06o\n",
                     r1 & 0xFFFFU, r1 >> 16, r2 & 0xFFFFU, r2 >> 16, r3 & 0xFFFFU, r3 >> 16);
 
@@ -550,7 +550,7 @@ void *rlthread (void *dummy)
         for (int i = 4; -- i >= 0;) {
             drdy += drdy + ((fds[i] >= 0) && (seekdoneats[i] <= nowus));
         }
-        rlat[4] = (rlat[4] & ~ RL4_DRDY) | drdy * RL4_DRDY0;
+        ZWR(rlat[4], (ZRD(rlat[4]) & ~ RL4_DRDY) | drdy * RL4_DRDY0);
 
         UNLKIT;
     }

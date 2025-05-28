@@ -44,6 +44,8 @@
 #include "cpu1134.h"
 #include "dl11.h"
 #include "kl11.h"
+#include "rl11.h"
+#include "stepper.h"
 #include "swlight.h"
 #include "../verisim/verisim.h"
 
@@ -76,6 +78,7 @@ int main (int argc, char **argv)
     new CPU1134 ();
     new DL11 ();
     new KL11 ();
+    new RL11 ();
     new SWLight ();
     AxiDev::axiassign ();
 
@@ -112,16 +115,18 @@ static void *conthread (void *confdv)
         // do write to axi bus
         if (tcpmsg.write) {
             if (pthread_mutex_lock (&mybdmtx) != 0) ABORT ();
-            printf ("simmer*: write %04X <= %08X\n", index, tcpmsg.data);
+            ////printf ("simmer*: write %04X <= %08X\n", index, tcpmsg.data);
             AxiDev::axiwrmas (index, tcpmsg.data);
+            Stepper::stepemall ();
             if (pthread_mutex_unlock (&mybdmtx) != 0) ABORT ();
         }
 
         // do read from axi bus
         else {
             if (pthread_mutex_lock (&mybdmtx) != 0) ABORT ();
+            Stepper::stepemall ();
             tcpmsg.data = AxiDev::axirdmas (index);
-            printf ("simmer*:  read %04X => %08X\n", index, tcpmsg.data);
+            ////printf ("simmer*:  read %04X => %08X\n", index, tcpmsg.data);
             if (pthread_mutex_unlock (&mybdmtx) != 0) ABORT ();
             if (write (confd, &tcpmsg, sizeof tcpmsg) != (int) sizeof tcpmsg) ABORT ();
         }

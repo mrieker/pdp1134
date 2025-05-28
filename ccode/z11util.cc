@@ -57,6 +57,11 @@ Z11Page::Z11Page ()
 #ifdef VERISIM
 
     zynqpage = verisim_init ();
+    zynqfd = open ("/tmp/zynqpdp11", O_RDWR | O_CREAT, 0666);
+    if (zynqfd < 0) {       // need temp file so flock() will work
+        fprintf (stderr, "Z11Page::Z11Page: error creating /tmp/zynqpdp11: %m\n");
+        ABORT ();
+    }
 
 #else
 
@@ -165,7 +170,7 @@ found:;
             if (flockit.l_type == F_UNLCK) continue;
 
             // print out message saying pid that has it locked
-            fprintf (stderr, "Z11Page::findev: %c%c+%d locked by pid %d\n", *dev >> 24, *dev >> 16, ofs, (int) flockit.l_pid);
+            fprintf (stderr, "Z11Page::findev: %c%c+%d locked by pid %d\n", ZRD(*dev) >> 24, ZRD(*dev) >> 16, ofs, (int) flockit.l_pid);
             if (-- kills >= 0) {
 
                 // try to kill it then try locking again
@@ -175,7 +180,7 @@ found:;
                 continue;
             }
         } else {
-            fprintf (stderr, "Z11Page::findev: error locking %c%c: %m\n", *dev >> 24, *dev >> 16);
+            fprintf (stderr, "Z11Page::findev: error locking %c%c: %m\n", ZRD(*dev) >> 24, ZRD(*dev) >> 16);
         }
         ABORT ();
     }

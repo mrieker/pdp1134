@@ -25,9 +25,10 @@
 #include <stdint.h>
 
 #include "axidev.h"
+#include "stepper.h"
 #include "unidev.h"
 
-struct CPU1134 : AxiDev, UniDev {
+struct CPU1134 : AxiDev, Stepper, UniDev {
     static bool cpuhaltins ();
 
     CPU1134 ();
@@ -36,6 +37,9 @@ protected:
     // AxiDev
     virtual uint32_t axirdslv (uint32_t index);
     virtual void axiwrslv (uint32_t index, uint32_t data);
+
+    // Stepper
+    virtual void stepit ();
 
     // UniDev
     virtual void resetslave (); 
@@ -54,6 +58,7 @@ private:
     uint16_t instreg;
     uint16_t knlpars[8];
     uint16_t knlpdrs[8];
+    uint16_t lastprint;
     uint16_t mmr0;
     uint16_t mmr2;
     uint16_t psw;
@@ -64,7 +69,6 @@ private:
     uint32_t regctlb;
     uint32_t regctli;
 
-    void step ();
     bool jammedup ();
     uint16_t readsrc (bool byte);
     uint16_t readdst (bool byte);

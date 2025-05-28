@@ -20,6 +20,8 @@
 
 // PDP-11 teletype interface
 
+#include <stdio.h>
+
 #include "dl11.h"
 
 #define INTVEC 060
@@ -88,10 +90,10 @@ bool DL11::rdslave (uint32_t physaddr, uint16_t *data)
 {
     if (! enable) return false;
     switch (physaddr & 6) {
-        case 0: *data = rcsr & 0300;
-        case 2: *data = rbuf; rcsr &= ~ 0200;
-        case 4: *data = xcsr & 0300;
-        case 6: *data = xbuf;
+        case 0: *data = rcsr & 0300; break;
+        case 2: *data = rbuf; rcsr &= ~ 0200; break;
+        case 4: *data = xcsr & 0300; break;
+        case 6: *data = xbuf; break;
     }
     return true;
 }
@@ -103,7 +105,7 @@ bool DL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
         switch (physaddr & 7) {
             case 0: rcsr = (rcsr & ~ 0100) | (data & 0100); break;
             case 4: xcsr = (xcsr & ~ 0100) | (data & 0100); break;
-            case 6: xbuf = (xcsr & ~ 0377) | (data & 0377); // fallthrough
+            case 6: xbuf = (xbuf & ~ 0377) | (data & 0377); // fallthrough
             case 7: xcsr &= ~ 0200; break;
         }
     } else {

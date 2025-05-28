@@ -18,21 +18,30 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
+#include <stdio.h>
+
 #include "cpu1134.h"
 #include "swlight.h"
 
 SWLight *SWLight::singleton;
 
+// check for hard halt requested
+// - persists until explicitly released by user
 bool SWLight::swlhaltreq ()
 {
     return singleton->haltreq;
 }
 
+// check to see if user wants this cpu step to go through
+// - clears itself and sets hard halt request for next cycle
 bool SWLight::swlstepreq ()
 {
-    bool sr = singleton->stepreq;
-    singleton->stepreq = false;
-    return sr;
+    if (singleton->stepreq) {       // see if allow one step to go through
+        singleton->stepreq = false; // ok, just this one cycle
+        singleton->haltreq = true;  // ...then hard halt afterward
+        return true;
+    }
+    return ! singleton->haltreq;    // not stepping, maybe already in hard halt
 }
 
 SWLight::SWLight ()
@@ -86,7 +95,7 @@ void SWLight::axiwrslv (uint32_t index, uint32_t data)
         case 2: {
             enable  = (data >> 31) &  1;
             haltreq = (data >> 30) &  1;
-            stepreq = (data >> 29) &  1;
+            stepreq = (data >> 28) &  1;
             irqlev  = (data >> 14) &  7;
             irqvec  = (data >>  8) & 63;
             break;

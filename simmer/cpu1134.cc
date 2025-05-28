@@ -32,6 +32,13 @@
 #define SEXTBW(byte) ((((byte) & 0377) ^ 0200) - 0200)
 #define YELLOWSTK 0410
 
+#define P_NOTFPSIM 1
+#define P_POWEROFF 2
+#define P_POWERON  3
+#define P_HALTBYSW 4
+#define P_JAMMEDUP 5
+#define P_RUNNING  6
+
 #define T_BPTRACE 0014
 #define T_EMT     0030
 #define T_ILLINST 0010
@@ -82,13 +89,12 @@ CPU1134::CPU1134 ()
         (   15U << 24);     // man_bg_out_l
     regctli = 0;
     lastpoweron = false;
+    lastprint = 0;
 }
 
 // respond to axibus requests
 uint32_t CPU1134::axirdslv (uint32_t index)
 {
-    step ();
-
     switch (index) {
         case  0: return 0x31314017; // "11"; size; version
         case  1: return regctla;
@@ -138,7 +144,6 @@ void CPU1134::axiwrslv (uint32_t index, uint32_t data)
         case 1: regctla = data; break;
         case 2: regctlb = data; break;
     }
-    step ();
 }
 
 /***
@@ -278,10 +283,14 @@ bool CPU1134::wrslave (uint32_t physaddr, uint16_t data, bool byte)
 }
 
 // step processor state (one interrupt or instruction)
-void CPU1134::step ()
+void CPU1134::stepit ()
 {
     // don't do anything until enabled
     if (FIELD (regctla, a_fpgamode) != FM_SIM) {
+        if (lastprint != P_NOTFPSIM) {
+            printf ("CPU1134::stepit*: not FM_SIM\n");
+            lastprint = P_NOTFPSIM;
+        }
         lastpoweron = false;
         return;
     }
@@ -289,17 +298,19 @@ void CPU1134::step ()
     // power must be on
     bool thispoweron = ! FIELD (regctla, a_man_dc_lo_out_h);
     if (! thispoweron) {
+        if (lastprint != P_POWEROFF) {
+            printf ("CPU1134::stepit*: power off\n");
+            lastprint = P_POWEROFF;
+        }
         if (lastpoweron) resetmaster ();
         lastpoweron = false;
         return;
     }
 
-    // don't do anything if console has us halted
-    bool swlstepreq = SWLight::swlstepreq ();
-    if (! swlstepreq && SWLight::swlhaltreq ()) return;
-
     // if power just came on, do a power-on reset (counts as a step)
     if (! lastpoweron) {
+        lastprint = P_POWERON;
+        printf ("CPU1134::stepit*: powering up\n");
         resetmaster ();
         instreg     = HALTOP;
         lastpoweron = true;
@@ -310,15 +321,36 @@ void CPU1134::step ()
             gprs[7] = rdwordphys (024);
             psw     = rdwordphys (026);
             instreg = ~ HALTOP;
+            printf ("CPU1134::stepit*: powered up to PC=%06o PS=%06o\n", gprs[7], psw);
         } catch (CPU1134Trap &t) {
-            fprintf (stderr, "CPU1134::step: trap %03o reading power-on vector\n", t.vector);
+            fprintf (stderr, "CPU1134::stepit: trap %03o reading power-on vector\n", t.vector);
+        }
+        return;
+    }
+
+    // don't do anything if console has us halted
+    if (! SWLight::swlstepreq ()) {
+        if (lastprint != P_HALTBYSW) {
+            printf ("CPU1134::stepit*: halted by switches at PC=%06o PS=%06o\n", gprs[7], psw);
+            lastprint = P_HALTBYSW;
         }
         return;
     }
 
     // don't do anything if executed an HALT instruction or had double-fault, etc
     // - must be power cycled with a_man_dc_lo_out_h to recover
-    if (jammedup ()) return;
+    if (jammedup ()) {
+        if (lastprint != P_JAMMEDUP) {
+            printf ("CPU1134::stepit*: jammed up at PC=%06o PS=%06o\n", gprs[7], psw);
+            lastprint = P_JAMMEDUP;
+        }
+        return;
+    }
+
+    if (lastprint != P_RUNNING) {
+        printf ("CPU1134::stepit*: running at PC=%06o PS=%04o\n", gprs[7], psw);
+        lastprint = P_RUNNING;
+    }
 
     regctli ++;
 
@@ -574,6 +606,7 @@ void CPU1134::step ()
                         switch (instreg) {
                             case 0: {
                                 if ((mmr0 & 1) && (psw & 0160000)) throw CPU1134Trap (T_ILLINST);
+                                printf ("CPU1134::stepit*: HALT instr at PC=%06o PS=%06o\n", gprs[7], psw);
                                 return;                                 // HALT
                             }
                             case 1: goto s_endinst;                     // WAIT
@@ -782,20 +815,23 @@ void CPU1134::step ()
 
     catch (CPU1134Trap &t) {
         try {
+            if (t.vector != T_IOT) {
+                printf ("CPU1134::stepit*: trap %03o at PC=%06o PS=%06o\n", t.vector, gprs[7], psw);
+            }
             uint16_t newpc = rdwordvirt (t.vector,     0);
             uint16_t newps = rdwordvirt (t.vector | 2, 0);
 
             uint16_t nspgprx = gprx (6, newps >> 14);
 
             gprs[nspgprx] -= 2;
-            wrwordvirt (gprs[nspgprx], psw, newps >> 14);
+            wrwordvirt (gprs[nspgprx], psw,     newps >> 14);
             gprs[nspgprx] -= 2;
-            wrwordvirt (gprs[7],       psw, newps >> 14);
+            wrwordvirt (gprs[nspgprx], gprs[7], newps >> 14);
 
             gprs[7] = newpc;
             psw     = (newps & 0140377) | ((psw >> 2) & 0030000);
         } catch (CPU1134Trap &t2) {
-            fprintf (stderr, "CPU1134::step: trap %03o got double fault %03o\n", t.vector, t2.vector);
+            fprintf (stderr, "CPU1134::stepit: trap %03o got double fault %03o\n", t.vector, t2.vector);
             instreg = HALTOP;
         }
     }
