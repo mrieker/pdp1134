@@ -348,7 +348,7 @@ void CPU1134::stepit ()
     }
 
     if (lastprint != P_RUNNING) {
-        printf ("CPU1134::stepit*: running at PC=%06o PS=%04o\n", gprs[7], psw);
+        printf ("CPU1134::stepit*: running at PC=%06o PS=%06o\n", gprs[7], psw);
         lastprint = P_RUNNING;
     }
 
@@ -782,9 +782,10 @@ void CPU1134::stepit ()
                         }
                         case 4: {   // XOR
                             uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
-                            uint16_t dstval = readdst (byte);
-                            uint16_t result = dstval ^ gprs[srcgprx];
-                            writedst (dstval, false);
+                            uint16_t srcval  = gprs[srcgprx];
+                            uint16_t dstval  = readdst (byte);
+                            uint16_t result  = dstval ^ srcval;
+                            writedst (result, false);
                             updnzvc (result, false, 0, psw & 1);
                             goto s_endinst;
                         }
@@ -815,9 +816,6 @@ void CPU1134::stepit ()
 
     catch (CPU1134Trap &t) {
         try {
-            if (t.vector != T_IOT) {
-                printf ("CPU1134::stepit*: trap %03o at PC=%06o PS=%06o\n", t.vector, gprs[7], psw);
-            }
             uint16_t newpc = rdwordvirt (t.vector,     0);
             uint16_t newps = rdwordvirt (t.vector | 2, 0);
 

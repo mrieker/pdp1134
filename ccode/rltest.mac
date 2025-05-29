@@ -40,6 +40,10 @@
 ;   > flickstart 0400
 ;   $ ./z11dump    to see it working
 
+; Switches:
+;   <3:0> = drive enables
+;   <4> = verbose
+
 	RLCS = 174400
 	RLBA = 174402
 	RLDA = 174404
@@ -298,30 +302,39 @@ rlrwlb:
 	mov	r1,-(sp)
 	mov	r0,-(sp)
 
-;;	jsr	r5,prascz
-;;		.asciz	"rlrwlb*: drive="
-;;		.even
-;;	mov	r2,r1
-;;	jsr	pc,prdcml
-;;	jsr	r5,prascz
-;;		.asciz	" cyl="
-;;		.even
-;;	clr	r0
-;;	mov	6(sp),r1
-;;	div	#40,r0
-;;	mov	r0,-(sp)
-;;	mov	r0,r1
-;;	asr	r1
-;;	jsr	pc,prdcml
-;;	jsr	r5,prascz
-;;		.asciz	" head="
-;;		.even
-;;	mov	(sp)+,r1
-;;	bic	#1777776,r1
-;;	jsr	pc,prdcml
-;;	jsr	pc,prcrlf
-;;	mov	4(sp),r2
-;;	mov	6(sp),r3
+	bit	#20,@#SWLI
+	beq	100$
+	jsr	r5,prascz
+		.asciz	"rlrwlb*: drive="
+		.even
+	mov	r2,r1
+	jsr	pc,prdcml
+	jsr	r5,prascz
+		.asciz	" cyl="
+		.even
+	clr	r0
+	mov	6(sp),r1
+	div	#40,r0
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	mov	r0,r1
+	asr	r1
+	jsr	pc,prdcml
+	jsr	r5,prascz
+		.asciz	" head="
+		.even
+	mov	(sp)+,r1
+	bic	#1777776,r1
+	jsr	pc,prdcml
+	jsr	r5,prascz
+		.asciz	" sec="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,prdcml
+	jsr	pc,prcrlf
+	mov	4(sp),r2
+	mov	6(sp),r3
+100$:
 
 	jsr	pc,rlseek	; select cylinder and head
 
@@ -387,7 +400,7 @@ rlseek:
 	bic	#176000,r0
 
 	; r0 = current track
-	; r2 = drive select / 110
+	; r2 = drive select + 110
 	; r3 = target track
 
 	mov	r0,r1		; get current cyl - target cyl
@@ -658,6 +671,58 @@ trap14:
 	mov	(sp)+,r0
 	mov	(sp)+,r1
 	rtt
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	14(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
 
 ; print asciz string following the jsr r5 call
 prascz:

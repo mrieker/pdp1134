@@ -167,13 +167,14 @@ int main (int argc, char **argv)
 
     signal (SIGINT, siginthand);
 
+    int pagelen = 1024;
     int itwirly = 4;
     while (! exitflag) {
         usleep (1000000 / fps);
 
         uint32_t z11s[1024];
         if (xmemranges == NULL) {
-            for (int i = 0; i < 1024; i ++) {
+            for (int i = 0; i < pagelen; i ++) {
                 z11s[i] = ZRD(pdpat[i]);
             }
         }
@@ -209,8 +210,13 @@ int main (int argc, char **argv)
             printf ("  man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], eol);
             printf ("  ILA_ARMED=%o  ILA_AFTER=%05o  ILA_OFLOW=%o  ILA_INDEX=%05o%s", FIELD(ILACTL,ILACTL_ARMED), FIELD(ILACTL,ILACTL_AFTER), FIELD(ILACTL,ILACTL_OFLOW), FIELD(ILACTL,ILACTL_INDEX), eol);
 
-            for (int i = 0; i < 1024;) {
+            for (int i = 0; i < pagelen;) {
                 uint32_t idver = z11s[i];
+                int j = i + (2 << ((idver >> 12) & 15));
+                if (j > pagelen) {
+                    pagelen = i;
+                    break;
+                }
                 uint8_t idch1 = idver >> 24;
                 uint8_t idch2 = idver >> 16;
                 if ((idver & 0xF000U) == 0x0000U) {
@@ -227,7 +233,7 @@ int main (int argc, char **argv)
                     printf ("                    haltreq=%o halted=%o stepreq=%u haltstate=%o haltins=%o%s",
                         FIELD(i+2,SL2_HALTREQ), FIELD(i+2,SL2_HALTED), FIELD(i+2,SL2_STEPREQ), FIELD(i+2,SL2_HALTSTATE), FIELD(i+2,SL2_HALTINS), eol);
                 }
-                i += 2 << ((idver >> 12) & 15);
+                i = j;
             }
             itwirly = (itwirly + 1) & 3;
         } else {
