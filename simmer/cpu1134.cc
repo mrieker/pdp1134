@@ -709,7 +709,7 @@ void CPU1134::stepit ()
                 // x 111 xxx xxx xxx xxx
                 if (! byte) {
                     // 0 111 xxx xxx xxx xxx
-                    switch ((instreg >> 7) & 6) {
+                    switch ((instreg >> 9) & 7) {
                         case 0: {   // MUL
                             int16_t srcval   = readdst (false);
                             uint16_t dstgprx = gprx (instreg >> 6, psw >> 14);
@@ -780,22 +780,22 @@ void CPU1134::stepit ()
                             updnzvc (dividend >> 16, false, vbit, cbit);
                             goto s_endinst;
                         }
+                        case 4: {   // XOR
+                            uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
+                            uint16_t dstval = readdst (byte);
+                            uint16_t result = dstval ^ gprs[srcgprx];
+                            writedst (dstval, false);
+                            updnzvc (result, false, 0, psw & 1);
+                            goto s_endinst;
+                        }
+                        case 7: {   // SOB
+                            uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
+                            if (-- gprs[srcgprx] != 0) {
+                                gprs[7] -= 2 * (instreg & 077);
+                            }
+                            goto s_endinst;
+                        }
                     }
-                }
-                if ((instreg & 0177000) == 074000) {    // XOR
-                    uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
-                    uint16_t dstval = readdst (byte);
-                    uint16_t result = dstval ^ gprs[srcgprx];
-                    writedst (dstval, false);
-                    updnzvc (result, false, 0, psw & 1);
-                    goto s_endinst;
-                }
-                if ((instreg & 0177000) == 077000) {    // SOB
-                    uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
-                    if (-- gprs[srcgprx] != 0) {
-                        gprs[7] -= 2 * (instreg & 077);
-                    }
-                    goto s_endinst;
                 }
             }
         }

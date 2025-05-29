@@ -192,7 +192,7 @@ bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
     dmalock ();
     ZWR(slat[3], SL3_DMASTATE0 | SL3_DMAADDR0 * xba);
-    for (int i = 0; (slat[3] & SL3_DMASTATE) != 0; i ++) {
+    for (int i = 0; (ZRD(slat[3]) & SL3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
             fprintf (stderr, "Z11Page::dmaread: dma stuck\n");
             ABORT ();

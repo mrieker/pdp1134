@@ -99,7 +99,7 @@ void RL11::resetslave ()
 
 uint8_t RL11::getintslave (uint16_t level)
 {
-    if ((level == 5) && ((rlcs & 0600) == 0600)) return INTVEC;
+    if ((level == 5) && ((rlcs & 0300) == 0300)) return INTVEC;
     return 0;
 }
 

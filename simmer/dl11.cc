@@ -81,8 +81,8 @@ void DL11::resetslave ()
 
 uint8_t DL11::getintslave (uint16_t level)
 {
-    if ((level == 4) && ((rcsr & 0600) == 0600)) return 060;
-    if ((level == 4) && ((xcsr & 0600) == 0600)) return 064;
+    if ((level == 4) && ((rcsr & 0300) == 0300)) return 060;
+    if ((level == 4) && ((xcsr & 0300) == 0300)) return 064;
     return 0;
 }
 
