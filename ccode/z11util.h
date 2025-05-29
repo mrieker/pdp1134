@@ -28,10 +28,14 @@
 #define ABORT() do { fprintf (stderr, "abort() %s:%d\n", __FILE__, __LINE__); abort (); } while (0)
 #define ASSERT(cond) do { if (__builtin_constant_p (cond)) { if (!(cond)) asm volatile ("assert failure line %c0" :: "i"(__LINE__)); } else { if (!(cond)) ABORT (); } } while (0)
 
-#ifdef VERISIM
+#if defined VERISIM
 #define ZRD(a) verisim_read(&(a))
 #define ZWR(a,d) verisim_write(&(a),d)
 #include "../verisim/verisim.h"
+#elif defined SIMRPAGE
+#define ZRD(a) simrpage_read(&(a))
+#define ZWR(a,d) simrpage_write(&(a),d)
+#include "../simmer/simrpage.h"
 #else
 #define ZRD(a) (a)
 #define ZWR(a,d) do { a = d; } while (0)

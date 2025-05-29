@@ -14,11 +14,12 @@ OBJS := \
 	unidev.$(MACH).o
 
 default: \
-	simmer.$(MACH)
+	simmer.$(MACH) \
+	simrpage.$(MACH).o
 
 simmer.$(MACH): $(OBJS)
 	g++ -g -o $@ $^ -lpthread
 
 %.$(MACH).o: %.cc *.h
-	g++ -Wall -Werror -g -c -o $@ $<
+	g++ -Wall -Werror -fPIC -g -c -o $@ $<
 

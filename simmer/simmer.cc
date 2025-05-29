@@ -18,23 +18,18 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-// tcp daemon for verilator simulator
-// run on x86_64 as daemon - ./verimain.x86_64
-// then run z11ctrl, z11dump, z11ila on same x86_64
+// daemon for simulator
+// run on x86_64 as daemon - ./simmer.x86_64
+// then run z11ctrl, z11dump, z11ila, etc on same x86_64
 
 #include <errno.h>
 #include <fcntl.h>
-#include <net/if.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
 #define ABORT() do { fprintf (stderr, "ABORT %s %d\n", __FILE__, __LINE__); abort (); } while (0)
@@ -45,36 +40,58 @@
 #include "dl11.h"
 #include "kl11.h"
 #include "rl11.h"
+#include "simrpage.h"
 #include "stepper.h"
 #include "swlight.h"
-#include "../verisim/verisim.h"
-
-static pthread_mutex_t mybdmtx = PTHREAD_MUTEX_INITIALIZER;
-
-static void *conthread (void *confdv);
 
 int main (int argc, char **argv)
 {
     setlinebuf (stdout);
 
-    // listen for connections from z11xx programs so they can access axi bus
-    sockaddr_in servaddr;
-    memset (&servaddr, 0, sizeof servaddr);
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons (VeriTCPPORT);
-
-    int lisfd = socket (AF_INET, SOCK_STREAM, 0);
-    if (lisfd < 0) ABORT ();
-    static int const one = 1;
-    if (setsockopt (lisfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) < 0) ABORT ();
-    if (bind (lisfd, (sockaddr *)&servaddr, sizeof servaddr) < 0) {
-        fprintf(stderr, "bind %d error: %m\n", VeriTCPPORT);
+    // create shared memory page
+    SimrPage *shm;
+    int shmfd = shm_open (SIMRNAME, O_RDWR | O_CREAT, 0600);
+    if (shmfd < 0) {
+        fprintf (stderr, "simmer: error creating shared memory %s: %m\n", SIMRNAME);
         ABORT ();
     }
-    if (listen (lisfd, 5) < 0) ABORT ();
+    uint32_t shmsize = (sizeof *shm + 4095) & ~ 4095;
+    if (ftruncate (shmfd, shmsize) < 0) {
+        fprintf (stderr, "simmer: error setting shared memory %s size: %m\n", SIMRNAME);
+        shm_unlink (SIMRNAME);
+        ABORT ();
+    }
+
+    // map it to va space and zero it out
+    void *shmptr = mmap (NULL, shmsize, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+    if (shmptr == MAP_FAILED) {
+        fprintf (stderr, "simmer: error accessing shared memory %s: %m\n", SIMRNAME);
+        shm_unlink (SIMRNAME);
+        ABORT ();
+    }
+
+    shm = (SimrPage *) shmptr;
+    memset (shm, 0, shmsize);
+    for (int i = 0; i < (int) (sizeof shm->baadfood / sizeof shm->baadfood[0]); i ++) {
+        shm->baadfood[i] = 0xBAADF00D;
+    }
+
+    // initialize everything
+    pthread_condattr_t condattrs;
+    if (pthread_condattr_init (&condattrs) != 0) ABORT ();
+    if (pthread_condattr_setpshared (&condattrs, PTHREAD_PROCESS_SHARED) != 0) ABORT ();
+    if (pthread_cond_init (&shm->simrcondid, &condattrs) != 0) ABORT ();
+    if (pthread_cond_init (&shm->simrcondrw, &condattrs) != 0) ABORT ();
+    if (pthread_cond_init (&shm->simrconddn, &condattrs) != 0) ABORT ();
+
+    pthread_mutexattr_t mutexattrs;
+    if (pthread_mutexattr_init (&mutexattrs) != 0) ABORT ();
+    if (pthread_mutexattr_settype (&mutexattrs, PTHREAD_MUTEX_ERRORCHECK) != 0) ABORT ();
+    if (pthread_mutexattr_setpshared (&mutexattrs, PTHREAD_PROCESS_SHARED) != 0) ABORT ();
+    if (pthread_mutex_init (&shm->simrmutex, &mutexattrs) != 0) ABORT ();
 
     // plug boards into axi and uni busses
-    new BigMem  ();
+    new BigMem ();
     new CPU1134 ();
     new DL11 ();
     new KL11 ();
@@ -82,55 +99,62 @@ int main (int argc, char **argv)
     new SWLight ();
     AxiDev::axiassign ();
 
-    // process connections from z11xx programs
-    while (1) {
-        memset (&servaddr, 0, sizeof servaddr);
-        socklen_t addrlen = sizeof servaddr;
-        int confd = accept (lisfd, (sockaddr *)&servaddr, &addrlen);
-        if (confd < 0) {
-            fprintf (stderr, "accept error: %m\n");
-            continue;
+    // process requests from z11xx programs
+    if (pthread_mutex_lock (&shm->simrmutex) != 0) ABORT ();
+    shm->simmerpid = getpid ();
+    fprintf (stderr, "simmer: pid %d\n", shm->simmerpid);
+    shm->simrfunc = SIMRFUNC_IDLE;
+
+    while (true) {
+
+        // wait for read or write function
+        uint32_t func;
+        while (((func = shm->simrfunc) != SIMRFUNC_READ) && (func != SIMRFUNC_WRITE)) {
+            if (pthread_cond_wait (&shm->simrcondrw, &shm->simrmutex) != 0)  ABORT ();
         }
-        if (setsockopt (confd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one) < 0) ABORT ();
-        pthread_t tid;
-        int rc = pthread_create (&tid, NULL, conthread, (void *)(long)confd);
-        if (rc != 0) ABORT ();
-        pthread_detach (tid);
-    }
-}
 
-static void *conthread (void *confdv)
-{
-    int confd = (long)confdv;
-    VeriTCPMsg tcpmsg;
-    while (read (confd, &tcpmsg, sizeof tcpmsg) == (int) sizeof tcpmsg) {
-
-        // get register number being accessed
-        uint32_t index = tcpmsg.indx;
+        // get axi bus register number being accessed
+        uint32_t index = shm->simrindx;
         if (index > 1023) {
-            fprintf (stderr, "conthread: bad index %u\n", index);
-            break;
+            fprintf (stderr, "simmer: bad index %u\n", index);
+            ABORT ();
         }
 
-        // do write to axi bus
-        if (tcpmsg.write) {
-            if (pthread_mutex_lock (&mybdmtx) != 0) ABORT ();
-            ////printf ("simmer*: write %04X <= %08X\n", index, tcpmsg.data);
-            AxiDev::axiwrmas (index, tcpmsg.data);
-            Stepper::stepemall ();
-            if (pthread_mutex_unlock (&mybdmtx) != 0) ABORT ();
-        }
+        switch (func) {
 
-        // do read from axi bus
-        else {
-            if (pthread_mutex_lock (&mybdmtx) != 0) ABORT ();
-            Stepper::stepemall ();
-            tcpmsg.data = AxiDev::axirdmas (index);
-            ////printf ("simmer*:  read %04X => %08X\n", index, tcpmsg.data);
-            if (pthread_mutex_unlock (&mybdmtx) != 0) ABORT ();
-            if (write (confd, &tcpmsg, sizeof tcpmsg) != (int) sizeof tcpmsg) ABORT ();
+            // do read from axi bus
+            case SIMRFUNC_READ: {
+                Stepper::stepemall ();
+                shm->simrdata = AxiDev::axirdmas (index);
+                ////printf ("simmer*:  read %04X => %08X\n", index, shm->simrdata);
+
+                shm->simrfunc = SIMRFUNC_DONE;
+                if (pthread_cond_broadcast (&shm->simrconddn) != 0)  ABORT ();
+                break;
+            }
+
+            // do write to axi bus
+            case SIMRFUNC_WRITE: {
+                ////printf ("simmer*: write %04X <= %08X\n", index, shm->simrdata);
+                AxiDev::axiwrmas (index, shm->simrdata);
+                Stepper::stepemall ();
+
+                shm->simrfunc = SIMRFUNC_IDLE;
+                if (pthread_cond_broadcast (&shm->simrcondid) != 0)  ABORT ();
+                break;
+            }
+
+            default: ABORT ();
         }
     }
-    close (confd);
-    return NULL;
+    if (pthread_mutex_unlock (&shm->simrmutex) != 0) ABORT ();
+
+    // delete shared memory
+    shm_unlink (SIMRNAME);
+    munmap (shm, sizeof *shm);
+    shm = NULL;
+    close (shmfd);
+    shmfd = -1;
+
+    return 0;
 }

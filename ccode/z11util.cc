@@ -54,7 +54,7 @@ Z11Page::Z11Page ()
 
     slat = NULL;
 
-#ifdef VERISIM
+#if defined VERISIM
 
     zynqpage = verisim_init ();
     zynqfd = open ("/tmp/zynqpdp11", O_RDWR | O_CREAT, 0666);
@@ -62,6 +62,10 @@ Z11Page::Z11Page ()
         fprintf (stderr, "Z11Page::Z11Page: error creating /tmp/zynqpdp11: %m\n");
         ABORT ();
     }
+
+#elif defined SIMRPAGE
+
+    zynqpage = simrpage_init (&zynqfd);
 
 #else
 

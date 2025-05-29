@@ -8,8 +8,8 @@ ifeq ($(MACH),armv7l)
 	LNKFLG := $(LNKFLG) -latomic
 endif
 ifeq ($(MACH),x86_64)
-	CFLAGS := $(CFLAGS) -DVERISIM
-	LIBS   := $(LIBS) ../verisim/verisim.$(MACH).a
+	CFLAGS := $(CFLAGS) -DSIMRPAGE
+	LIBS   := $(LIBS) ../simmer/simrpage.$(MACH).o
 endif
 
 GPP    := g++ $(CFLAGS) $(TCLINC) -std=c++11 -g -Wall -fPIC
