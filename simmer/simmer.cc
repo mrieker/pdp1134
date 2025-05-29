@@ -24,12 +24,14 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/futex.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #define ABORT() do { fprintf (stderr, "ABORT %s %d\n", __FILE__, __LINE__); abort (); } while (0)
@@ -43,6 +45,17 @@
 #include "simrpage.h"
 #include "stepper.h"
 #include "swlight.h"
+
+static bool atomic_compare_exchange (uint32_t *ptr, uint32_t *oldptr, uint32_t newval)
+{
+    return __atomic_compare_exchange_n (ptr, oldptr, newval, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+static int futex (uint32_t *uaddr, int futex_op, uint32_t val,
+             const struct timespec *timeout, uint32_t *uaddr2, uint32_t val3)
+{
+    return syscall (SYS_futex, uaddr, futex_op, val, timeout, uaddr2, val3);
+}
 
 int main (int argc, char **argv)
 {
@@ -76,20 +89,6 @@ int main (int argc, char **argv)
         shm->baadfood[i] = 0xBAADF00D;
     }
 
-    // initialize everything
-    pthread_condattr_t condattrs;
-    if (pthread_condattr_init (&condattrs) != 0) ABORT ();
-    if (pthread_condattr_setpshared (&condattrs, PTHREAD_PROCESS_SHARED) != 0) ABORT ();
-    if (pthread_cond_init (&shm->simrcondid, &condattrs) != 0) ABORT ();
-    if (pthread_cond_init (&shm->simrcondrw, &condattrs) != 0) ABORT ();
-    if (pthread_cond_init (&shm->simrconddn, &condattrs) != 0) ABORT ();
-
-    pthread_mutexattr_t mutexattrs;
-    if (pthread_mutexattr_init (&mutexattrs) != 0) ABORT ();
-    if (pthread_mutexattr_settype (&mutexattrs, PTHREAD_MUTEX_ERRORCHECK) != 0) ABORT ();
-    if (pthread_mutexattr_setpshared (&mutexattrs, PTHREAD_PROCESS_SHARED) != 0) ABORT ();
-    if (pthread_mutex_init (&shm->simrmutex, &mutexattrs) != 0) ABORT ();
-
     // plug boards into axi and uni busses
     new BigMem ();
     new CPU1134 ();
@@ -100,7 +99,6 @@ int main (int argc, char **argv)
     AxiDev::axiassign ();
 
     // process requests from z11xx programs
-    if (pthread_mutex_lock (&shm->simrmutex) != 0) ABORT ();
     shm->simmerpid = getpid ();
     fprintf (stderr, "simmer: pid %d\n", shm->simmerpid);
     shm->simrfunc = SIMRFUNC_IDLE;
@@ -110,7 +108,8 @@ int main (int argc, char **argv)
         // wait for read or write function
         uint32_t func;
         while (((func = shm->simrfunc) != SIMRFUNC_READ) && (func != SIMRFUNC_WRITE)) {
-            if (pthread_cond_wait (&shm->simrcondrw, &shm->simrmutex) != 0)  ABORT ();
+            int rc = futex (&shm->simrfunc, FUTEX_WAIT, func, NULL, NULL, 0);
+            if ((rc < 0) && (errno != EAGAIN)) ABORT ();
         }
 
         // get axi bus register number being accessed
@@ -127,9 +126,7 @@ int main (int argc, char **argv)
                 Stepper::stepemall ();
                 shm->simrdata = AxiDev::axirdmas (index);
                 ////printf ("simmer*:  read %04X => %08X\n", index, shm->simrdata);
-
-                shm->simrfunc = SIMRFUNC_DONE;
-                if (pthread_cond_broadcast (&shm->simrconddn) != 0)  ABORT ();
+                if (! atomic_compare_exchange (&shm->simrfunc, &func, SIMRFUNC_DONE)) ABORT ();
                 break;
             }
 
@@ -138,16 +135,16 @@ int main (int argc, char **argv)
                 ////printf ("simmer*: write %04X <= %08X\n", index, shm->simrdata);
                 AxiDev::axiwrmas (index, shm->simrdata);
                 Stepper::stepemall ();
-
-                shm->simrfunc = SIMRFUNC_IDLE;
-                if (pthread_cond_broadcast (&shm->simrcondid) != 0)  ABORT ();
+                if (! atomic_compare_exchange (&shm->simrfunc, &func, SIMRFUNC_IDLE)) ABORT ();
                 break;
             }
 
             default: ABORT ();
         }
+
+        int rc = futex (&shm->simrfunc, FUTEX_WAKE, 1000000000, NULL, NULL, 0);
+        if (rc < 0) ABORT ();
     }
-    if (pthread_mutex_unlock (&shm->simrmutex) != 0) ABORT ();
 
     // delete shared memory
     shm_unlink (SIMRNAME);

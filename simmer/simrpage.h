@@ -21,23 +21,19 @@
 #ifndef _SIMRPAGE_H
 #define _SIMRPAGE_H
 
-#include <pthread.h>
 #include <stdint.h>
 
 #define SIMRFUNC_IDLE 1
-#define SIMRFUNC_READ 2
-#define SIMRFUNC_WRITE 3
-#define SIMRFUNC_DONE 4
+#define SIMRFUNC_BUSY 2
+#define SIMRFUNC_READ 3
+#define SIMRFUNC_WRITE 4
+#define SIMRFUNC_DONE 5
 
 #define SIMRNAME "/simrpage"
 
 struct SimrPage {
     uint32_t baadfood[800];
     int simmerpid;
-    pthread_cond_t simrcondid;  // waiting for idle
-    pthread_cond_t simrcondrw;  // waiting for read/write
-    pthread_cond_t simrconddn;  // waiting for done
-    pthread_mutex_t simrmutex;
     uint32_t simrdata;
     uint32_t simrfunc;
     uint32_t simrindx;

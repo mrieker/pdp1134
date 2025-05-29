@@ -20,20 +20,33 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
+#include <linux/futex.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 
 #include "simrpage.h"
 
 static SimrPage *shm;
 
-static void simrpage_lock ();
-static void simrpage_wait (uint32_t func, pthread_cond_t *cond);
-static void simrpage_live (int rc);
+static void simrpage_tranw (uint32_t oldfunc, uint32_t newfunc);
+static void simrpage_trani (uint32_t oldfunc, uint32_t newfunc);
+static void simrpage_wake ();
+
+static bool atomic_compare_exchange (uint32_t *ptr, uint32_t *oldptr, uint32_t newval)
+{
+    return __atomic_compare_exchange_n (ptr, oldptr, newval, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+static int futex (uint32_t *uaddr, int futex_op, uint32_t val,
+             const struct timespec *timeout, uint32_t *uaddr2, uint32_t val3)
+{
+    return syscall (SYS_futex, uaddr, futex_op, val, timeout, uaddr2, val3);
+}
 
 // open access to shared page maintained by simmer
 uint32_t volatile *simrpage_init (int *simrfd_r)
@@ -60,62 +73,56 @@ uint32_t volatile *simrpage_init (int *simrfd_r)
 // read a word from the axi-like page maintained by simmer
 uint32_t simrpage_read (uint32_t volatile *addr)
 {
-    simrpage_lock ();
-    shm->simrfunc = SIMRFUNC_READ;
+    simrpage_tranw (SIMRFUNC_IDLE, SIMRFUNC_BUSY);
     shm->simrindx = addr - (uint32_t volatile *) shm;
-    if (pthread_cond_broadcast (&shm->simrcondrw) != 0) abort ();
-    simrpage_wait (SIMRFUNC_DONE, &shm->simrconddn);
+    simrpage_trani (SIMRFUNC_BUSY, SIMRFUNC_READ);
+    simrpage_wake ();
+    simrpage_tranw (SIMRFUNC_DONE, SIMRFUNC_BUSY);
     uint32_t data = shm->simrdata;
-    shm->simrfunc = SIMRFUNC_IDLE;
-    if (pthread_cond_broadcast (&shm->simrcondid) != 0) abort ();
-    if (pthread_mutex_unlock (&shm->simrmutex) != 0) abort ();
+    simrpage_trani (SIMRFUNC_BUSY, SIMRFUNC_IDLE);
+    simrpage_wake ();
     return data;
 }
 
 // write a word to the axi-like page maintained by simmer
 void simrpage_write (uint32_t volatile *addr, uint32_t data)
 {
-    simrpage_lock ();
-    shm->simrfunc = SIMRFUNC_WRITE;
+    simrpage_tranw (SIMRFUNC_IDLE, SIMRFUNC_BUSY);
     shm->simrindx = addr - (uint32_t volatile *) shm;
     shm->simrdata = data;
-    if (pthread_cond_broadcast (&shm->simrcondrw) != 0) abort ();
-    if (pthread_mutex_unlock (&shm->simrmutex) != 0) abort ();
+    simrpage_trani (SIMRFUNC_BUSY, SIMRFUNC_WRITE);
+    simrpage_wake ();
 }
 
-// lock access to shared page then wait for it to be idle
-static void simrpage_lock ()
+// wait until the given transition is possible then do it
+static void simrpage_tranw (uint32_t oldfunc, uint32_t newfunc)
 {
     while (true) {
-        struct timespec nowts;
-        if (clock_gettime (CLOCK_REALTIME, &nowts) < 0) abort ();
-        nowts.tv_sec += 1;
-        int rc = pthread_mutex_timedlock (&shm->simrmutex, &nowts);
-        if (rc == 0) break;
-        simrpage_live (rc);
-    }
-    simrpage_wait (SIMRFUNC_IDLE, &shm->simrcondid);
-}
-
-// wait for shared page to reach the given state
-static void simrpage_wait (uint32_t func, pthread_cond_t *cond)
-{
-    while (shm->simrfunc != func) {
-        struct timespec nowts;
-        if (clock_gettime (CLOCK_REALTIME, &nowts) < 0) abort ();
-        nowts.tv_sec += 1;
-        int rc = pthread_cond_timedwait (cond, &shm->simrmutex, &nowts);
-        if (rc != 0) simrpage_live (rc);
+        uint32_t tmpfunc = oldfunc;
+        if (atomic_compare_exchange (&shm->simrfunc, &tmpfunc, newfunc)) break;
+        struct timespec timeout;
+        memset (&timeout, 0, sizeof timeout);
+        timeout.tv_sec = 1;
+        int rc = futex (&shm->simrfunc, FUTEX_WAIT, tmpfunc, &timeout, NULL, 0);
+        if ((rc < 0) && (errno != EAGAIN) && (errno != ETIMEDOUT)) abort ();
+        int pid = shm->simmerpid;
+        if (kill (pid, 0) < 0) {
+            fprintf (stderr, "simrpage_live: simmer pid %d died: %m\n", pid);
+            abort ();
+        }
     }
 }
 
-// check that the simmer process is still alive
-static void simrpage_live (int rc)
+// transition should happen immediately, abort if not
+static void simrpage_trani (uint32_t oldfunc, uint32_t newfunc)
 {
-    if (rc != ETIMEDOUT) abort ();
-    int pid = shm->simmerpid;
-    if (kill (pid, 0) < 0) {
-        fprintf (stderr, "simrpage_live: simmer pid %d died: %m\n", pid);
-        abort ();
-    }
+    uint32_t tmpfunc = oldfunc;
+    if (! atomic_compare_exchange (&shm->simrfunc, &tmpfunc, newfunc)) abort ();
+}
+
+// wake everything waiting on the futex
+static void simrpage_wake ()
+{
+    int rc = futex (&shm->simrfunc, FUTEX_WAKE, 1000000000, NULL, NULL, 0);
+    if (rc < 0) abort ();
 }
