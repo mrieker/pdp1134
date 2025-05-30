@@ -93,10 +93,8 @@ module sim1134 (
     localparam[5:0] S_EXDIV6    = 32;
     localparam[5:0] S_EXMFPI    = 33;
     localparam[5:0] S_EXMFPI2   = 34;
-    localparam[5:0] S_EXMFPI3   = 35;
     localparam[5:0] S_EXMTPI    = 36;
     localparam[5:0] S_EXMTPI2   = 37;
-    localparam[5:0] S_EXMTPI3   = 38;
     localparam[5:0] S_SERVICE   = 39;
     localparam[5:0] S_NPG       = 40;
     localparam[5:0] S_INTR      = 41;
@@ -116,10 +114,9 @@ module sim1134 (
     localparam[5:0] S_EXASHC4   = 57;
     localparam[5:0] S_EXMARK    = 60;
     localparam[5:0] S_EXCCS     = 61;
-    localparam[5:0] S_EXECDD3   = 62;
     localparam[5:0] S_EXMARK2   = 63;
 
-    localparam[15:00] STKLIM = 16'o000400;
+    localparam[15:00] YELSTKLIM = 16'o000400;
 
     // [15:14] = current mode
     // [13:12] = previous mode
@@ -836,12 +833,15 @@ module sim1134 (
                 //    srcval = src value if any (byte value in top 8 bits, bottom 8 bits zero)
                 //  virtaddr = dst virtual address if any
                 S_EXECDD: begin
-                         if (iMUL)   state <= S_EXMUL;     // MUL
-                    else if (iDIV)   state <= S_EXDIV;     // DIV
-                    else if (iASH)   state <= S_EXASH;     // ASH
-                    else if (iASHC)  state <= S_EXASHC;    // ASHC
-                    else if (iMFPID) state <= S_EXMFPI;    // MFPI/MFPD
-                    else if (iMTPID) state <= S_EXMTPI;    // MTPI/MTPD
+                         if (iMUL)   state <= S_EXMUL;      // MUL
+                    else if (iDIV)   state <= S_EXDIV;      // DIV
+                    else if (iASH)   state <= S_EXASH;      // ASH
+                    else if (iASHC)  state <= S_EXASHC;     // ASHC
+                    else if (iMTPS) begin                   // MTPS
+                        psw[03:00] <= dstval[11:08];
+                        if (psw[15:14] == 0) psw[07:05] <= dstval[15:13];
+                        state <= S_SERVICE;
+                    end
                     else begin
                         state <= S_EXECDD2;
                              if (iMOVb) result <= srcval;
@@ -867,32 +867,13 @@ module sim1134 (
                         else if (iXOR)  result <= dstval ^ gprs[srcgprx];
                         else if (iSWAB) result <= { dstval[07:00], dstval[15:08] };
                         else if (iMFPS) result <= { psw[07:00], 8'b0 };
-                        else if (iMTPS) begin
-                            result <= { dstval[15:08], 8'b0 };
-                            if (psw[15:14] == 0) psw[07:05] <= dstval[15:13];
-                        end
                     end
                 end
 
                 // write destination value to register or start writing to memory
                 S_EXECDD2: begin
-                    if (needtowritedst) begin
-                        if (instreg[05:03] == 0) begin
-                            if (iMOVB | iMFPS) begin
-                                gprs[dstgprx] <= { { 8 { result[15] } }, result[15:08] };
-                            end else if (byteinstr) begin
-                                gprs[dstgprx][07:00] <= result[15:08];
-                            end else begin
-                                gprs[dstgprx] <= result;
-                            end
-                        end else begin
-                            memfunc   <= MF_WR;
-                            writedata <= byteinstr ? { 8'b0, result[15:08] } : result;
-                        end
-                    end
-                    state <= S_EXECDD3;
-                end
-                S_EXECDD3: begin
+
+                    // update condition codes
                     if (iSWAB) begin
                         psw[03:00] <= { result[07], result[07:00] == 0, 2'b00 };
                     end else begin
@@ -915,6 +896,22 @@ module sim1134 (
                                    else psw[01]    <= { 1'b0 };
                     end
 
+                    // write dst register or start writing dst memory
+                    // if writing to 777776 (psw), the result supercedes the condition codes
+                    if (needtowritedst) begin
+                        if (instreg[05:03] == 0) begin
+                            if (iMOVB | iMFPS) begin
+                                gprs[dstgprx] <= { { 8 { result[15] } }, result[15:08] };
+                            end else if (byteinstr) begin
+                                gprs[dstgprx][07:00] <= result[15:08];
+                            end else begin
+                                gprs[dstgprx] <= result;
+                            end
+                        end else begin
+                            memfunc   <= MF_WR;
+                            writedata <= byteinstr ? { 8'b0, result[15:08] } : result;
+                        end
+                    end
                     state <= S_SERVICE;
                 end
 
@@ -971,9 +968,8 @@ module sim1134 (
                 S_EXRTIT3: begin
                     gprs[cspgprx] <= gprs[cspgprx] + 4;
                     gprs[7]    <= srcval;
-                    psw[15:14] <= psw[15:14] | readdata[15:14];
-                    psw[13:12] <= psw[15:14] | readdata[15:14] | readdata[13:12];
                     if (psw[15:14] == 0) begin
+                        psw[15:12] <= readdata[15:12];
                         psw[07:05] <= readdata[07:05];
                     end
                     psw[04:00] <= readdata[04:00];
@@ -1137,17 +1133,17 @@ module sim1134 (
                     state <= S_EXMFPI2;
                 end
                 S_EXMFPI2: begin
+                    psw[03]       <= readdata[15];
+                    psw[02]       <= readdata == 0;
+                    psw[01]       <= 0;
                     gprs[cspgprx] <= gprs[cspgprx] - 2;
                     membyte       <= 0;
                     memfunc       <= MF_WR;
                     memmode       <= psw[15:14];
-                    state         <= S_EXMFPI3;
+                    state         <= S_SERVICE;
                     virtaddr      <= gprs[cspgprx] - 2;
                     writedata     <= readdata;
                     yellowck      <= 1;
-                end
-                S_EXMFPI3: begin
-                    state         <= S_SERVICE;
                 end
 
                 // move from current stack to previous address space
@@ -1162,20 +1158,20 @@ module sim1134 (
                     virtaddr      <= gprs[cspgprx];         // access top-of-stack word
                 end
                 S_EXMTPI2: begin
-                    if (instreg[05:03] == 0) begin
+                    psw[03]       <= readdata[15];          // update condition codes
+                    psw[02]       <= readdata == 0;
+                    psw[01]       <= 0;
+                    if (instreg[05:03] == 0) begin          // write register (maybe prev mode SP)
                         gprs[gprx(psw[13:12],instreg[02:00])] <= readdata;
                         state     <= S_SERVICE;
                     end else begin
-                        membyte   <= 0;
+                        membyte   <= 0;                     // start writing memory
                         memfunc   <= MF_WR;
-                        memmode   <= psw[13:12];
-                        state     <= S_EXMTPI3;
+                        memmode   <= psw[13:12];            // ...prev mode
+                        state     <= S_SERVICE;
                         virtaddr  <= dstval;
                         writedata <= readdata;
                     end
-                end
-                S_EXMTPI3: begin
-                    state         <= S_SERVICE;
                 end
 
                 // end of instruction, figure out what to do next
@@ -1185,7 +1181,7 @@ module sim1134 (
                     // do traps caused by instruction before checking halt switch
                     if (trapvec != 0) begin
                         state      <= S_TRAP;
-                    end else if (yellowck & (psw[15:14] == 0) & (gprs[6] < STKLIM)) begin
+                    end else if (yellowck & (psw[15:14] == 0) & (gprs[6] < YELSTKLIM)) begin
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;
@@ -1295,10 +1291,10 @@ module sim1134 (
                         memfunc    <= MF_RD;
                         memmode    <= 0;
                         state      <= S_TRAP2;
-                        trapping   <= 1;
+                        trapping   <= 1;                    // if we trap whilst doing this trap, halt
                         trapvec    <= 0;
                         virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
-                        yellowck   <= 0;
+                        yellowck   <= trapvec != T_CPUERR;  // check yellow stack only for other than the yellow stack vector
                     end
                 end
 
@@ -1345,8 +1341,8 @@ module sim1134 (
                     gprs[7]    <= srcval;
                     gprs[gprx(dstval[15:14],6)] <= gprs[gprx(dstval[15:14],6)] - 4;
                     psw[15:14] <= dstval[15:14];
-                    psw[13:12] <= dstval[15:14] | psw[15:14];
-                    psw[11:00] <= dstval[11:00] & 12'o0377;
+                    psw[13:12] <= psw[15:14];
+                    psw[07:00] <= dstval[07:00];
                     state      <= S_SERVICE;
                     trapping   <= 0;
                 end
@@ -1471,8 +1467,9 @@ module sim1134 (
                     if (bus_c_in_l[1]) begin
                         psw_d_out_l <= ~ psw;
                     end else begin
-                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) psw[15:08] <= ~ bus_d_in_l[15:08];
-                        if (bus_c_in_l[0] |   bus_a_in_l[00]) psw[07:00] <= ~ bus_d_in_l[07:00];
+                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) psw[15:12] <= ~ bus_d_in_l[15:12];
+                        if (bus_c_in_l[0] |   bus_a_in_l[00]) psw[07:05] <= ~ bus_d_in_l[07:05];
+                        if (bus_c_in_l[0] |   bus_a_in_l[00]) psw[03:00] <= ~ bus_d_in_l[03:00];
                     end
                     bus_ssyn_out_l <= 0;
                 end
