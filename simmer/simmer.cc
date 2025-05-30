@@ -105,53 +105,40 @@ int main (int argc, char **argv)
 
     while (true) {
 
-        // wait for read or write function
-        uint32_t func;
-        while (((func = shm->simrfunc) != SIMRFUNC_READ) && (func != SIMRFUNC_WRITE)) {
-            int rc = futex (&shm->simrfunc, FUTEX_WAIT, func, NULL, NULL, 0);
-            if ((rc < 0) && (errno != EAGAIN)) ABORT ();
-        }
+        Stepper::stepemall ();
 
-        // get axi bus register number being accessed
-        uint32_t index = shm->simrindx;
-        if (index > 1023) {
-            fprintf (stderr, "simmer: bad index %u\n", index);
-            ABORT ();
-        }
-
+        uint32_t func = shm->simrfunc;
         switch (func) {
 
             // do read from axi bus
             case SIMRFUNC_READ: {
-                Stepper::stepemall ();
+                uint32_t index = shm->simrindx;
+                if (index > 1023) {
+                    fprintf (stderr, "simmer: bad index %u\n", index);
+                    ABORT ();
+                }
                 shm->simrdata = AxiDev::axirdmas (index);
                 ////printf ("simmer*:  read %04X => %08X\n", index, shm->simrdata);
                 if (! atomic_compare_exchange (&shm->simrfunc, &func, SIMRFUNC_DONE)) ABORT ();
+                int rc = futex (&shm->simrfunc, FUTEX_WAKE, 1000000000, NULL, NULL, 0);
+                if (rc < 0) ABORT ();
                 break;
             }
 
             // do write to axi bus
             case SIMRFUNC_WRITE: {
+                uint32_t index = shm->simrindx;
+                if (index > 1023) {
+                    fprintf (stderr, "simmer: bad index %u\n", index);
+                    ABORT ();
+                }
                 ////printf ("simmer*: write %04X <= %08X\n", index, shm->simrdata);
                 AxiDev::axiwrmas (index, shm->simrdata);
-                Stepper::stepemall ();
                 if (! atomic_compare_exchange (&shm->simrfunc, &func, SIMRFUNC_IDLE)) ABORT ();
+                int rc = futex (&shm->simrfunc, FUTEX_WAKE, 1000000000, NULL, NULL, 0);
+                if (rc < 0) ABORT ();
                 break;
             }
-
-            default: ABORT ();
         }
-
-        int rc = futex (&shm->simrfunc, FUTEX_WAKE, 1000000000, NULL, NULL, 0);
-        if (rc < 0) ABORT ();
     }
-
-    // delete shared memory
-    shm_unlink (SIMRNAME);
-    munmap (shm, sizeof *shm);
-    shm = NULL;
-    close (shmfd);
-    shmfd = -1;
-
-    return 0;
 }

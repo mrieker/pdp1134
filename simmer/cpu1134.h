@@ -50,6 +50,7 @@ protected:
 private:
     static CPU1134 *singleton;
 
+    bool dbg1, dbg2;
     bool havedstaddr;
     bool lastpoweron;
     bool yellowstkck;

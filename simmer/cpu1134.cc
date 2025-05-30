@@ -30,7 +30,7 @@
 #define FIELD(r,m) (((r) & (m)) / ((m) & - (m)))
 #define HALTOP 0
 #define SEXTBW(byte) ((((byte) & 0377) ^ 0200) - 0200)
-#define YELLOWSTK 0410
+#define YELLOWSTK 0400  // proc hndbk 1976 p4-67
 
 #define P_NOTFPSIM 1
 #define P_POWEROFF 2
@@ -81,11 +81,17 @@ CPU1134::CPU1134 ()
     unidevtable[017576/2] = this;       // mmr2
     unidevtable[017776/2] = this;       // psw
 
+    // debug prints
+    char const *dbgenv = getenv ("cpu1134_debug");
+    int dbgint = (dbgenv == NULL) ? 0 : atoi (dbgenv);
+    dbg1 = dbgint >= 1;
+    dbg2 = dbgint >= 2;
+
     // fpga reset
     regctla =
         (FM_OFF << 30) |    // FM_OFF disconnect from bus
         (    1U << 21);     // man_npg_out_l
-    regctlb = 
+    regctlb =
         (   15U << 24);     // man_bg_out_l
     regctli = 0;
     lastpoweron = false;
@@ -101,39 +107,18 @@ uint32_t CPU1134::axirdslv (uint32_t index)
         case  2: return regctlb;
         case  3: return 0;
         case  4: return
-//          (dev_ac_lo_h    << 31) |
-//          (dev_bbsy_h     << 30) |
-//          (dev_dc_lo_h    << 29) |
-            ((jammedup () || SWLight::swlhaltreq ())  << 28) |   // dev_hltgr_l
-//          (dev_hltrq_h    << 27) |
-//          (dev_init_h     << 26) |
-//          (dev_intr_h     << 25) |
-//          (dev_del_msyn_h << 24) |
-//          (dev_npg_l      << 23) |
-//          (dev_npr_h      << 22) |
-//          (dev_sack_h     << 19) |
-//          (dev_del_ssyn_h << 18) |
-//          (dev_a_h        <<  0) |
-            0;
-        case  5: return
-//          (dmx_npr_in_h   << 17) |
-//          (dmx_hltrq_in_h << 16) |
-//          (dmx_c_in_h     << 14) |
-//          (dev_c_h        << 12) |
-//          (dmx_br_in_h    <<  8) |
-//          (dev_br_h       <<  4) |
-//          (dev_bg_l       <<  0) |
-            0;
-        case  6: return 0; // dmx_a_in_h;
-        case  7: return 0; // (dmx_d_in_h << 16) | (dev_d_h << 0);
-        case  8: return 0;          // debug display in z11dump
+            ((jammedup () || SWLight::swlhaltreq ())  << 28);    // dev_hltgr_l
+        case  5: return 0;
+        case  6: return 0;
+        case  7: return 0;
+        case  8: return 0;
         case  9: return regctli;
         case 10: return ((uint32_t) psw << 16) | gprs[7];
         case 11: return (lastpoweron << 1) | jammedup ();
-        case 28: return 0; // (ilaarmed << 31) | (ilaafter << 16) | (ilaoflow << 15) | ilaindex;
+        case 28: return 0;
         case 29: return 0;
-        case 30: return 0; // ilardata;
-        case 31: return 0; // ilardata >> 32;
+        case 30: return 0;
+        case 31: return 0;
     }
     return 0xDEADBEEF;
 }
@@ -145,32 +130,6 @@ void CPU1134::axiwrslv (uint32_t index, uint32_t data)
         case 2: regctlb = data; break;
     }
 }
-
-/***
-    // regctla[31:30] determine overall FPGA mode
-    wire[1:0] fpgamode = regctla[31:30];
-    localparam FM_OFF  = 0;     // FPGA 'off' - acts as a grant jumper card
-    localparam FM_SIM  = 1;     // simulating - still acts as grant jumper to outside world
-    localparam FM_REAL = 2;     // real - connected to outside signals
-    localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
-
-    wire        man_ac_lo_out_h = regctla[28];
-    wire        man_bbsy_out_h  = regctla[27];
-    wire[7:4]   man_bg_out_l    = regctlb[27:24];
-    wire[7:4]   man_br_out_h    = regctlb[23:20];
-    wire[1:0]   man_c_out_h     = regctlb[19:18];
-    wire[15:00] man_d_out_h     = regctla[15:00];
-    wire        man_dc_lo_out_h = regctla[26];
-    wire        man_hltrq_out_h = regctla[25];
-    wire        man_init_out_h  = regctla[24];
-    wire        man_intr_out_h  = regctla[23];
-    wire        man_msyn_out_h  = regctla[22];
-    wire        man_npg_out_l   = regctla[21];
-    wire        man_npr_out_h   = regctla[20];
-    assign      man_rsel_h      = regctlb[29:28];
-    wire        man_sack_out_h  = regctla[17];
-    wire        man_ssyn_out_h  = regctla[16];
-***/
 
 // don't do anything to CPU state for RESET instruction
 void CPU1134::resetslave ()
@@ -287,7 +246,7 @@ void CPU1134::stepit ()
 {
     // don't do anything until enabled
     if (FIELD (regctla, a_fpgamode) != FM_SIM) {
-        if (lastprint != P_NOTFPSIM) {
+        if (dbg1 && (lastprint != P_NOTFPSIM)) {
             printf ("CPU1134::stepit*: not FM_SIM\n");
             lastprint = P_NOTFPSIM;
         }
@@ -298,7 +257,7 @@ void CPU1134::stepit ()
     // power must be on
     bool thispoweron = ! FIELD (regctla, a_man_dc_lo_out_h);
     if (! thispoweron) {
-        if (lastprint != P_POWEROFF) {
+        if (dbg1 && (lastprint != P_POWEROFF)) {
             printf ("CPU1134::stepit*: power off\n");
             lastprint = P_POWEROFF;
         }
@@ -309,8 +268,10 @@ void CPU1134::stepit ()
 
     // if power just came on, do a power-on reset (counts as a step)
     if (! lastpoweron) {
-        lastprint = P_POWERON;
-        printf ("CPU1134::stepit*: powering up\n");
+        if (dbg1) {
+            lastprint = P_POWERON;
+            printf ("CPU1134::stepit*: powering up\n");
+        }
         resetmaster ();
         instreg     = HALTOP;
         lastpoweron = true;
@@ -321,7 +282,7 @@ void CPU1134::stepit ()
             gprs[7] = rdwordphys (024);
             psw     = rdwordphys (026);
             instreg = ~ HALTOP;
-            printf ("CPU1134::stepit*: powered up to PC=%06o PS=%06o\n", gprs[7], psw);
+            if (dbg1) printf ("CPU1134::stepit*: powered up to PC=%06o PS=%06o\n", gprs[7], psw);
         } catch (CPU1134Trap &t) {
             fprintf (stderr, "CPU1134::stepit: trap %03o reading power-on vector\n", t.vector);
         }
@@ -330,7 +291,7 @@ void CPU1134::stepit ()
 
     // don't do anything if console has us halted
     if (! SWLight::swlstepreq ()) {
-        if (lastprint != P_HALTBYSW) {
+        if (dbg1 && (lastprint != P_HALTBYSW)) {
             printf ("CPU1134::stepit*: halted by switches at PC=%06o PS=%06o\n", gprs[7], psw);
             lastprint = P_HALTBYSW;
         }
@@ -340,14 +301,14 @@ void CPU1134::stepit ()
     // don't do anything if executed an HALT instruction or had double-fault, etc
     // - must be power cycled with a_man_dc_lo_out_h to recover
     if (jammedup ()) {
-        if (lastprint != P_JAMMEDUP) {
+        if (dbg1 && (lastprint != P_JAMMEDUP)) {
             printf ("CPU1134::stepit*: jammed up at PC=%06o PS=%06o\n", gprs[7], psw);
             lastprint = P_JAMMEDUP;
         }
         return;
     }
 
-    if (lastprint != P_RUNNING) {
+    if (dbg1 && (lastprint != P_RUNNING)) {
         printf ("CPU1134::stepit*: running at PC=%06o PS=%06o\n", gprs[7], psw);
         lastprint = P_RUNNING;
     }
@@ -355,12 +316,16 @@ void CPU1134::stepit ()
     regctli ++;
 
     try {
+        if (dbg2) printf ("CPU1134::stepit*: fetch");
 
         // check interrupts
         uint16_t prio = (psw >> 5) & 7;
         for (uint16_t level = 8; (-- level >= 4) && (level > prio);) {
             uint8_t vector = getintmaster (level);
-            if (vector != 0) throw CPU1134Trap (vector);
+            if (vector != 0) {
+                if (dbg2) printf (" interrupt");
+                throw CPU1134Trap (vector);
+            }
         }
 
         // fetch next instruction
@@ -379,45 +344,59 @@ void CPU1134::stepit ()
                 switch ((instreg >> 6) & 077) {
                     case 001: { // JMP
                         if (! byte) {
+                            if (dbg2) printf (" JMP");
                             if ((instreg & 070) == 0) throw CPU1134Trap (T_ILLJMPM);
                             gprs[7] = getopaddr (instreg, false);
+                            if (dbg2) printf (" => %06o", gprs[7]);
                             goto s_endinst;
                         }
                         break;
                     }
                     case 002: {
                         if ((instreg & 0177770) == 0000200) {   // RTS
+                            if (dbg2) printf (" RTS R%o", instreg & 7);
                             uint16_t spgprx = gprx (6, psw >> 14);
                             uint16_t rgprx = gprx (instreg, psw >> 14);
                             gprs[7] = gprs[rgprx];
                             gprs[rgprx] = rdwordvirt (gprs[spgprx], psw >> 14);
+                            if (dbg2) printf (" => PC=%06o Rn=%06o", gprs[7], gprs[rgprx]);
                             gprs[spgprx] += 2;
                             goto s_endinst;
                         }
                         if ((instreg & 0177740) == 0000240) {   // CCS
                             uint16_t bit = (instreg >> 4) & 1;
-                            if (instreg & 001) psw = (psw & ~ 001) | bit;
-                            if (instreg & 002) psw = (psw & ~ 002) | bit;
-                            if (instreg & 004) psw = (psw & ~ 004) | bit;
-                            if (instreg & 010) psw = (psw & ~ 010) | bit;
+                            if (instreg & 001) psw = (psw & ~ 001) | (bit << 0);
+                            if (instreg & 002) psw = (psw & ~ 002) | (bit << 1);
+                            if (instreg & 004) psw = (psw & ~ 004) | (bit << 2);
+                            if (instreg & 010) psw = (psw & ~ 010) | (bit << 3);
+                            if (dbg2) printf (" %c%c%c%c%c => %06o",
+                                bit ? 'S' : 'C',
+                                instreg & 010 ? 'N' : '-',
+                                instreg & 004 ? 'Z' : '-',
+                                instreg & 002 ? 'V' : '-',
+                                instreg & 001 ? 'C' : '-', psw);
                             goto s_endinst;
                         }
                         break;
                     }
                     case 003: {
                         if (! byte) {   // SWAB
+                            if (dbg2) printf (" SWAB");
                             uint16_t dstval = readdst (false);
                             uint16_t result = (dstval << 8) | (dstval >> 8);
-                            writedst (result, false);
+                            if (dbg2) printf (" => %06o", result);
                             updnzvc (result, true, 0, 0);
+                            writedst (result, false);
                             goto s_endinst;
                         }
                         break;
                     }
                     case 040 ... 047: {   // JSR
                         if (! byte) {
+                            if (dbg2) printf (" JSR R%o", (instreg >> 6) & 7);
                             if ((instreg & 070) == 0) throw CPU1134Trap (T_ILLJMPM);
                             uint16_t jmpaddr = getopaddr (instreg, false);
+                            if (dbg2) printf (" => %06o", jmpaddr);
                             yellowstkck = true;
                             uint16_t spgprx = gprx (6, psw >> 14);
                             uint16_t rgprx = gprx (instreg >> 6, psw >> 14);
@@ -428,153 +407,178 @@ void CPU1134::stepit ()
                             goto s_endinst;
                         }
                         if ((instreg & 0177400) == 0104000) {   // EMT
+                            if (dbg2) printf (" EMT %03o", instreg & 0377);
                             throw CPU1134Trap (T_EMT);
                         }
                         if ((instreg & 0177400) == 0104400) {   // TRAP
+                            if (dbg2) printf (" TRAP %03o", instreg & 0377);
                             throw CPU1134Trap (T_TRAP);
                         }
                         break;
                     }
                     case 050: { // CLRb
-                        writedst (0, byte);
+                        if (dbg2) printf (" CLR%c", byte ? 'B' : ' ');
                         updnzvc (0, byte, 0, 0);
+                        writedst (0, byte);
                         goto s_endinst;
                     }
                     case 051: { // COMb
+                        if (dbg2) printf (" COM%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = ~ dstval;
-                        writedst (result, byte);
                         updnzvc (result, byte, 0, 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 052: { // INCb
+                        if (dbg2) printf (" INC%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = dstval + 1;
-                        writedst (result, byte);
                         updnzvc (result, byte, addvbit (dstval, 1, byte), psw & 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 053: { // DECb
+                        if (dbg2) printf (" DEC%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = dstval - 1;
-                        writedst (result, byte);
                         updnzvc (result, byte, subvbit (dstval, 1, byte), psw & 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 054: { // NEGb
+                        if (dbg2) printf (" NEG%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = - dstval;
-                        writedst (result, byte);
                         updnzvc (result, byte, subvbit (0, dstval, byte), subcbit (0, dstval, byte));
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 055: { // ADCb
+                        if (dbg2) printf (" ADC%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = dstval + (psw & 1);
-                        writedst (result, byte);
                         updnzvc (result, byte, addvbit (dstval, psw & 1, byte), addcbit (dstval, psw & 1, byte));
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 056: { // SBCb
+                        if (dbg2) printf (" SBC%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = dstval - (psw & 1);
-                        writedst (result, byte);
                         updnzvc (result, byte, subvbit (dstval, psw & 1, byte), subcbit (dstval, psw & 1, byte));
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 057: { // TSTb
+                        if (dbg2) printf (" TST%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         updnzvc (dstval, byte, 0, 0);
                         goto s_endinst;
                     }
                     case 060: { // RORb
+                        if (dbg2) printf (" ROR%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = ((byte ? dstval & 0xFFU : dstval) >> 1) | ((psw & 1) << (byte ? 7 : 15));
-                        writedst (result, byte);
                         updnzvc (result, byte, asrvbit (dstval, result, byte), dstval & 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 061: { // ROLb
+                        if (dbg2) printf (" ROL%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = (dstval << 1) | (psw & 1);
-                        writedst (result, byte);
                         updnzvc (result, byte, aslvbit (dstval, result, byte), (dstval >> (byte ? 7 : 15)) & 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 062: { // ASRb
+                        if (dbg2) printf (" ASR%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = ((int16_t) (byte ? SEXTBW(dstval) : dstval)) >> 1;
-                        writedst (result, byte);
                         updnzvc (result, byte, asrvbit (dstval, result, byte), dstval & 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 063: { // ASLb
+                        if (dbg2) printf (" ASL%c", byte ? 'B' : ' ');
                         uint16_t dstval = readdst (byte);
                         uint16_t result = dstval << 1;
-                        writedst (result, byte);
                         updnzvc (result, byte, aslvbit (dstval, result, byte), (dstval >> (byte ? 7 : 15)) & 1);
+                        writedst (result, byte);
                         goto s_endinst;
                     }
                     case 064: {
                         if (byte) {     // MTPS
+                            if (dbg2) printf (" MTPS");
                             uint16_t dstval = readdst (true);
                             if ((psw & 0140000) == 0) {
                                 psw = (psw & ~ 0340) | (dstval & 0340);
                             }
                             psw = (psw & ~ 0017) | (dstval & 0017);
-                            updnzvc (dstval, true, 0, psw & 1);
                         }
                         else {          // MARK
+                            if (dbg2) printf (" MARK %02o", instreg & 077);
                             uint16_t spgprx = gprx (6, psw >> 14);
                             gprs[spgprx] = gprs[7] + 2 * (instreg & 077);
                             gprs[7] = gprs[5];
                             gprs[5] = rdwordvirt (gprs[spgprx], psw >> 14);
                             gprs[spgprx] += 2;
+                            if (dbg2) printf (" => R5=%06o SP=%06o PC=%06o", gprs[5], gprs[spgprx], gprs[7]);
                         }
                         goto s_endinst;
                     }
                     case 065: {         // MFPI/D
+                        if (dbg2) printf (" MFPI");
                         uint16_t srcval;
                         if ((instreg & 070) == 0) {
+                            if (dbg2) printf (" R%o", instreg & 7);
                             uint16_t srcgprx = gprx (instreg & 7, psw >> 12);
                             srcval = gprs[srcgprx];
                         } else {
                             uint16_t srcadr = getopaddr (instreg, false);
                             srcval = rdwordvirt (srcadr, psw >> 12);
                         }
+                        if (dbg2) printf (" => %06o", srcval);
 
                         uint16_t spgprx = gprx (6, psw >> 14);
                         yellowstkck = true;
                         gprs[spgprx] -= 2;
-                        wrwordvirt (gprs[spgprx], srcval, psw >> 14);
                         updnzvc (srcval, false, 0, psw & 1);
+                        wrwordvirt (gprs[spgprx], srcval, psw >> 14);
                         goto s_endinst;
                     }
                     case 066: {         // MTPI/D
+                        if (dbg2) printf (" MTPI");
                         uint16_t spgprx = gprx (6, psw >> 14);
                         uint16_t srcval = rdwordvirt (gprs[spgprx], psw >> 14);
                         gprs[spgprx] += 2;
 
                         if ((instreg & 070) == 0) {
+                            if (dbg2) printf (" R%o", instreg & 7);
                             uint16_t srcgprx = gprx (instreg & 7, psw >> 12);
+                            updnzvc (srcval, false, 0, psw & 1);
                             gprs[srcgprx] = srcval;
+                            if (dbg2) printf (" [R%o<=%06o]", instreg & 7, srcval);
                         } else {
                             uint16_t srcadr = getopaddr (instreg, false);
+                            updnzvc (srcval, false, 0, psw & 1);
                             wrwordvirt (srcadr, srcval, psw >> 12);
                         }
-                        updnzvc (srcval, false, 0, psw & 1);
                         goto s_endinst;
                     }
                     case 067: {
                         if (byte) {     // MFPS
-                            uint16_t result = psw & 0xFFU;
-                            writedst (result, true);
+                            if (dbg2) printf (" MFPS");
+                            uint16_t result = (int16_t) (int8_t) psw;
                             updnzvc (result, true, 0, psw & 1);
+                            writedst (result, (instreg & 070) != 0);
                         }
                         else {          // SEXT
+                            if (dbg2) printf (" SEXT");
                             uint16_t result = (psw & 010) ? -1 : 0;
-                            writedst (result, false);
                             updnzvc (result, false, 0, psw & 1);
+                            writedst (result, false);
                         }
                         goto s_endinst;
                     }
@@ -585,32 +589,38 @@ void CPU1134::stepit ()
                 bool ble = ((psw >> 2) & 1) | blt;
                 uint16_t newpc = gprs[7] + SEXTBW(instreg) * 2;
                 switch (((instreg >> 12) & 010) | ((instreg >> 8) & 007)) {
-                    case 001:                    gprs[7] = newpc; goto s_endinst; // BR
-                    case 002: if (! (psw & 004)) gprs[7] = newpc; goto s_endinst; // BNE
-                    case 003: if (  (psw & 004)) gprs[7] = newpc; goto s_endinst; // BEQ
-                    case 004: if (!  blt       ) gprs[7] = newpc; goto s_endinst; // BGE
-                    case 005: if (   blt       ) gprs[7] = newpc; goto s_endinst; // BLT
-                    case 006: if (!  ble       ) gprs[7] = newpc; goto s_endinst; // BGT
-                    case 007: if (   ble       ) gprs[7] = newpc; goto s_endinst; // BLE
-                    case 010: if (! (psw & 010)) gprs[7] = newpc; goto s_endinst; // BPL
-                    case 011: if (  (psw & 010)) gprs[7] = newpc; goto s_endinst; // BMI
-                    case 012: if (! (psw & 005)) gprs[7] = newpc; goto s_endinst; // BHI
-                    case 013: if (  (psw & 005)) gprs[7] = newpc; goto s_endinst; // BLOS
-                    case 014: if (! (psw & 002)) gprs[7] = newpc; goto s_endinst; // BVC
-                    case 015: if (  (psw & 002)) gprs[7] = newpc; goto s_endinst; // BVS
-                    case 016: if (! (psw & 001)) gprs[7] = newpc; goto s_endinst; // BCC
-                    case 017: if (  (psw & 001)) gprs[7] = newpc; goto s_endinst; // BCS
+                    case 001: if (dbg2) printf (" BR   %03o", instreg & 0377);                    { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BR
+                    case 002: if (dbg2) printf (" BNE  %03o", instreg & 0377); if (! (psw & 004)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BNE
+                    case 003: if (dbg2) printf (" BEQ  %03o", instreg & 0377); if (  (psw & 004)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BEQ
+                    case 004: if (dbg2) printf (" BGE  %03o", instreg & 0377); if (!  blt       ) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BGE
+                    case 005: if (dbg2) printf (" BLT  %03o", instreg & 0377); if (   blt       ) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BLT
+                    case 006: if (dbg2) printf (" BGT  %03o", instreg & 0377); if (!  ble       ) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BGT
+                    case 007: if (dbg2) printf (" BLE  %03o", instreg & 0377); if (   ble       ) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BLE
+                    case 010: if (dbg2) printf (" BPL  %03o", instreg & 0377); if (! (psw & 010)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BPL
+                    case 011: if (dbg2) printf (" BMI  %03o", instreg & 0377); if (  (psw & 010)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BMI
+                    case 012: if (dbg2) printf (" BHI  %03o", instreg & 0377); if (! (psw & 005)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BHI
+                    case 013: if (dbg2) printf (" BLOS %03o", instreg & 0377); if (  (psw & 005)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BLOS
+                    case 014: if (dbg2) printf (" BVC  %03o", instreg & 0377); if (! (psw & 002)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BVC
+                    case 015: if (dbg2) printf (" BVS  %03o", instreg & 0377); if (  (psw & 002)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BVS
+                    case 016: if (dbg2) printf (" BCC  %03o", instreg & 0377); if (! (psw & 001)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BCC
+                    case 017: if (dbg2) printf (" BCS  %03o", instreg & 0377); if (  (psw & 001)) { gprs[7] = newpc; if (dbg2) printf (" => %06o", newpc); } goto s_endinst; // BCS
 
                     // 0 000 x00 0xx xxx xxx
                     case 0: {
                         switch (instreg) {
                             case 0: {
+                                if (dbg2) printf (" HALT");
                                 if ((mmr0 & 1) && (psw & 0160000)) throw CPU1134Trap (T_ILLINST);
-                                printf ("CPU1134::stepit*: HALT instr at PC=%06o PS=%06o\n", gprs[7], psw);
+                                if (dbg2) printf ("\n");
+                                if (dbg1) printf ("CPU1134::stepit*: HALT instr at PC=%06o PS=%06o\n", gprs[7], psw);
                                 return;                                 // HALT
                             }
-                            case 1: goto s_endinst;                     // WAIT
+                            case 1: {
+                                if (dbg2) printf (" WAIT");
+                                goto s_endinst;                         // WAIT
+                            }
                             case 2: {                                   // RTI
+                                if (dbg2) printf (" RTI");
                                 uint16_t spgprx = gprx (6, psw >> 14);
                                 uint16_t newpc = rdwordvirt (gprs[spgprx], psw >> 14);
                                 gprs[spgprx] += 2;
@@ -622,15 +632,24 @@ void CPU1134::stepit ()
                                 } else {
                                     psw = newps;
                                 }
+                                if (dbg2) printf (" => PC=%06o PS=%06o", gprs[7], psw);
                                 goto s_endinst;
                             }
-                            case 3: throw CPU1134Trap (T_BPTRACE);          // BPT
-                            case 4: throw CPU1134Trap (T_IOT);              // IOT
+                            case 3: {
+                                if (dbg2) printf (" BPT");
+                                throw CPU1134Trap (T_BPTRACE);              // BPT
+                            }
+                            case 4: {
+                                if (dbg2) printf (" IOT");
+                                throw CPU1134Trap (T_IOT);                  // IOT
+                            }
                             case 5: {
+                                if (dbg2) printf (" RESET");
                                 if ((psw & 0140000) == 0) resetmaster ();   // RESET
                                 goto s_endinst;
                             }
                             case 6: {                                       // RTT
+                                if (dbg2) printf (" RTT");
                                 uint16_t spgprx = gprx (6, psw >> 14);
                                 uint16_t newpc = rdwordvirt (gprs[spgprx], psw >> 14);
                                 gprs[spgprx] += 2;
@@ -642,6 +661,7 @@ void CPU1134::stepit ()
                                 } else {
                                     psw = newps;
                                 }
+                                if (dbg2) printf (" => PC=%06o PS=%06o", gprs[7], psw);
                                 goto s_endrtt;
                             }
                         }
@@ -652,16 +672,18 @@ void CPU1134::stepit ()
             }
 
             case 1: {   // MOVb
+                if (dbg2) printf (" MOV%c", byte ? 'B' : ' ');
                 uint16_t srcval = readsrc (byte);
                 if (byte && ((instreg & 070) == 0)) {
                     srcval = ((srcval & 0377) ^ 0200) - 0200;
                     byte   = false;
                 }
-                writedst (srcval, byte);
                 updnzvc (srcval, byte, 0, psw & 1);
+                writedst (srcval, byte);
                 goto s_endinst;
             }
             case 2: {   // CMPb
+                if (dbg2) printf (" CMP%c", byte ? 'B' : ' ');
                 uint16_t srcval = readsrc (byte);
                 uint16_t dstval = readdst (byte);
                 uint16_t result = srcval - dstval;
@@ -669,38 +691,42 @@ void CPU1134::stepit ()
                 goto s_endinst;
             }
             case 3: {   // BITb
+                if (dbg2) printf (" BIT%c", byte ? 'B' : ' ');
                 uint16_t srcval = readsrc (byte);
                 uint16_t dstval = readdst (byte);
                 updnzvc (srcval & dstval, byte, 0, psw & 1);
                 goto s_endinst;
             }
             case 4: {   // BICb
+                if (dbg2) printf (" BIC%c", byte ? 'B' : ' ');
                 uint16_t srcval = readsrc (byte);
                 uint16_t dstval = readdst (byte);
                 uint16_t result = dstval & ~ srcval;
-                writedst (result, byte);
                 updnzvc (result, byte, 0, psw & 1);
+                writedst (result, byte);
                 goto s_endinst;
             }
             case 5: {   // BISb
+                if (dbg2) printf (" BIS%c", byte ? 'B' : ' ');
                 uint16_t srcval = readsrc (byte);
                 uint16_t dstval = readdst (byte);
                 uint16_t result = dstval | srcval;
-                writedst (result, byte);
                 updnzvc (result, byte, 0, psw & 1);
+                writedst (result, byte);
                 goto s_endinst;
             }
             case 6: {   // ADD/SUB
-                uint16_t srcval = readsrc (byte);
-                uint16_t dstval = readdst (byte);
+                if (dbg2) printf (" %s ", byte ? "SUB" : "ADD");
+                uint16_t srcval = readsrc (false);
+                uint16_t dstval = readdst (false);
                 if (byte) {
                     uint16_t result = dstval - srcval;
-                    writedst (result, false);
                     updnzvc (result, false, subvbit (dstval, srcval, false), subcbit (dstval, srcval, false));
+                    writedst (result, false);
                 } else {
                     uint16_t result = dstval + srcval;
-                    writedst (result, false);
                     updnzvc (result, false, addvbit (dstval, srcval, false), addcbit (dstval, srcval, false));
+                    writedst (result, false);
                 }
                 goto s_endinst;
             }
@@ -711,7 +737,9 @@ void CPU1134::stepit ()
                     // 0 111 xxx xxx xxx xxx
                     switch ((instreg >> 9) & 7) {
                         case 0: {   // MUL
+                            if (dbg2) printf (" MUL");
                             int16_t srcval   = readdst (false);
+                            if (dbg2) printf (", R%o", (instreg >> 6) & 7);
                             uint16_t dstgprx = gprx (instreg >> 6, psw >> 14);
                             int16_t dstval   = gprs[dstgprx];
                             int32_t prod     = srcval * dstval;
@@ -721,7 +749,9 @@ void CPU1134::stepit ()
                             goto s_endinst;
                         }
                         case 1: {   // DIV
+                            if (dbg2) printf (" DIV");
                             int16_t srcval = readdst (false);
+                            if (dbg2) printf (", R%o", (instreg >> 6) & 7);
                             if (srcval == 0) {
                                 updnzvc (0, false, 1, 1);
                             } else {
@@ -736,7 +766,9 @@ void CPU1134::stepit ()
                             goto s_endinst;
                         }
                         case 2: {   // ASH
+                            if (dbg2) printf (" ASH");
                             int16_t srcval   = readdst (false);
+                            if (dbg2) printf (", R%o", (instreg >> 6) & 7);
                             uint16_t dstgprx = gprx (instreg >> 6, psw >> 14);
                             int16_t dividend = gprs[dstgprx];
                             bool vbit = false;
@@ -758,7 +790,9 @@ void CPU1134::stepit ()
                             goto s_endinst;
                         }
                         case 3: {   // ASHC
+                            if (dbg2) printf (", ASHC");
                             int16_t srcval   = readdst (false);
+                            if (dbg2) printf (" R%o", (instreg >> 6) & 7);
                             uint16_t dstgprx = gprx (instreg >> 6, psw >> 14);
                             int32_t dividend = (((uint32_t) gprs[dstgprx]) << 16) | (uint32_t) gprs[dstgprx|1];
                             bool vbit = false;
@@ -781,18 +815,23 @@ void CPU1134::stepit ()
                             goto s_endinst;
                         }
                         case 4: {   // XOR
+                            if (dbg2) printf (" XOR R%o,", (instreg >> 6) & 7);
                             uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
                             uint16_t srcval  = gprs[srcgprx];
                             uint16_t dstval  = readdst (byte);
                             uint16_t result  = dstval ^ srcval;
-                            writedst (result, false);
                             updnzvc (result, false, 0, psw & 1);
+                            writedst (result, false);
                             goto s_endinst;
                         }
                         case 7: {   // SOB
+                            if (dbg2) printf (" SOB  R%o, %02o", (instreg >> 6) & 7, instreg & 077);
                             uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
-                            if (-- gprs[srcgprx] != 0) {
+                            uint16_t result = -- gprs[srcgprx];
+                            if (dbg2) printf (" [R%o<=%06o]", (instreg >> 6) & 7, result);
+                            if (result != 0) {
                                 gprs[7] -= 2 * (instreg & 077);
+                                if (dbg2) printf (" => %06o", gprs[7]);
                             }
                             goto s_endinst;
                         }
@@ -802,13 +841,16 @@ void CPU1134::stepit ()
         }
 
         // illegal opcode
+        if (dbg2) printf (" illinst");
         throw CPU1134Trap (T_ILLINST);
 
     s_endinst:;
         if (yellowstkck && ! (psw & 0140000) && (gprs[6] < YELLOWSTK)) {
+            if (dbg2) printf (" yellow stack");
             throw CPU1134Trap (T_YELOSTK);
         }
         if (psw & 020) {
+            if (dbg2) printf (" trace bit");
             throw CPU1134Trap (T_BPTRACE);
         }
     s_endrtt:;
@@ -816,23 +858,35 @@ void CPU1134::stepit ()
 
     catch (CPU1134Trap &t) {
         try {
-            uint16_t newpc = rdwordvirt (t.vector,     0);
-            uint16_t newps = rdwordvirt (t.vector | 2, 0);
+            uint8_t vec = t.vector;
+            while (true) {
+                if (dbg2) printf (" => trap %03o", vec);
+                if (vec & 3) throw (T_ODDADDR);
+                uint16_t newpc = rdwordvirt (vec,     0);
+                uint16_t newps = rdwordvirt (vec | 2, 0);
 
-            uint16_t nspgprx = gprx (6, newps >> 14);
+                uint16_t nspgprx = gprx (6, newps >> 14);
 
-            gprs[nspgprx] -= 2;
-            wrwordvirt (gprs[nspgprx], psw,     newps >> 14);
-            gprs[nspgprx] -= 2;
-            wrwordvirt (gprs[nspgprx], gprs[7], newps >> 14);
+                gprs[nspgprx] -= 2;
+                wrwordvirt (gprs[nspgprx], psw,     newps >> 14);
+                gprs[nspgprx] -= 2;
+                wrwordvirt (gprs[nspgprx], gprs[7], newps >> 14);
 
-            gprs[7] = newpc;
-            psw     = (newps & 0140377) | ((psw >> 2) & 0030000);
+                gprs[7] = newpc;
+                psw     = (newps & 0140377) | ((psw >> 2) & 0030000);
+
+                if ((vec == T_YELOSTK) || ((psw & 0140000) != 0) || (gprs[6] >= YELLOWSTK)) break;
+                if (dbg2) printf (" yellow stack2");
+                vec = T_YELOSTK;
+            }
         } catch (CPU1134Trap &t2) {
+            if (dbg2) printf ("\n");
             fprintf (stderr, "CPU1134::stepit: trap %03o got double fault %03o\n", t.vector, t2.vector);
             instreg = HALTOP;
+            return;
         }
     }
+    if (dbg2) printf ("\n");
 }
 
 // see if cpu executed an HALT instruction or has double-faulted, etc
@@ -849,23 +903,30 @@ bool CPU1134::jammedup ()
 // determine address of source operand then read operand value
 uint16_t CPU1134::readsrc (bool byte)
 {
+    uint16_t data;
     if ((instreg & 07000) == 0) {
         uint16_t srcgprx = gprx (instreg >> 6, psw >> 14);
-        return gprs[srcgprx];
+        data = gprs[srcgprx];
+        if (dbg2) printf (" R%o [R%o=>%06o]", (instreg >> 6) & 7, (instreg >> 6) & 7, data);
+    } else {
+        uint16_t srcaddr = getopaddr (instreg >> 6, byte);
+        data = byte ? rdbytevirt (srcaddr, psw >> 14) : rdwordvirt (srcaddr, psw >> 14);
     }
-    uint16_t srcaddr = getopaddr (instreg >> 6, byte);
-    return byte ? rdbytevirt (srcaddr, psw >> 14) : rdwordvirt (srcaddr, psw >> 14);
+    if (dbg2) printf (",");
+    return data;
 }
 
 // determine address of destination operand then read operand value
 uint16_t CPU1134::readdst (bool byte)
 {
+    havedstaddr = true;
     if ((instreg & 070) == 0) {
         uint16_t dstgprx = gprx (instreg, psw >> 14);
-        return gprs[dstgprx];
+        uint16_t data = gprs[dstgprx];
+        if (dbg2) printf (" R%o [R%o=>%06o]", instreg & 7, instreg & 7, data);
+        return data;
     }
     dstaddr = getopaddr (instreg, byte);
-    havedstaddr = true;
     return byte ? rdbytevirt (dstaddr, psw >> 14) : rdwordvirt (dstaddr, psw >> 14);
 }
 
@@ -876,6 +937,10 @@ void CPU1134::writedst (uint16_t data, bool byte)
         uint16_t dstgprx = gprx (instreg, psw >> 14);
         if (byte) data = (gprs[dstgprx] & ~ 0377) | (data & 0377);
         gprs[dstgprx] = data;
+        if (dbg2) {
+            if (! havedstaddr) printf (" R%o", instreg & 7);
+            printf (" [R%o<=%0*o]", instreg & 7, byte ? 3 : 6, byte ? data & 0377 : data);
+        }
     } else {
         if (! havedstaddr) {
             dstaddr = getopaddr (instreg, byte);
@@ -893,33 +958,43 @@ uint16_t CPU1134::getopaddr (uint16_t mr, bool byte)
     if ((r == 6) && (psw & 0140000)) r = 016;
     uint16_t i = (byte && ((mr & 6) != 6)) ? 1 : 2;
     switch ((mr >> 3) & 7) {
-        case 1: return gprs[r];
+        case 1: {
+            if (dbg2) printf (" @R%o", mr & 7);
+            return gprs[r];
+        }
         case 2: {
+            if (dbg2) printf (" (R%o)+", mr & 7);
             uint16_t a = gprs[r];
             gprs[r] += i;
             return a;
         }
         case 3: {
+            if (dbg2) printf (" @(R%o)+", mr & 7);
             uint16_t a = gprs[r];
             gprs[r] += 2;
             return rdwordvirt (a, psw >> 14);
         }
         case 4: {
+            if (dbg2) printf (" -(R%o)", mr & 7);
             yellowstkck |= (r == 6);
             gprs[r] -= i;
             return gprs[r];
         }
         case 5: {
+            if (dbg2) printf (" @-(R%o)", mr & 7);
+            yellowstkck |= (r == 6);
             gprs[r] -= 2;
             return rdwordvirt (gprs[r], psw >> 14);
         }
         case 6: {
             uint16_t x = rdwordvirt (gprs[7], psw >> 14);
+            if (dbg2) printf (" %06o(R%o)", x, mr & 7);
             gprs[7] += 2;
             return gprs[r] + x;
         }
         case 7: {
             uint16_t x = rdwordvirt (gprs[7], psw >> 14);
+            if (dbg2) printf (" @%06o(R%o)", x, mr & 7);
             gprs[7] += 2;
             return rdwordvirt (gprs[r] + x, psw >> 14);
         }
@@ -931,7 +1006,7 @@ uint16_t CPU1134::getopaddr (uint16_t mr, bool byte)
 uint16_t CPU1134::gprx (uint16_t r, uint16_t mode)
 {
     r &= 7;
-    if ((r == 6) && (mmr0 & 1)) {
+    if (r == 6) {
         switch (mode & 3) {
             case 0: break;
             case 3: r = 14; break;
@@ -1012,6 +1087,7 @@ void CPU1134::updnzvc (uint16_t result, bool byte, uint16_t vbit, uint16_t cbit)
     }
     if (vbit & 1) psw |= 002;
     if (cbit & 1) psw |= 001;
+    if (dbg2) printf (" [%c%c%c%c]", psw & 010 ? 'N' : '-', psw & 004 ? 'Z' : '-', psw & 002 ? 'V' : '-', psw & 001 ? 'C' : '-');
 }
 
 // read word given virtual address
@@ -1019,7 +1095,9 @@ uint16_t CPU1134::rdwordvirt (uint16_t vaddr, uint16_t mode)
 {
     if (vaddr & 1) throw CPU1134Trap (T_ODDADDR);
     uint32_t paddr = getphysaddr (vaddr, false, mode);
-    return rdwordphys (paddr);
+    uint16_t data = rdwordphys (paddr);
+    if (dbg2) printf (" [%06o=>%06o]", vaddr, data);
+    return data;
 }
 
 // read byte given virtual address
@@ -1027,7 +1105,9 @@ uint8_t CPU1134::rdbytevirt (uint16_t vaddr, uint16_t mode)
 {
     uint32_t paddr = getphysaddr (vaddr, false, mode);
     uint16_t word = rdwordphys (paddr & ~1);
-    return (paddr & 1) ? (word >> 8) : word;
+    uint8_t data = (paddr & 1) ? (word >> 8) : word;
+    if (dbg2) printf (" [%06o=>%03o]", vaddr, data);
+    return data;
 }
 
 // write word given virtual address
@@ -1036,6 +1116,7 @@ void CPU1134::wrwordvirt (uint16_t vaddr, uint16_t data, uint16_t mode)
     if (vaddr & 1) throw CPU1134Trap (T_ODDADDR);
     uint32_t paddr = getphysaddr (vaddr, true, mode);
     wrwordphys (paddr, data);
+    if (dbg2) printf (" [%06o<=%06o]", vaddr, data);
 }
 
 // write byte given virtual address
@@ -1043,6 +1124,7 @@ void CPU1134::wrbytevirt (uint16_t vaddr, uint8_t data, uint16_t mode)
 {
     uint32_t paddr = getphysaddr (vaddr, true, mode);
     wrbytephys (paddr, data);
+    if (dbg2) printf (" [%06o<=%03o]", vaddr, data);
 }
 
 // translate virtual address to physical address
