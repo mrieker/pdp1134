@@ -630,7 +630,7 @@ void CPU1134::stepit ()
                                 if (psw & 0140000) {
                                     psw = (psw & 0170340) | (newps & 037);
                                 } else {
-                                    psw = newps;
+                                    psw = newps & 0170377;
                                 }
                                 if (dbg2) printf (" => PC=%06o PS=%06o", gprs[7], psw);
                                 goto s_endinst;
@@ -659,7 +659,7 @@ void CPU1134::stepit ()
                                 if (psw & 0140000) {
                                     psw = (psw & 0170340) | (newps & 037);
                                 } else {
-                                    psw = newps;
+                                    psw = newps & 0170377;
                                 }
                                 if (dbg2) printf (" => PC=%06o PS=%06o", gprs[7], psw);
                                 goto s_endrtt;

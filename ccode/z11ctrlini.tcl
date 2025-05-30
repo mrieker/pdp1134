@@ -20,6 +20,8 @@ proc helpini {} {
     puts "             octal x - convert integer x to 6-digit octal string"
     puts "         rdbyte addr - read byte at given physical address"
     puts "         rdword addr - read word at given physical address"
+    puts "           steptrace - single step with disassembly"
+    puts "       steptraceloop - single step with disassembly - looped"
     puts "    wrbyte addr data - write data byte to given physical address"
     puts "    wrword addr data - write data word to given physical address"
     puts "             unlkdma - unlock access to dma controller"
@@ -352,6 +354,26 @@ proc rdword {addr} {
     set data [pin sl_dmadata]
     unlkdma
     return $data
+}
+
+# step, printing disassembly
+proc steptrace {} {
+    if {! [pin sl_halted]} {
+        error "processor must be halted"
+    }
+    set pc  [rdword 0777707]
+    set op  [rdword $pc]
+    set op1 [rdword [expr {$pc + 2}]]
+    set op2 [rdword [expr {$pc + 4}]]
+    set dis [disasop $op $op1 $op2]
+    set dis [string range $dis 2 end]
+    puts [format "%06o  %s" $pc $dis]
+    flickstep
+}
+
+# step, printing disassembly, in a loop
+proc steptraceloop {} {
+    while {! [ctrlcflag] && ! [pin sl_haltins]} steptrace
 }
 
 # write a byte to unibus via dma (swlight.v)

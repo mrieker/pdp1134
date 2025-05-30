@@ -19,7 +19,9 @@ default: z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MA
 
 lib.$(MACH).a: \
 		cmd_pin.$(MACH).o \
+		disassem.$(MACH).o \
 		readprompt.$(MACH).o \
+		strprintf.$(MACH).o \
 		tclmain.$(MACH).o \
 		z11util.$(MACH).o
 	rm -f lib.$(MACH).a
