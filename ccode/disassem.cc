@@ -20,11 +20,35 @@
 
 #include <stdint.h>
 #include <string>
+#include <string.h>
 
 #include "disassem.h"
 #include "strprintf.h"
 
-static void getopaddr (std::string *strbuf, uint16_t mr, int *used_r, uint16_t operand1, uint16_t operand2);
+struct DisassemCtx {
+    std::string *strbuf;
+    uint16_t instreg;
+    uint16_t operand1;
+    uint16_t operand2;
+    bool (*readword) (void *param, uint16_t addr, uint16_t *data_r);
+    void *param;
+
+    bool byte;
+    bool gproks[8];
+    int pcinc;
+    uint16_t gprs[8];
+
+    void getop  (uint16_t mr, bool prev = false);
+    bool getgpr (uint16_t r, uint16_t *data, bool prev = false);
+    bool rdsize (uint16_t addr, uint16_t *data);
+    bool rdbyte (uint16_t addr, uint16_t *data);
+    bool rdword (uint16_t addr, uint16_t *data);
+};
+
+static bool readnull (void *param, uint16_t addr, uint16_t *data_r)
+{
+    return false;
+}
 
 // disassemble PDP-11 instruction
 //  input:
@@ -32,6 +56,7 @@ static void getopaddr (std::string *strbuf, uint16_t mr, int *used_r, uint16_t o
 //   instreg  = opcode being disassembled
 //   operand1 = first word following instreg
 //   operand2 = second word following instreg
+//   readword = called to read word from bus (or NULL)
 //  output:
 //   returns:
 //    0 : illegal instruction
@@ -39,18 +64,30 @@ static void getopaddr (std::string *strbuf, uint16_t mr, int *used_r, uint16_t o
 //    2 : used 2 words (instreg, operand1)
 //    3 : used 3 words (instreg, operand1, operand2)
 //   disassembly appended to *strbuf
-int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t operand2)
+int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t operand2,
+        bool (*readword) (void *param, uint16_t addr, uint16_t *data_r), void *param)
 {
-    int used = 1;
+    if (readword == NULL) readword = readnull;
 
-    bool byte = (instreg >> 15) & 1;
+    DisassemCtx ctx;
+    ctx.strbuf   = strbuf;
+    ctx.instreg  = instreg;
+    ctx.operand1 = operand1;
+    ctx.operand2 = operand2;
+    ctx.readword = readword;
+    ctx.param    = param;
+
+    memset (ctx.gproks, 0, sizeof ctx.gproks);
+    ctx.pcinc = 1;
+    ctx.byte = (instreg >> 15) & 1;
+
     switch ((instreg >> 12) & 7) {
 
         case 0: {
             // x 000 xxx xxx xxx xxx
             switch ((instreg >> 6) & 077) {
                 case 001: { // JMP
-                    if (! byte) {
+                    if (! ctx.byte) {
                         strbuf->append (" JMP ");
                         goto s_endsingle;
                     }
@@ -74,14 +111,14 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
                     break;
                 }
                 case 003: {
-                    if (! byte) {   // SWAB
+                    if (! ctx.byte) {   // SWAB
                         strbuf->append (" SWAB");
                         goto s_endsingle;
                     }
                     break;
                 }
                 case 040 ... 047: {   // JSR
-                    if (! byte) {
+                    if (! ctx.byte) {
                         strprintf (strbuf, " JSR  R%o,", (instreg >> 6) & 7);
                         goto s_endsingle;
                     }
@@ -96,56 +133,57 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
                     break;
                 }
                 case 050: { // CLRb
-                    strprintf (strbuf, " CLR%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " CLR%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 051: { // COMb
-                    strprintf (strbuf, " COM%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " COM%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 052: { // INCb
-                    strprintf (strbuf, " INC%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " INC%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 053: { // DECb
-                    strprintf (strbuf, " DEC%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " DEC%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 054: { // NEGb
-                    strprintf (strbuf, " NEG%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " NEG%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 055: { // ADCb
-                    strprintf (strbuf, " ADC%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " ADC%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 056: { // SBCb
-                    strprintf (strbuf, " SBC%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " SBC%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 057: { // TSTb
-                    strprintf (strbuf, " TST%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " TST%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 060: { // RORb
-                    strprintf (strbuf, " ROR%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " ROR%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 061: { // ROLb
-                    strprintf (strbuf, " ROL%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " ROL%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 062: { // ASRb
-                    strprintf (strbuf, " ASR%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " ASR%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 063: { // ASLb
-                    strprintf (strbuf, " ASL%c", byte ? 'B' : ' ');
+                    strprintf (strbuf, " ASL%c", ctx.byte ? 'B' : ' ');
                     goto s_endsingle;
                 }
                 case 064: {
-                    if (byte) {     // MTPS
+                    if (ctx.byte) { // MTPS
                         strbuf->append (" MTPS");
+                        ctx.byte = true;
                         goto s_endsingle;
                     }
                     strprintf (strbuf, " MARK %02o", instreg & 077);
@@ -153,14 +191,28 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
                 }
                 case 065: {         // MFPI/D
                     strbuf->append (" MFPI");
-                    goto s_endsingle;
+                    ctx.byte = false;
+                    if (instreg & 070) goto s_endsingle;
+                    strprintf (strbuf, " R%o", instreg & 7);
+                    uint16_t data;
+                    if (ctx.getgpr (instreg, &data, true)) {
+                        strprintf (strbuf, " [%06o]", data);
+                    }
+                    goto s_endinst;
                 }
                 case 066: {         // MTPI/D
                     strbuf->append (" MTPI");
+                    ctx.byte = false;
+                    if (instreg & 070) goto s_endsingle;
+                    strprintf (strbuf, " R%o", instreg & 7);
+                    uint16_t data;
+                    if (ctx.getgpr (instreg, &data, true)) {
+                        strprintf (strbuf, " [%06o]", data);
+                    }
                     goto s_endsingle;
                 }
                 case 067: {
-                    if (byte) {     // MFPS
+                    if (ctx.byte) { // MFPS
                         strbuf->append (" MFPS");
                     }
                     else {          // SEXT
@@ -228,33 +280,34 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
         }
 
         case 1: {   // MOVb
-            strprintf (strbuf, " MOV%c", byte ? 'B' : ' ');
+            strprintf (strbuf, " MOV%c", ctx.byte ? 'B' : ' ');
             goto s_enddouble;
         }
         case 2: {   // CMPb
-            strprintf (strbuf, " CMP%c", byte ? 'B' : ' ');
+            strprintf (strbuf, " CMP%c", ctx.byte ? 'B' : ' ');
             goto s_enddouble;
         }
         case 3: {   // BITb
-            strprintf (strbuf, " BIT%c", byte ? 'B' : ' ');
+            strprintf (strbuf, " BIT%c", ctx.byte ? 'B' : ' ');
             goto s_enddouble;
         }
         case 4: {   // BICb
-            strprintf (strbuf, " BIC%c", byte ? 'B' : ' ');
+            strprintf (strbuf, " BIC%c", ctx.byte ? 'B' : ' ');
             goto s_enddouble;
         }
         case 5: {   // BISb
-            strprintf (strbuf, " BIS%c", byte ? 'B' : ' ');
+            strprintf (strbuf, " BIS%c", ctx.byte ? 'B' : ' ');
             goto s_enddouble;
         }
         case 6: {   // ADD/SUB
-            strbuf->append (byte ? " SUB " : " ADD ");
+            strbuf->append (ctx.byte ? " SUB " : " ADD ");
+            ctx.byte = false;
             goto s_enddouble;
         }
 
         case 7: {
             // x 111 xxx xxx xxx xxx
-            if (! byte) {
+            if (! ctx.byte) {
                 // 0 111 xxx xxx xxx xxx
                 switch ((instreg >> 9) & 7) {
                     case 0: {   // MUL
@@ -291,73 +344,204 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
     return 0;
 
 s_endextarith:;
-    getopaddr (strbuf, instreg, &used, operand1, operand2);
+    ctx.byte = false;
+    ctx.getop (instreg);
     strprintf (strbuf, ", R%o", (instreg >> 6) & 7);
     goto s_endinst;
 s_enddouble:;
-    getopaddr (strbuf, instreg >> 6, &used, operand1, operand2);
+    ctx.getop (instreg >> 6);
     strbuf->push_back (',');
 s_endsingle:;
-    getopaddr (strbuf, instreg, &used, operand1, operand2);
+    ctx.getop (instreg);
 
 s_endinst:;
-    return used;
+    return ctx.pcinc;
 }
 
-// determine address of source or destination operand
-static void getopaddr (std::string *strbuf, uint16_t mr, int *used_r, uint16_t operand1, uint16_t operand2)
+// disassemble operand then try to print address and value
+void DisassemCtx::getop (uint16_t mr, bool prev)
 {
+    // get possible operand that follows opcode for modes 27,37,6x,7x
     uint16_t op;
-    switch (*used_r) {
+    switch (pcinc) {
         case 1: op = operand1; break;
         case 2: op = operand2; break;
         default: abort ();
     }
+
+    // get register and data width
+    uint16_t r = mr & 7;
+    int byte36 = byte ? 3 : 6;
+    uint16_t incr = (byte && (r != 6) && (r != 7)) ? 1 : 2;
+
+    // decode addressing mode
     switch ((mr >> 3) & 7) {
+
+        // register holds the value
         case 0: {
-            strprintf (strbuf, " R%o", mr & 7);
+            strprintf (strbuf, " R%o", r);
+            uint16_t data;
+            if (getgpr (r, &data)) {
+                strprintf (strbuf, " [%06o]", data);
+            }
             break;
         }
+
+        // register holds address of value
         case 1: {
-            strprintf (strbuf, " @R%o", mr & 7);
+            strprintf (strbuf, " @R%o", r);
+            uint16_t addr, data;
+            if (getgpr (r, &addr) && rdsize (addr, &data)) {
+                strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
+            }
             break;
         }
+
+        // register hold address of value, then increment by size
         case 2: {
-            if ((mr & 7) == 7) {
+            if (r == 7) {
                 strprintf (strbuf, " #%06o", op);
-                (*used_r) ++;
+                pcinc ++;
             } else {
-                strprintf (strbuf, " (R%o)+", mr & 7);
+                strprintf (strbuf, " (R%o)+", r);
+                uint16_t addr, data;
+                if (getgpr (mr, &addr) && rdsize (addr, &data)) {
+                    strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
+                }
+                gprs[r] += incr;
             }
             break;
         }
+
+        // register hold address of address of value, then increment register by 2
         case 3: {
-            if ((mr & 7) == 7) {
+            if (r == 7) {
                 strprintf (strbuf, " @#%06o", op);
-                (*used_r) ++;
+                pcinc ++;
+                uint16_t data;
+                if (rdsize (op, &data)) {
+                    strprintf (strbuf, " [%0*o]", byte36, data);
+                }
             } else {
-                strprintf (strbuf, " @(R%o)+", mr & 7);
+                strprintf (strbuf, " @(R%o)+", r);
+                uint16_t addr, addr2, data;
+                if (getgpr (mr, &addr) && rdword (addr, &addr2) && rdsize (addr2, &data)) {
+                    strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
+                }
+                gprs[r] += 2;
             }
             break;
         }
+
+        // decrement register then it contains address of value
         case 4: {
-            strprintf (strbuf, " -(R%o)", mr & 7);
+            strprintf (strbuf, " -(R%o)", r);
+            uint16_t addr, data;
+            if (getgpr (mr, &addr)) {
+                gprs[r] = addr -= incr;
+                if (rdsize (addr, &data)) {
+                    strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
+                }
+            }
             break;
         }
+
+        // decrement register then it contains address of address of value
         case 5: {
-            strprintf (strbuf, " @-(R%o)", mr & 7);
+            strprintf (strbuf, " @-(R%o)", r);
+            uint16_t addr, addr2, data;
+            if (getgpr (mr, &addr)) {
+                gprs[r] = addr -= 2;
+                if (rdword (addr, &addr2) && rdsize (addr2, &data)) {
+                    strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
+                }
+            }
             break;
         }
+
+        // register plus next operand word make address of value
         case 6: {
-            strprintf (strbuf, " %06o(R%o)", op, mr & 7);
-            (*used_r) ++;
+            pcinc ++;
+            uint16_t pcreg;
+            if ((r == 7) && getgpr (7, &pcreg)) {
+                uint16_t addr = op + pcreg;
+                strprintf (strbuf, " %06o", addr);
+                uint16_t data;
+                if (rdsize (addr, &data)) {
+                    strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
+                }
+            } else {
+                strprintf (strbuf, " %06o(R%o)", op, r);
+                uint16_t addr, data;
+                if (getgpr (mr, &addr)) {
+                    addr += op;
+                    if (rdsize (addr, &data)) {
+                        strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
+                    }
+                }
+            }
             break;
         }
+
+        // register plus next operand word make address of address of value
         case 7: {
-            strprintf (strbuf, " @%06o(R%o)", op, mr & 7);
-            (*used_r) ++;
+            pcinc ++;
+            uint16_t pcreg;
+            if ((r == 7) && getgpr (7, &pcreg)) {
+                uint16_t addr = op + pcreg;
+                strprintf (strbuf, " %06o", addr);
+                uint16_t addr2, data;
+                if (rdsize (addr, &addr2) && rdsize (addr2, &data)) {
+                    strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
+                }
+            } else {
+                strprintf (strbuf, " %06o(R%o)", op, r);
+                uint16_t addr, addr2, data;
+                if (getgpr (mr, &addr)) {
+                    addr += op;
+                    if (rdsize (addr, &addr2) && rdsize (addr2, &data)) {
+                        strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
+                    }
+                }
+            }
             break;
         }
         default: abort ();
     }
+}
+
+// try to get the register contents from the processor
+bool DisassemCtx::getgpr (uint16_t r, uint16_t *data, bool prev)
+{
+    r &= 7;
+    if (! gproks[r]) {
+        uint16_t rr = r;
+        if (rr == 6) {
+            uint16_t psw;
+            if (! readword (param, 0177776, &psw)) return false;
+            if (psw & (prev ? 0030000 : 0140000)) rr += 8;
+        }
+        gproks[r] = readword (param, 0177700 + rr, &gprs[r]);
+    }
+    *data = gprs[r];
+    if (r == 7) *data += pcinc * 2;
+    return gproks[r];
+}
+
+bool DisassemCtx::rdsize (uint16_t addr, uint16_t *data)
+{
+    return byte ? rdbyte (addr, data) : rdword (addr, data);
+}
+
+bool DisassemCtx::rdbyte (uint16_t addr, uint16_t *data)
+{
+    uint16_t temp;
+    if (! rdword (addr & 0177776, &temp)) return false;
+    *data = (addr & 1) ? (temp >> 8) : (temp & 0377);
+    return true;
+}
+
+bool DisassemCtx::rdword (uint16_t addr, uint16_t *data)
+{
+    return (! (addr & 1)) && readword (param, addr, data);
 }

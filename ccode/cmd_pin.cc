@@ -174,7 +174,7 @@ static PinDef const pindefs[] = {
     { "", 0, 0, 0, 0, false }
 };
 
-static Z11Page *z11page;
+Z11Page *z11page;
 static uint32_t volatile *extmemptr;
 
 int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])

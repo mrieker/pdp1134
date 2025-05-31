@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <string>
 
-int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t operand2);
+int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t operand2,
+        bool (*readword) (void *param, uint16_t addr, uint16_t *data_r), void *param);
 
 #endif

@@ -368,7 +368,7 @@ proc steptrace {} {
     set dis [disasop $op $op1 $op2]
     set dis [string range $dis 2 end]
     puts [format "%06o  %s" $pc $dis]
-    flickstep
+    return [flickstep]
 }
 
 # step, printing disassembly, in a loop

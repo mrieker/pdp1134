@@ -786,12 +786,16 @@ module sim1134 (
                 // start getting destination operand
                 S_GETDST: begin
                     if (instreg[05:03] == 0) begin
-                        dstval    <= byteinstr ? { gprs[dstgprx][7:0], 8'b0 } : gprs[dstgprx];
-                        state     <= S_EXECDD;
+                             if (iMFPID) state <= S_EXMFPI;
+                        else if (iMTPID) state <= S_EXMTPI;
+                        else begin
+                            dstval <= byteinstr ? { gprs[dstgprx][7:0], 8'b0 } : gprs[dstgprx];
+                            state  <= S_EXECDD;
+                        end
                     end else begin
-                        getopaddr <= 1;
-                        getopmode <= instreg[05:00];
-                        state     <= S_WAITDST;
+                        getopaddr  <= 1;
+                        getopmode  <= instreg[05:00];
+                        state      <= S_WAITDST;
                     end
                 end
 

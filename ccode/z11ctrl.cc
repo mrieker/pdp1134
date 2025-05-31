@@ -93,6 +93,14 @@ int main (int argc, char **argv)
 
 
 
+static bool readword (void *dummy, uint16_t addr, uint16_t *data_r)
+{
+    extern Z11Page *z11page;
+    uint32_t paddr = addr;
+    if (paddr >= 0160000) paddr |= 0760000;
+    return z11page->dmaread (paddr, data_r);
+}
+
 // disassemble instruciton
 static int cmd_disasop (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
@@ -142,7 +150,7 @@ static int cmd_disasop (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl
     }
 
     std::string str;
-    int used = disassem (&str, (uint16_t) opcode, (uint16_t) operand1, (uint16_t) operand2);
+    int used = disassem (&str, (uint16_t) opcode, (uint16_t) operand1, (uint16_t) operand2, readword, NULL);
     str.insert (0, 1, (char) ('0' + used));
     Tcl_SetResult (interp, strdup (str.c_str ()), (void (*) (char *)) free);
     return TCL_OK;
