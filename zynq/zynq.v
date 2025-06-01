@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314017;
+    localparam VERSION = 32'h31314018;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -597,6 +597,9 @@ module Zynq (
     //  internal devices  //
     ////////////////////////
 
+    wire irq4_intr_out_h, irq5_intr_out_h, irq6_intr_out_h, irq7_intr_out_h;
+    wire[7:0] irq4_d70_out_h, irq5_d70_out_h, irq6_d70_out_h, irq7_d70_out_h;
+
     // big memory
     wire bm_ssyn_out_h;
     wire[15:00] bm_d_out_h;
@@ -644,7 +647,9 @@ module Zynq (
         .armwrite (pcarmwrite),
 
         .intreq (pcintreq),
-        .intvec (pcintvec),
+        .irvec  (pcintvec),
+        .intgnt (irq4_intr_out_h),
+        .igvec  (irq4_d70_out_h),
 
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
@@ -659,6 +664,7 @@ module Zynq (
     wire rlintreq, rl_ssyn_out_h;
     wire[7:0] rlintvec;
     wire[15:00] rl_d_out_h;
+    wire rltrigger;
 
     rl11 rlinst (
         .CLOCK (CLOCK),
@@ -671,7 +677,9 @@ module Zynq (
         .armwrite (rlarmwrite),
 
         .intreq (rlintreq),
-        .intvec (rlintvec),
+        .irvec  (rlintvec),
+        .intgnt (irq5_intr_out_h),
+        .igvec  (irq5_d70_out_h),
 
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
@@ -680,7 +688,9 @@ module Zynq (
         .msyn_in_h (dev_del_msyn_h),
 
         .d_out_h (rl_d_out_h),
-        .ssyn_out_h (rl_ssyn_out_h));
+        .ssyn_out_h (rl_ssyn_out_h)
+
+        ,.trigger (rltrigger));
 
     // switches and lights
     wire sl_bbsy_out_h, sl_hltrq_out_h, sl_msyn_out_h;
@@ -748,7 +758,9 @@ module Zynq (
         .armwrite (tt0armwrite),
 
         .intreq (tt0intreq),
-        .intvec (tt0intvec),
+        .irvec  (tt0intvec),
+        .intgnt (irq4_intr_out_h),
+        .igvec  (irq4_d70_out_h),
 
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
@@ -775,7 +787,9 @@ module Zynq (
         .armwrite (klarmwrite),
 
         .intreq (klintreq),
-        .intvec (klintvec),
+        .irvec  (klintvec),
+        .intgnt (irq6_intr_out_h),
+        .igvec  (irq6_d70_out_h),
 
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
@@ -797,12 +811,11 @@ module Zynq (
     wire[7:0] intvec6 = (sl_irqlev == 6) ? { sl_irqvec, 2'b0 } : klintreq ? klintvec : 1;
     wire[7:0] intvec7 = (sl_irqlev == 7) ? { sl_irqvec, 2'b0 } : 1;
 
-    wire irq4_bbsy_out_h, irq4_intr_out_h, irq4_sack_out_h;
-    wire irq5_bbsy_out_h, irq5_intr_out_h, irq5_sack_out_h;
-    wire irq6_bbsy_out_h, irq6_intr_out_h, irq6_sack_out_h;
-    wire irq7_bbsy_out_h, irq7_intr_out_h, irq7_sack_out_h;
+    wire irq4_bbsy_out_h, irq4_sack_out_h;
+    wire irq5_bbsy_out_h, irq5_sack_out_h;
+    wire irq6_bbsy_out_h, irq6_sack_out_h;
+    wire irq7_bbsy_out_h, irq7_sack_out_h;
     wire[7:4] irq_br_out_h;
-    wire[15:00] irq4_d_out_h, irq5_d_out_h, irq6_d_out_h, irq7_d_out_h;
 
     intctl irq4inst (
         .CLOCK (CLOCK),
@@ -819,7 +832,7 @@ module Zynq (
 
         .bbsy_out_h (irq4_bbsy_out_h),
         .br_out_h   (irq_br_out_h[4]),
-        .d_out_h    (irq4_d_out_h),
+        .d70_out_h  (irq4_d70_out_h),
         .intr_out_h (irq4_intr_out_h),
         .sack_out_h (irq4_sack_out_h));
 
@@ -838,7 +851,7 @@ module Zynq (
 
         .bbsy_out_h (irq5_bbsy_out_h),
         .br_out_h   (irq_br_out_h[5]),
-        .d_out_h    (irq5_d_out_h),
+        .d70_out_h  (irq5_d70_out_h),
         .intr_out_h (irq5_intr_out_h),
         .sack_out_h (irq5_sack_out_h));
 
@@ -857,7 +870,7 @@ module Zynq (
 
         .bbsy_out_h (irq6_bbsy_out_h),
         .br_out_h   (irq_br_out_h[6]),
-        .d_out_h    (irq6_d_out_h),
+        .d70_out_h  (irq6_d70_out_h),
         .intr_out_h (irq6_intr_out_h),
         .sack_out_h (irq6_sack_out_h));
 
@@ -876,7 +889,7 @@ module Zynq (
 
         .bbsy_out_h (irq7_bbsy_out_h),
         .br_out_h   (irq_br_out_h[7]),
-        .d_out_h    (irq7_d_out_h),
+        .d70_out_h  (irq7_d70_out_h),
         .intr_out_h (irq7_intr_out_h),
         .sack_out_h (irq7_sack_out_h));
 
@@ -925,7 +938,8 @@ module Zynq (
     wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h   | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
     wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l     | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | irq4_d_out_h      | irq5_d_out_h     | irq6_d_out_h    | irq7_d_out_h    | bm_d_out_h       | kl_d_out_h    | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | bm_d_out_h | kl_d_out_h | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h |
+                              { 8'b0, irq4_d70_out_h | irq5_d70_out_h | irq6_d70_out_h | irq7_d70_out_h };
     wire        wor_dc_lo_h = man_dc_lo_out_h;
     wire        wor_hltrq_h = man_hltrq_out_h | ~ sim_hltrq_out_l | sl_hltrq_out_h;
     wire        wor_init_h  = man_init_out_h  | ~ (sim_reset_h    | sim_init_out_l);
@@ -1087,22 +1101,14 @@ module Zynq (
 
     always @(*) begin
         ilacurwd = {
-            wor_intr_h,         //63
-            rlintreq,           //62
-            intvec5,            //54
+            10'b0,              //54
 
-////        dev_a_h,            //36
-            6'b0,               //48
-            regctlk[5:0],       //42 simst
-            2'b0,               //40
-            sim_bg_out_h,       //36
-
+            dev_a_h,            //36
             dev_bbsy_h,         //35
             dev_bg_l,           //31
             dev_br_h,           //27
             dev_c_h,            //25
-            regctlj[31:16],     //09 simps[15:00]
-////        dev_d_h,            //09
+            dev_d_h,            //09
             dev_init_h,         //08
             dev_intr_h,         //07
             dev_del_msyn_h,     //06
@@ -1122,7 +1128,13 @@ module Zynq (
         };
     end
 
-    wire ilatrigr = (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
+    reg lastmsyn;
+    always @(posedge CLOCK) begin
+        lastmsyn <= dev_syn_msyn_h;
+    end
+
+    wire ilatrigr = rltrigger; // (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
+    wire ilaenabl = lastmsyn & ~ dev_syn_msyn_h;
 
     always @(posedge CLOCK) begin
         if (fpgaoff) begin
@@ -1144,10 +1156,12 @@ module Zynq (
             end else if (ilaarmed | (ilaafter != 0)) begin
 
                 // save word
-                ilaarray[ilaindex[ILAADDRBITS-01:00]] <= ilacurwd;
-                ilaoflow <= ilaoflow | (ilaindex[ILAADDRBITS-01:00] == (1 << ILAADDRBITS) - 1);
-                ilaindex[ILAADDRBITS-01:00] <= ilaindex[ILAADDRBITS-01:00] + 1;
-                if (~ ilaarmed) ilaafter <= ilaafter - 1;
+                if (ilaenabl) begin
+                    ilaarray[ilaindex[ILAADDRBITS-01:00]] <= ilacurwd;
+                    ilaoflow <= ilaoflow | (ilaindex[ILAADDRBITS-01:00] == (1 << ILAADDRBITS) - 1);
+                    ilaindex[ILAADDRBITS-01:00] <= ilaindex[ILAADDRBITS-01:00] + 1;
+                    if (~ ilaarmed) ilaafter <= ilaafter - 1;
+                end
 
                 // check trigger condition
                 if (ilatrigr) begin

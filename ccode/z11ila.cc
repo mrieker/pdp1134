@@ -33,7 +33,7 @@
 #include "z11defs.h"
 #include "z11util.h"
 
-#define AFTER 192  // 8000  // number of samples to take after sample containing trigger
+#define AFTER 8000  // number of samples to take after sample containing trigger
 
 static bool volatile ctrlcflag;
 
@@ -104,12 +104,8 @@ int main (int argc, char **argv)
         ZWR(pdpat[ILACTL], index * ILACTL_INDEX0);
         uint64_t thisentry = ((uint64_t) ZRD(pdpat[ILADAT+1]) << 32) | ZRD(pdpat[ILADAT+0]);
 
-        printf ("[%5u]  %o %o %03o  %06o %o %02o %02o %o %06o  %o %o %o  %o %o %o  %o %o %o\n",
+        printf ("[%5u]  %06o %o %02o %02o %o %06o  %o %o %o  %o %o %o  %o %o %o\n",
             i,                                      // 10nS per tick
-
-            (unsigned) (thisentry >> 63) & 1,       // wor_intr_h
-            (unsigned) (thisentry >> 62) & 1,       // rlintreq
-            (unsigned) (thisentry >> 54) & 0377,    // intvec5
 
             (unsigned) (thisentry >> 36) & 0777777, // dev_a_h
             (unsigned) (thisentry >> 35) & 1,       // dev_bbsy_h

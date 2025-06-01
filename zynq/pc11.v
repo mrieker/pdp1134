@@ -30,8 +30,10 @@ module pc11
     input[31:00] armwdata,
     output[31:00] armrdata,
 
-    output intreq,
-    output[7:0] intvec,
+    output intreq,      // interrupt being requested
+    output[7:0] irvec,  // vector for the interrupt request
+    input intgnt,       // interrupt being granted (clear request)
+    input[7:0] igvec,   // what interrupt is being granted
 
     input[17:00] a_in_h,
     input[1:0] c_in_h,
@@ -50,10 +52,17 @@ module pc11
                       (armraddr == 2) ? { xbuf, xcsr } :
                       { enable, 5'b0, INTVEC, ADDR };
 
-    wire rirq = (rcsr[15] | rcsr[07]) & rcsr[06];
-    wire xirq = (xcsr[15] | xcsr[07]) & xcsr[06];
-    assign intreq = rirq | xirq;
-    assign intvec = { INTVEC[7:3], ~ rirq, 2'b0 };
+    intreq pcintreq (
+        .CLOCK    (CLOCK),
+        .RESET    (init_in_h),
+        .INTVEC   (INTVEC),
+        .rirqlevl ((rcsr[15] | rcsr[07]) & rcsr[06]),
+        .xirqlevl ((xcsr[15] | xcsr[07]) & xcsr[06]),
+        .intreq   (intreq),
+        .irvec    (irvec),
+        .intgnt   (intgnt),
+        .igvec    (igvec)
+    );
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin

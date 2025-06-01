@@ -31,7 +31,9 @@ module rl11
     output[31:00] armrdata,
 
     output intreq,
-    output[7:0] intvec,
+    output[7:0] irvec,
+    input intgnt,
+    input[7:0] igvec,
 
     input[17:00] a_in_h,
     input[1:0] c_in_h,
@@ -40,7 +42,9 @@ module rl11
     input msyn_in_h,
 
     output reg[15:00] d_out_h,
-    output reg ssyn_out_h);
+    output reg ssyn_out_h
+
+    ,output trigger);
 
     reg enable;
     reg[15:00] rlba, rlda, rlmp1, rlmp2, rlmp3;
@@ -57,8 +61,19 @@ module rl11
                       (armraddr == 5) ? { enable, 5'b0, INTVEC, ADDR } :
                       32'hDEADBEEF;
 
-    assign intreq = rlcs_1301[07] & rlcs_1301[06];
-    assign intvec = { INTVEC[7:2], 2'b0 };
+    assign trigger = rlcs_1301[07] & (rlda == 16'o002250);
+
+    intreq rlintreq (
+        .CLOCK    (CLOCK),
+        .RESET    (init_in_h),
+        .INTVEC   (INTVEC),
+        .rirqlevl (rlcs_1301[07] & rlcs_1301[06]),
+        .xirqlevl (0),
+        .intreq   (intreq),
+        .irvec    (irvec),
+        .intgnt   (intgnt),
+        .igvec    (igvec)
+    );
 
     always @(*) begin
         rlcs_00 = drivereadys[driveselect];
@@ -77,9 +92,8 @@ module rl11
             rlcs_1301   <= 13'b0000001000000;
             rlba[15:00] <= 0;
             rlda[15:00] <= 0;
-
-            d_out_h    <= 0;
-            ssyn_out_h <= 0;
+            d_out_h     <= 0;
+            ssyn_out_h  <= 0;
         end
 
         // arm processor is writing one of the registers

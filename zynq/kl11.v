@@ -18,7 +18,7 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-// PDP-11 link clock interface
+// PDP-11 line clock interface
 
 module kl11 (
     input CLOCK, RESET,
@@ -29,7 +29,9 @@ module kl11 (
     output[31:00] armrdata,
 
     output intreq,
-    output[7:0] intvec,
+    output[7:0] irvec,
+    input intgnt,
+    input[7:9] igvec,
 
     input[17:00] a_in_h,
     input[1:0] c_in_h,
@@ -46,8 +48,17 @@ module kl11 (
     assign armrdata = (armraddr == 0) ? 32'h4B4C0002 : // [31:16] = 'KL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       { enable, counter, lkflag, lkiena, 4'b0, trigger, tripped };
 
-    assign intreq = lkflag & lkiena;
-    assign intvec = 8'o100;
+    intreq lkintreq (
+        .CLOCK    (CLOCK),
+        .RESET    (init_in_h),
+        .INTVEC   (8'o100),
+        .rirqlevl (lkflag & lkiena),
+        .xirqlevl (0),
+        .intreq   (intreq),
+        .irvec    (irvec),
+        .intgnt   (intgnt),
+        .igvec    (igvec)
+    );
 
     always @(posedge CLOCK) begin
         if (RESET) begin
