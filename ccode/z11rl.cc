@@ -310,7 +310,8 @@ void *rlthread (void *dummy)
 
             uint32_t rlxba = ((rlcs & 0x30) << 12) + rlba;
 
-            rlcs &= 0xC3FFU;                                            // clear all error bits in RLCS
+            rlcs &= 0xC3FFU;                                            // clear error bits<13:10> in RLCS
+                                                                        // rl11.v should have cleared them but do it here too
 
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];

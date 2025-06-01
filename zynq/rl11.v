@@ -44,6 +44,7 @@ module rl11
     output reg[15:00] d_out_h,
     output reg ssyn_out_h
 
+    ,output[15:00] rlcs
     ,output trigger);
 
     reg enable;
@@ -53,8 +54,10 @@ module rl11
     reg[3:0] driveerrors, drivereadys;
     wire[1:0] driveselect = rlcs_1301[09:08];
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2002 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      (armraddr == 1) ? { rlba,  rlcs_15, rlcs_14, rlcs_1301, rlcs_00 } :
+    assign rlcs = { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 };
+
+    assign armrdata = (armraddr == 0) ? 32'h524C2003 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+                      (armraddr == 1) ? { rlba,  rlcs  } :
                       (armraddr == 2) ? { rlmp1, rlda  } :
                       (armraddr == 3) ? { rlmp3, rlmp2 } :
                       (armraddr == 4) ? { 24'b0, driveerrors, drivereadys } :
@@ -131,12 +134,31 @@ module rl11
                 case (a_in_h[02:01])
 
                     // pdp writing control/status register
+                    // -    drive select [09:08]
+                    //  controller ready [07]     usually cleared so z11rl.cc will process command
+                    //  interrupt enable [06]
+                    //   bus addr[17:16] [05:04]
+                    //     function code [03:01]
                     0: begin
                         if (~ c_in_h[0] |   a_in_h[00]) begin
                             rlcs_1301[09:08] <= d_in_h[09:08];
                         end
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
                             rlcs_1301[07:01] <= d_in_h[07:01];
+
+                            // see if starting a command
+                            if (~ d_in_h[07]) begin
+
+                                // clear error bits if starting any command
+                                // this allows rlcs[15] to clear immediately
+                                if (~ d_in_h[07]) rlcs_1301[13:10] <= 0;
+
+                                // clear drive error bit immediately if GET STATUS with RESET bit
+                                // this allows rlcs[15] to clear immediately
+                                if ((d_in_h[03:01] == 3'b010) & rlda[03]) begin
+                                    driveerrors[d_in_h[09:08]] <= 0;
+                                end
+                            end
                         end
                     end
 
@@ -178,7 +200,7 @@ module rl11
 
                 // pdp reading a register
                 case (a_in_h[02:01])
-                    0: begin d_out_h <= { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 }; end
+                    0: begin d_out_h <= rlcs; end
                     1: begin d_out_h <= rlba; end
                     2: begin d_out_h <= rlda; end
                     3: begin d_out_h <= rlmp1; rlmp1 <= rlmp2; rlmp2 <= rlmp3; rlmp3 <= rlmp1; end

@@ -665,6 +665,7 @@ module Zynq (
     wire[7:0] rlintvec;
     wire[15:00] rl_d_out_h;
     wire rltrigger;
+    wire [15:00] rlcs;
 
     rl11 rlinst (
         .CLOCK (CLOCK),
@@ -690,6 +691,7 @@ module Zynq (
         .d_out_h (rl_d_out_h),
         .ssyn_out_h (rl_ssyn_out_h)
 
+        ,.rlcs (rlcs)
         ,.trigger (rltrigger));
 
     // switches and lights
@@ -1099,42 +1101,30 @@ module Zynq (
     //             1: index overflowed while recording
     //  ilaindex = next entry in ilaarray to write
 
-    always @(*) begin
-        ilacurwd = {
-            10'b0,              //54
-
-            dev_a_h,            //36
-            dev_bbsy_h,         //35
-            dev_bg_l,           //31
-            dev_br_h,           //27
-            dev_c_h,            //25
-            dev_d_h,            //09
-            dev_init_h,         //08
-            dev_intr_h,         //07
-            dev_del_msyn_h,     //06
-            dev_syn_msyn_h,     //05
-            dev_npg_l,          //04
-            dev_npr_h,          //03
-            dev_sack_h,         //02
-            dev_del_ssyn_h,     //01
-            dev_syn_ssyn_h      //00
-/***
-            dev_ac_lo_h,        //40
-            dev_dc_lo_h,        //12
-            dev_hltgr_l,        //11
-            dev_hltld_h,        //10
-            dev_hltrq_h,        //09
-***/
-        };
-    end
-
     reg lastmsyn;
+    reg[15:00] lastrlcs;
     always @(posedge CLOCK) begin
         lastmsyn <= dev_syn_msyn_h;
+        lastrlcs <= rlcs;
     end
 
     wire ilatrigr = rltrigger; // (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
-    wire ilaenabl = lastmsyn & ~ dev_syn_msyn_h;
+    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h) | (rlcs != lastrlcs);
+
+    always @(*) begin
+        ilacurwd = {
+            rlcs,               //48
+            dev_a_h,            //30
+            dev_bg_l,           //26
+            dev_br_h,           //22
+            dev_c_h,            //20
+            dev_d_h,            //04
+            dev_syn_msyn_h,     //03
+            dev_npg_l,          //02
+            dev_npr_h,          //01
+            dev_syn_ssyn_h      //00
+        };
+    end
 
     always @(posedge CLOCK) begin
         if (fpgaoff) begin
