@@ -24,7 +24,9 @@
 #include <stdint.h>
 #include <string>
 
+#define disassem_PA 0x80000000U
+
 int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t operand2,
-        bool (*readword) (void *param, uint16_t addr, uint16_t *data_r), void *param);
+        bool (*readword) (void *param, uint32_t addr, uint16_t *data_r), void *param);
 
 #endif

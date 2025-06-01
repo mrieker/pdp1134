@@ -23,6 +23,7 @@
 
 #include <exception>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "axidev.h"
 #include "stepper.h"
@@ -30,6 +31,8 @@
 
 struct CPU1134 : AxiDev, Stepper, UniDev {
     static bool cpuhaltins ();
+
+    FILE *logit;
 
     CPU1134 ();
 
@@ -76,6 +79,8 @@ private:
     void writedst (uint16_t data, bool byte);
     uint16_t getopaddr (uint16_t mr, bool byte);
     uint16_t gprx (uint16_t r, uint16_t mode);
+
+    static bool disread (void *vhis, uint32_t addr, uint16_t *data_r);
 
     uint16_t rdwordvirt (uint16_t vaddr, uint16_t mode);
     uint8_t rdbytevirt (uint16_t vaddr, uint16_t mode);

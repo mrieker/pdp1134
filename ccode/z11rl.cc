@@ -310,11 +310,11 @@ void *rlthread (void *dummy)
 
             uint32_t rlxba = ((rlcs & 0x30) << 12) + rlba;
 
-            rlcs &= 0xC3FFU;                        // clear error bits
+            rlcs &= 0xC3FFU;                                            // clear all error bits in RLCS
 
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];
-            ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));
+            ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
 
             uint32_t seekdelay = 0;
             if (seekdoneats[drivesel] > nowus) {
@@ -531,21 +531,25 @@ void *rlthread (void *dummy)
         alldone:;
             rlmp3 = rlmp2 = rlmp;
         rhddone:;
-            rlcs    = (rlcs & ~ 0x30) | 0x80 | ((rlxba >> 12) & 0x30);
-            ZWR(rlat[3], ((uint32_t) rlmp3 << 16) | rlmp2);
-            uint32_t r3 = ZRD(rlat[3]);
-            ZWR(rlat[2], ((uint32_t) rlmp  << 16) | rlda);
-            uint32_t r2 = ZRD(rlat[2]);
-            ZWR(rlat[1], ((uint32_t) rlxba << 16) | rlcs);
-            uint32_t r1 = ZRD(rlat[1]);
-            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:  done RLCS=%06o RLBA=%06o RLDA=%06o RLMP=%06o %06o %06o\n",
-                    r1 & 0xFFFFU, r1 >> 16, r2 & 0xFFFFU, r2 >> 16, r3 & 0xFFFFU, r3 >> 16);
 
+            // merge top bus address bits and set done bit
+            rlcs  = (rlcs & ~ 0x30) | 0x80 | ((rlxba >> 12) & 0x30);
+
+            // update drive ready before updating RLCS so rl11.v will fill in RLCS<00> correctly
             if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
             nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
+            uint16_t drdy = ((fd >= 0) && (seekdoneats[drivesel] <= nowus)) ? RL4_DRDY0 : 0;
+            ZWR(rlat[4], (ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel)) | (drdy << drivesel));
+
+            // update RLMPs, RLDA, then RLBA and RLCS
+            ZWR(rlat[3], ((uint32_t) rlmp3 << 16) | rlmp2);
+            ZWR(rlat[2], ((uint32_t) rlmp  << 16) | rlda);
+            ZWR(rlat[1], ((uint32_t) rlxba << 16) | rlcs);
+            if (debug > 0) fprintf (stderr, "IODevRL11::rlthread:  done RLCS=%06o RLxBA=%06o RLDA=%06o RLMP=%06o %06o %06o\n",
+                    rlcs, rlxba, rlda, rlmp, rlmp2, rlmp3);
         }
 
-        // always update drive readies
+        // always update drive readies in case a seek just completed
         uint32_t drdy = 0;
         for (int i = 4; -- i >= 0;) {
             drdy += drdy + ((fds[i] >= 0) && (seekdoneats[i] <= nowus));

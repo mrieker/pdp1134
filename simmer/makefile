@@ -11,7 +11,9 @@ OBJS := \
 	simmer.$(MACH).o \
 	stepper.$(MACH).o \
 	swlight.$(MACH).o \
-	unidev.$(MACH).o
+	unidev.$(MACH).o \
+	../ccode/disassem.$(MACH).o \
+	../ccode/strprintf.$(MACH).o \
 
 default: \
 	simmer.$(MACH) \

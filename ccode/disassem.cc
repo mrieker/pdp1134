@@ -25,12 +25,14 @@
 #include "disassem.h"
 #include "strprintf.h"
 
+#define PA disassem_PA
+
 struct DisassemCtx {
     std::string *strbuf;
     uint16_t instreg;
     uint16_t operand1;
     uint16_t operand2;
-    bool (*readword) (void *param, uint16_t addr, uint16_t *data_r);
+    bool (*readword) (void *param, uint32_t addr, uint16_t *data_r);
     void *param;
 
     bool byte;
@@ -45,7 +47,7 @@ struct DisassemCtx {
     bool rdword (uint16_t addr, uint16_t *data);
 };
 
-static bool readnull (void *param, uint16_t addr, uint16_t *data_r)
+static bool readnull (void *param, uint32_t addr, uint16_t *data_r)
 {
     return false;
 }
@@ -65,7 +67,7 @@ static bool readnull (void *param, uint16_t addr, uint16_t *data_r)
 //    3 : used 3 words (instreg, operand1, operand2)
 //   disassembly appended to *strbuf
 int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t operand2,
-        bool (*readword) (void *param, uint16_t addr, uint16_t *data_r), void *param)
+        bool (*readword) (void *param, uint32_t addr, uint16_t *data_r), void *param)
 {
     if (readword == NULL) readword = readnull;
 
@@ -80,6 +82,8 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
     memset (ctx.gproks, 0, sizeof ctx.gproks);
     ctx.pcinc = 1;
     ctx.byte = (instreg >> 15) & 1;
+
+    strprintf (strbuf, "%06o", instreg);
 
     switch ((instreg >> 12) & 7) {
 
@@ -253,8 +257,8 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
                             goto s_endinst;
                         }
                         case 2: {
-                            strbuf->append (" RTI");
-                            goto s_endinst;
+                            strbuf->append (" RTI ");
+                            goto s_endrtirtt;
                         }
                         case 3: {
                             strbuf->append (" BPT");
@@ -269,8 +273,8 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
                             goto s_endinst;
                         }
                         case 6: {
-                            strbuf->append (" RTT");
-                            goto s_endinst;
+                            strbuf->append (" RTT ");
+                            goto s_endrtirtt;
                         }
                     }
                     break;
@@ -343,11 +347,21 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
     // illegal instruction
     return 0;
 
+s_endrtirtt:;
+    {
+        uint16_t cursp, newpc, newps;
+        if (ctx.getgpr (6, &cursp) && ctx.rdword (cursp, &newpc) && ctx.rdword (cursp + 2, &newps)) {
+            strprintf (strbuf, " [%06o/%06o %06o]", cursp, newpc, newps);
+        }
+    }
+    goto s_endinst;
+
 s_endextarith:;
     ctx.byte = false;
     ctx.getop (instreg);
     strprintf (strbuf, ", R%o", (instreg >> 6) & 7);
     goto s_endinst;
+
 s_enddouble:;
     ctx.getop (instreg >> 6);
     strbuf->push_back (',');
@@ -374,6 +388,8 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
     int byte36 = byte ? 3 : 6;
     uint16_t incr = (byte && (r != 6) && (r != 7)) ? 1 : 2;
 
+    uint16_t addr, addr2;
+
     // decode addressing mode
     switch ((mr >> 3) & 7) {
 
@@ -382,7 +398,8 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
             strprintf (strbuf, " R%o", r);
             uint16_t data;
             if (getgpr (r, &data)) {
-                strprintf (strbuf, " [%06o]", data);
+                if (byte) data &= 0377;
+                strprintf (strbuf, " [%0*o]", byte36, data);
             }
             break;
         }
@@ -390,25 +407,21 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
         // register holds address of value
         case 1: {
             strprintf (strbuf, " @R%o", r);
-            uint16_t addr, data;
-            if (getgpr (r, &addr) && rdsize (addr, &data)) {
-                strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
-            }
+            if (getgpr (r, &addr)) goto praddr;
             break;
         }
 
-        // register hold address of value, then increment by size
+        // register holds address of value, then increment by size
         case 2: {
             if (r == 7) {
-                strprintf (strbuf, " #%06o", op);
+                if (byte) op &= 0377;
+                strprintf (strbuf, " #%0*o", byte36, op);
                 pcinc ++;
             } else {
                 strprintf (strbuf, " (R%o)+", r);
-                uint16_t addr, data;
-                if (getgpr (mr, &addr) && rdsize (addr, &data)) {
-                    strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
-                }
+                bool ok = getgpr (r, &addr);
                 gprs[r] += incr;
+                if (ok) goto praddr;
             }
             break;
         }
@@ -418,17 +431,13 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
             if (r == 7) {
                 strprintf (strbuf, " @#%06o", op);
                 pcinc ++;
-                uint16_t data;
-                if (rdsize (op, &data)) {
-                    strprintf (strbuf, " [%0*o]", byte36, data);
-                }
+                addr = op;
+                goto praddr;
             } else {
                 strprintf (strbuf, " @(R%o)+", r);
-                uint16_t addr, addr2, data;
-                if (getgpr (mr, &addr) && rdword (addr, &addr2) && rdsize (addr2, &data)) {
-                    strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
-                }
+                bool ok = getgpr (r, &addr2);
                 gprs[r] += 2;
+                if (ok) goto praddr2;
             }
             break;
         }
@@ -436,12 +445,9 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
         // decrement register then it contains address of value
         case 4: {
             strprintf (strbuf, " -(R%o)", r);
-            uint16_t addr, data;
-            if (getgpr (mr, &addr)) {
+            if (getgpr (r, &addr)) {
                 gprs[r] = addr -= incr;
-                if (rdsize (addr, &data)) {
-                    strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
-                }
+                goto praddr;
             }
             break;
         }
@@ -449,12 +455,9 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
         // decrement register then it contains address of address of value
         case 5: {
             strprintf (strbuf, " @-(R%o)", r);
-            uint16_t addr, addr2, data;
-            if (getgpr (mr, &addr)) {
-                gprs[r] = addr -= 2;
-                if (rdword (addr, &addr2) && rdsize (addr2, &data)) {
-                    strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
-                }
+            if (getgpr (r, &addr2)) {
+                gprs[r] = addr2 -= 2;
+                goto praddr2;
             }
             break;
         }
@@ -462,22 +465,15 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
         // register plus next operand word make address of value
         case 6: {
             pcinc ++;
-            uint16_t pcreg;
-            if ((r == 7) && getgpr (7, &pcreg)) {
-                uint16_t addr = op + pcreg;
+            if ((r == 7) && getgpr (7, &addr)) {
+                addr += op;
                 strprintf (strbuf, " %06o", addr);
-                uint16_t data;
-                if (rdsize (addr, &data)) {
-                    strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
-                }
+                goto praddr;
             } else {
                 strprintf (strbuf, " %06o(R%o)", op, r);
-                uint16_t addr, data;
                 if (getgpr (mr, &addr)) {
                     addr += op;
-                    if (rdsize (addr, &data)) {
-                        strprintf (strbuf, " [%06o/%0*o]", addr, byte36, data);
-                    }
+                    goto praddr;
                 }
             }
             break;
@@ -486,27 +482,39 @@ void DisassemCtx::getop (uint16_t mr, bool prev)
         // register plus next operand word make address of address of value
         case 7: {
             pcinc ++;
-            uint16_t pcreg;
-            if ((r == 7) && getgpr (7, &pcreg)) {
-                uint16_t addr = op + pcreg;
-                strprintf (strbuf, " %06o", addr);
-                uint16_t addr2, data;
-                if (rdsize (addr, &addr2) && rdsize (addr2, &data)) {
-                    strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
-                }
+            if ((r == 7) && getgpr (7, &addr2)) {
+                addr2 += op;
+                strprintf (strbuf, " @%06o", addr2);
+                goto praddr2;
             } else {
-                strprintf (strbuf, " %06o(R%o)", op, r);
-                uint16_t addr, addr2, data;
-                if (getgpr (mr, &addr)) {
-                    addr += op;
-                    if (rdsize (addr, &addr2) && rdsize (addr2, &data)) {
-                        strprintf (strbuf, " [%06o/%06o/%0*o]", addr, addr2, byte36, data);
-                    }
+                strprintf (strbuf, " @%06o(R%o)", op, r);
+                if (getgpr (r, &addr2)) {
+                    addr2 += op;
+                    goto praddr2;
                 }
             }
             break;
         }
         default: abort ();
+    }
+    return;
+
+praddr2:;
+    strprintf (strbuf, " [%06o/", addr2);
+    if (!rdword (addr2, &addr)) {
+        strbuf->append ("------]");
+        return;
+    }
+    strprintf (strbuf, "%06o/", addr);
+    goto prdata;
+praddr:;
+    strprintf (strbuf, " [%06o/", addr);
+prdata:;
+    uint16_t data;
+    if (rdsize (addr, &data)) {
+        strprintf (strbuf, "%0*o]", byte36, data);
+    } else {
+        strbuf->append (byte ? "---]" : "------]");
     }
 }
 
@@ -518,10 +526,10 @@ bool DisassemCtx::getgpr (uint16_t r, uint16_t *data, bool prev)
         uint16_t rr = r;
         if (rr == 6) {
             uint16_t psw;
-            if (! readword (param, 0177776, &psw)) return false;
+            if (! readword (param, PA | 0777776, &psw)) return false;
             if (psw & (prev ? 0030000 : 0140000)) rr += 8;
         }
-        gproks[r] = readword (param, 0177700 + rr, &gprs[r]);
+        gproks[r] = readword (param, PA | (0777700 + rr), &gprs[r]);
     }
     *data = gprs[r];
     if (r == 7) *data += pcinc * 2;

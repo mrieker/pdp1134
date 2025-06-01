@@ -93,12 +93,89 @@ int main (int argc, char **argv)
 
 
 
-static bool readword (void *dummy, uint16_t addr, uint16_t *data_r)
+struct DisRdCtx {
+    bool mmr0valid;
+    bool pswvalid;
+    uint8_t pdrvalid;
+    uint8_t parvalid;
+    uint16_t mmr0, par, pdr, psw;
+};
+
+static bool disread (void *param, uint32_t addr, uint16_t *data_r)
 {
     extern Z11Page *z11page;
-    uint32_t paddr = addr;
-    if (paddr >= 0160000) paddr |= 0760000;
-    return z11page->dmaread (paddr, data_r);
+    DisRdCtx *drctx = (DisRdCtx *) param;
+
+    // maybe we're given a physical address
+    if (! (addr & disassem_PA)) {
+
+        // virtual, see if MMU enabled
+        if (! drctx->mmr0valid && ! z11page->dmaread (0777572, &drctx->mmr0)) {
+            return false;
+        }
+        drctx->mmr0valid = true;
+        if (! (drctx->mmr0 & 1)) {
+
+            // no MMU, maybe set top 2 bits
+            if (addr >= 0160000) addr |= 0760000;
+        } else {
+
+            // MMU enabled, see if KNL or USR mode
+            if (! drctx->pswvalid && ! z11page->dmaread (0777776, &drctx->psw)) {
+                return false;
+            }
+            drctx->pswvalid = true;
+
+            // point to relocation register set based on mode
+            uint32_t regs = (drctx->psw & 0140000) ? 0777600 : 0772300;
+
+            uint16_t page = (addr >> 13) & 7;
+            if (drctx->psw & 0140000) page += 8;
+
+            // read descriptor for addressed page
+            if ((drctx->pdrvalid != page) && ! z11page->dmaread (regs + ((page & 7) * 2), &drctx->pdr)) {
+                return false;
+            }
+            drctx->pdrvalid = page;
+
+            // check read access allowed and page length
+            if (! (drctx->pdr & 2)) {
+                return false;
+            }
+            uint16_t blok = (addr >> 6) & 0177;
+            uint16_t len  = (drctx->pdr >> 7) & 0177;
+            if (drctx->pdr & 8) {
+                if (blok < len) {
+                    return false;
+                }
+            } else {
+                if (blok > len) {
+                    return false;
+                }
+            }
+
+            // get and apply relocation factor
+            if ((drctx->parvalid != page) && ! z11page->dmaread (regs + 040 + ((page & 7) * 2), &drctx->par)) {
+                return false;
+            }
+            drctx->parvalid = page;
+            addr = (addr & 017777) + ((drctx->par & 07777) << 6);
+        }
+    }
+
+    // don't read misc i/o registers in case of side effects
+    // but allow reading processor registers (no side effects)
+    addr &= 0777777;
+    if (addr >= 0760000) {
+        if ((addr >= 0777700) && (addr <= 0777717)) goto good;  // registers
+        if ((addr >= 0772300) && (addr <= 0772377)) goto good;  // knl pdrs, pars
+        if ((addr >= 0777570) && (addr <= 0777577)) goto good;  // swlight, mmr0, mmr2
+        if ((addr >= 0777600) && (addr <= 0777677)) goto good;  // usr pdrs, pars
+        if (addr == 0777776) goto good;                         // psw
+        return false;                                           // other i/o registers
+    }
+good:;
+    return z11page->dmaread (addr, data_r);
 }
 
 // disassemble instruciton
@@ -108,15 +185,44 @@ static int cmd_disasop (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl
     int operand1 = -1;
     int operand2 = -1;
 
+    DisRdCtx drctx;
+    drctx.mmr0valid = false;
+    drctx.pswvalid = false;
+    drctx.pdrvalid = 99;
+    drctx.parvalid = 99;
+
     switch (objc) {
+
+        // no operands, get instruction pointed to by program counter
+        case 1: {
+            int step = 1;
+            uint16_t pcreg, val;
+            if (! disread (&drctx, disassem_PA | 0777707, &pcreg)) goto err;
+            step = 2;
+            if (! disread (&drctx, pcreg, &val)) goto err;
+            opcode   = val;
+            step = 3;
+            if (! disread (&drctx, pcreg + 2, &val)) goto err;
+            operand1 = val;
+            step = 4;
+            if (! disread (&drctx, pcreg + 4, &val)) goto err;
+            operand2 = val;
+            break;
+        err:;
+            Tcl_SetResultF (interp, "unable to read PC or instruction (step %d)", step);
+            return TCL_ERROR;
+        }
+
         case 2: {
             char const *opstr = Tcl_GetString (objv[1]);
             if (strcasecmp (opstr, "help") == 0) {
                 puts ("");
-                puts ("  disasop <opcode> [<operand1> [<operand2>]]");
+                puts ("  disasop [<opcode> [<operand1> [<operand2>]]]");
                 puts ("     opcode = integer opcode");
                 puts ("   operand1 = first operand");
                 puts ("   operand2 = second operand");
+                puts ("");
+                puts ("  no operands means disassemble instruction program counter is pointing to");
                 puts ("");
                 puts ("   returns string, first char is digit giving total number of words used");
                 puts ("     0 : illegal instruction");
@@ -150,9 +256,11 @@ static int cmd_disasop (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl
     }
 
     std::string str;
-    int used = disassem (&str, (uint16_t) opcode, (uint16_t) operand1, (uint16_t) operand2, readword, NULL);
+    int used = disassem (&str, (uint16_t) opcode, (uint16_t) operand1, (uint16_t) operand2, disread, &drctx);
     str.insert (0, 1, (char) ('0' + used));
+
     Tcl_SetResult (interp, strdup (str.c_str ()), (void (*) (char *)) free);
+
     return TCL_OK;
 }
 

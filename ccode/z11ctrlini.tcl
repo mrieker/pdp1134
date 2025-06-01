@@ -359,19 +359,17 @@ proc rdword {addr} {
 # step, printing disassembly
 proc steptrace {} {
     if {! [pin sl_halted]} {
-        error "processor must be halted"
+        error "steptrace: processor must be halted"
     }
     set pc  [rdword 0777707]
-    set op  [rdword $pc]
-    set op1 [rdword [expr {$pc + 2}]]
-    set op2 [rdword [expr {$pc + 4}]]
-    set dis [disasop $op $op1 $op2]
-    set dis [string range $dis 2 end]
-    puts [format "%06o  %s" $pc $dis]
+    set dis [disasop]
+    set dis [string range $dis 1 end]
+    puts [format "%06o %s" $pc $dis]
     return [flickstep]
 }
 
 # step, printing disassembly, in a loop
+# stop on control-C or HALT instruction
 proc steptraceloop {} {
     while {! [ctrlcflag] && ! [pin sl_haltins]} steptrace
 }

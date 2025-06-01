@@ -25,6 +25,7 @@
 
 #include "cpu1134.h"
 #include "swlight.h"
+#include "../ccode/disassem.h"
 #include "../ccode/z11defs.h"
 
 #define FIELD(r,m) (((r) & (m)) / ((m) & - (m)))
@@ -68,6 +69,7 @@ bool CPU1134::cpuhaltins ()
 CPU1134::CPU1134 ()
 {
     singleton = this;
+    logit = NULL;
 
     // declare what unibus addresses we respond to
     for (int i = 0; i < 8; i ++) {
@@ -203,13 +205,19 @@ bool CPU1134::wrslave (uint32_t physaddr, uint16_t data, bool byte)
     }
 
     if ((physaddr & 0777760) == 0772300) {
-        knlpdrs[(physaddr&016)>>1] = data & 077416;
+        uint16_t page  = (physaddr & 016) >> 1;
+        uint16_t npdr  = data & 077416;
+        fprintf (stderr, "CPU1134::wrslave*: knlpdr[%u] = %06o (PC=%06o)\n", page, npdr, gprs[7]);
+        knlpdrs[page]  = npdr;
         return true;
     }
 
     if ((physaddr & 0777760) == 0772340) {
-        knlpars[(physaddr&016)>>1]  = data & 07777;
-        knlpdrs[(physaddr&016)>>1] &= 077416;
+        uint16_t page  = (physaddr & 016) >> 1;
+        uint16_t npar  = data & 007777;
+        fprintf (stderr, "CPU1134::wrslave*: knlpar[%u] = %06o (PC=%06o)\n", page, npar, gprs[7]);
+        knlpars[page]  = npar;
+        knlpdrs[page] &= 077416;
         return true;
     }
 
@@ -331,6 +339,19 @@ void CPU1134::stepit ()
         // fetch next instruction
         instreg = rdwordvirt (gprs[7], psw >> 14);
         if (! (mmr0 & 0160000)) mmr2 = gprs[7];
+
+        // maybe log it
+        if (logit != NULL) {
+            uint16_t op1 = 0xDEAD;
+            uint16_t op2 = 0xBEEF;
+            disread (this, gprs[7] + 2, &op1);
+            disread (this, gprs[7] + 4, &op2);
+            std::string strbuf;
+            disassem (&strbuf, instreg, op1, op2, disread, this);
+            fprintf (logit, "%06o %s\n", gprs[7], strbuf.c_str ());
+        }
+
+        // increment program counter
         gprs[7] += 2;
 
         // decode and execute
@@ -865,6 +886,10 @@ void CPU1134::stepit ()
                 uint16_t newpc = rdwordvirt (vec,     0);
                 uint16_t newps = rdwordvirt (vec | 2, 0);
 
+                if (logit != NULL) {
+                    fprintf (logit, "%06o %06o trap %03o %06o %06o\n", gprs[7], psw, vec, newpc, newps);
+                }
+
                 uint16_t nspgprx = gprx (6, newps >> 14);
 
                 gprs[nspgprx] -= 2;
@@ -1088,6 +1113,53 @@ void CPU1134::updnzvc (uint16_t result, bool byte, uint16_t vbit, uint16_t cbit)
     if (vbit & 1) psw |= 002;
     if (cbit & 1) psw |= 001;
     if (dbg2) printf (" [%c%c%c%c]", psw & 010 ? 'N' : '-', psw & 004 ? 'Z' : '-', psw & 002 ? 'V' : '-', psw & 001 ? 'C' : '-');
+}
+
+// read word for disassembly - return error instead of throwing exception
+bool CPU1134::disread (void *vhis, uint32_t addr, uint16_t *data_r)
+{
+    CPU1134 *zhis = (CPU1134 *) vhis;
+
+    // disassembler passing a physical address
+    if (addr & disassem_PA) {
+        addr &= 0777777;
+    } else {
+        // virtual address, check for MMU enabled
+        addr &= 0177777;
+        if (! (zhis->mmr0 & 1)) {
+            // MMU disabled, pad bits <17:16>
+            if (addr >= 0160000) addr |= 0760000;
+        } else {
+            // MMU enabled, read PDR
+            bool user = (zhis->psw & 0140000) != 0;
+            uint16_t page = addr >> 13;
+            uint16_t pdr  = (user ? zhis->usrpdrs : zhis->knlpdrs)[page];
+            // check page enabled
+            if (! (pdr & 2)) return false;
+            // check page length
+            uint16_t blok = (addr >> 6) & 127;
+            uint16_t len  = (pdr >> 8) & 127;
+            if (pdr & 8) {
+                if (blok < len) return false;
+            } else {
+                if (blok > len) return false;
+            }
+            // relocate address using PAR
+            uint16_t par  = (user ? zhis->usrpars : zhis->knlpars)[page];
+            addr = (((uint32_t) par & 4095) << 6) + (addr & 8191);
+        }
+    }
+    // don't read misc i/o registers because of side effects
+    if (addr >= 0760000) {
+        if ((addr >= 0777700) && (addr <= 0777717)) goto good;  // registers
+        if ((addr >= 0772300) && (addr <= 0772377)) goto good;  // knl pdrs, pars
+        if ((addr >= 0777570) && (addr <= 0777577)) goto good;  // swlight, mmr0, mmr2
+        if ((addr >= 0777600) && (addr <= 0777677)) goto good;  // usr pdrs, pars
+        if (addr == 0777776) goto good;                         // psw
+        return false;                                           // other i/o registers
+    }
+good:;
+    return rdmaster (addr, data_r);
 }
 
 // read word given virtual address

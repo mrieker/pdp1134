@@ -61,6 +61,20 @@ int main (int argc, char **argv)
 {
     setlinebuf (stdout);
 
+    char const *cpulogname = NULL;
+    for (int i = 0; ++ i < argc;) {
+        if (strcasecmp (argv[i], "-cpulog") == 0) {
+            if ((++ i >= argc) && (argv[i][0] == '-')) {
+                fprintf (stderr, "missing filename for -cpulog\n");
+                return 1;
+            }
+            cpulogname = argv[i];
+            continue;
+        }
+        fprintf (stderr, "unknown argument %s\n", argv[i]);
+        return 1;
+    }
+
     // create shared memory page
     SimrPage *shm;
     int shmfd = shm_open (SIMRNAME, O_RDWR | O_CREAT, 0600);
@@ -91,12 +105,21 @@ int main (int argc, char **argv)
 
     // plug boards into axi and uni busses
     new BigMem ();
-    new CPU1134 ();
+    CPU1134 *cpu1134 = new CPU1134 ();
     new DL11 ();
     new KL11 ();
     new RL11 ();
     new SWLight ();
     AxiDev::axiassign ();
+
+    if (cpulogname != NULL) {
+        cpu1134->logit = (strcmp (cpulogname, "-") == 0) ? stdout : fopen (cpulogname, "w");
+        if (cpu1134->logit == NULL) {
+            fprintf (stderr, "error creating %s: %m\n", cpulogname);
+            return 1;
+        }
+        setlinebuf (cpu1134->logit);
+    }
 
     // process requests from z11xx programs
     shm->simmerpid = getpid ();

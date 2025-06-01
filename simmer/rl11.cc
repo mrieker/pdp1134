@@ -20,6 +20,8 @@
 
 // PDP-11 RL01/2 disk interface
 
+#include <stdio.h>
+
 #include "rl11.h"
 
 #define INTVEC 0160
