@@ -31,7 +31,7 @@ module kl11 (
     output intreq,
     output[7:0] irvec,
     input intgnt,
-    input[7:9] igvec,
+    input[7:0] igvec,
 
     input[17:00] a_in_h,
     input[1:0] c_in_h,
