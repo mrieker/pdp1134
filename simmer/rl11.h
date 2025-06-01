@@ -40,6 +40,7 @@ protected:
 
 private:
     bool enable;
+    bool intreq;
     uint16_t rlcs;
     uint16_t rlba;
     uint16_t rlda;

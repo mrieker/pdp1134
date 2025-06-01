@@ -40,8 +40,12 @@ protected:
 
 private:
     bool enable;
+    bool intreq;
     bool lkiena;
+    bool lkflag;
     uint32_t lastick;
+
+    void update ();
 };
 
 #endif

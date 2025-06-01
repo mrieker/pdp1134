@@ -35,6 +35,8 @@ static uint32_t nowtick ()
 KL11::KL11 ()
 {
     unidevtable[017546/2] = this;   // 777546
+
+    enable = false;
 }
 
 /////////////////////
@@ -45,7 +47,7 @@ uint32_t KL11::axirdslv (uint32_t index)
 {
     switch (index) {
         case 0: return 0x4B4C0002;  // "KL"; size; version
-        case 1: return (enable << 31);
+        case 1: return (enable << 31) | (intreq << 30);
     }
     return 0xDEADBEEF;
 }
@@ -63,19 +65,25 @@ void KL11::axiwrslv (uint32_t index, uint32_t data)
 
 void KL11::resetslave ()
 {
-    lkiena  = 0;
+    intreq  = false;
     lastick = nowtick ();
+    lkiena  = false;
+    lkflag  = false;
 }
 
 uint8_t KL11::getintslave (uint16_t level)
 {
-    return (enable && (level == 6) && lkiena && (nowtick () != lastick)) ? 0100 : 0;
+    if ((level != 6) || ! enable) return 0;
+    update ();
+    if (! intreq) return 0;
+    intreq = false;
+    return 0100;
 }
 
 bool KL11::rdslave (uint32_t physaddr, uint16_t *data)
 {
     if (! enable) return false;
-    bool lkflag = nowtick () != lastick;
+    update ();
     *data = (lkflag << 7) | (lkiena << 6);
     return true;
 }
@@ -83,7 +91,20 @@ bool KL11::rdslave (uint32_t physaddr, uint16_t *data)
 bool KL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
 {
     if (! enable) return false;
-    if (! (data & 0200)) lastick = nowtick ();
+    lkflag = (data >> 7) & 1;
     lkiena = (data >> 6) & 1;
+    if (! lkflag) lastick = nowtick ();
+    if (! lkflag || ! lkiena) intreq = false;
     return true;
+}
+
+void KL11::update ()
+{
+    bool oldflag = lkflag;
+    uint32_t thistick = nowtick ();
+    if (lastick != thistick) {
+        lastick  = thistick;
+        lkflag   = true;
+    }
+    if (! oldflag && lkflag && lkiena) intreq = true;
 }

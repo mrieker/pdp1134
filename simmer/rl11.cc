@@ -33,6 +33,9 @@ RL11::RL11 ()
     unidevtable[(BUSADD&017770)/2+1] = this;
     unidevtable[(BUSADD&017770)/2+2] = this;
     unidevtable[(BUSADD&017770)/2+3] = this;
+
+    enable = false;
+    intreq = false;
 }
 
 /////////////////////
@@ -49,7 +52,7 @@ uint32_t RL11::axirdslv (uint32_t index)
         case 2: return ((uint32_t) rlmp1 << 16) | rlda;
         case 3: return ((uint32_t) rlmp3 << 16) | rlmp2;
         case 4: return (driveerrors << 4) | drivereadys;
-        case 5: return (enable << 31) | (INTVEC << 18) | BUSADD;
+        case 5: return (enable << 31) | (intreq << 30) | (INTVEC << 18) | BUSADD;
     }
     return 0xDEADBEEF;
 }
@@ -58,8 +61,13 @@ void RL11::axiwrslv (uint32_t index, uint32_t data)
 {
     switch (index) {
         case 1: {
-            rlcs  = data;
+            uint16_t oldrlcs = rlcs;
+            rlcs  = (rlcs & 0100) | (data & ~ 0100);
             rlba  = data >> 16;
+
+            // update edge-triggered interrupt
+            if ((rlcs & 0300) != 0300) intreq = false;
+            else if ((oldrlcs & 0300) != 0300) intreq = true;
             break;
         }
         case 2: {
@@ -90,19 +98,20 @@ void RL11::axiwrslv (uint32_t index, uint32_t data)
 
 void RL11::resetslave ()
 {
-
-    rlcs  = 0200;
-    rlba  = 0;
-    rlda  = 0;
-    rlmp1 = 0;
-    rlmp2 = 0;
-    rlmp3 = 0;
+    intreq = false;
+    rlcs   = 0200;
+    rlba   = 0;
+    rlda   = 0;
+    rlmp1  = 0;
+    rlmp2  = 0;
+    rlmp3  = 0;
 }
 
 uint8_t RL11::getintslave (uint16_t level)
 {
-    if ((level == 5) && ((rlcs & 0300) == 0300)) return INTVEC;
-    return 0;
+    if ((level != 5) || ! intreq) return 0;
+    intreq = false;
+    return INTVEC;
 }
 
 bool RL11::rdslave (uint32_t physaddr, uint16_t *data)
@@ -120,6 +129,7 @@ bool RL11::rdslave (uint32_t physaddr, uint16_t *data)
 bool RL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
 {
     if (! enable) return false;
+    uint16_t oldrlcs = rlcs;
     if (byte) {
         switch (physaddr & 7) {
             case 0: rlcs  = (rlcs & 0177400) | (data & 0377); break;
@@ -139,6 +149,11 @@ bool RL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
             case 6: rlmp3 = rlmp2 = rlmp1 = data; break;
         }
     }
+
+    // update edge-triggered interrupt
+    if ((rlcs & 0300) != 0300) intreq = false;
+    else if ((oldrlcs & 0300) != 0300) intreq = true;
+
     return true;
 }
 

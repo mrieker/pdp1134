@@ -33,6 +33,10 @@ DL11::DL11 ()
     unidevtable[(BUSADD&017770)/2+1] = this;
     unidevtable[(BUSADD&017770)/2+2] = this;
     unidevtable[(BUSADD&017770)/2+3] = this;
+
+    enable = false;
+    rintrq = false;
+    xintrq = false;
 }
 
 /////////////////////
@@ -54,12 +58,18 @@ void DL11::axiwrslv (uint32_t index, uint32_t data)
 {
     switch (index) {
         case 1: {
+            uint8_t oldrcsr = rcsr;
             rbuf = data >> 16;
             rcsr = (rcsr & ~ 0200) | (data & 0200);
+            if ((rcsr & 0300) != 0300) rintrq = false;
+            else if ((oldrcsr & 0300) != 0300) rintrq = true;
             break;
         }
         case 2: {
+            uint8_t oldxcsr = xcsr;
             xcsr = (xcsr & ~ 0200) | (data & 0200);
+            if ((xcsr & 0300) != 0300) xintrq = false;
+            else if ((oldxcsr & 0300) != 0300) xintrq = true;
             break;
         }
         case 3: {
@@ -77,12 +87,20 @@ void DL11::resetslave ()
 {
     rcsr = 0;
     xcsr = 0200;
+    rintrq = false;
+    xintrq = false;
 }
 
 uint8_t DL11::getintslave (uint16_t level)
 {
-    if ((level == 4) && ((rcsr & 0300) == 0300)) return 060;
-    if ((level == 4) && ((xcsr & 0300) == 0300)) return 064;
+    if ((level == 4) && rintrq) {
+        rintrq = false;
+        return 060;
+    }
+    if ((level == 4) && xintrq) {
+        xintrq = false;
+        return 064;
+    }
     return 0;
 }
 
@@ -91,7 +109,7 @@ bool DL11::rdslave (uint32_t physaddr, uint16_t *data)
     if (! enable) return false;
     switch (physaddr & 6) {
         case 0: *data = rcsr & 0300; break;
-        case 2: *data = rbuf; rcsr &= ~ 0200; break;
+        case 2: *data = rbuf; rcsr &= ~ 0200; rintrq = false; break;
         case 4: *data = xcsr & 0300; break;
         case 6: *data = xbuf; break;
     }
@@ -101,6 +119,8 @@ bool DL11::rdslave (uint32_t physaddr, uint16_t *data)
 bool DL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
 {
     if (! enable) return false;
+    uint8_t oldrcsr = rcsr;
+    uint8_t oldxcsr = xcsr;
     if (byte) {
         switch (physaddr & 7) {
             case 0: rcsr = (rcsr & ~ 0100) | (data & 0100); break;
@@ -115,5 +135,9 @@ bool DL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
             case 6: xbuf = (xcsr & ~ 0377) | (data & 0377); xcsr &= ~ 0200; break;
         }
     }
+    if ((rcsr & 0300) != 0300) rintrq = false;
+    else if ((oldrcsr & 0300) != 0300) rintrq = true;
+    if ((xcsr & 0300) != 0300) xintrq = false;
+    else if ((oldxcsr & 0300) != 0300) xintrq = true;
     return true;
 }

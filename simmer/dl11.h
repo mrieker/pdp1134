@@ -40,6 +40,8 @@ protected:
 
 private:
     bool enable;
+    bool rintrq;
+    bool xintrq;
     uint8_t rcsr, xcsr;
     uint8_t rbuf, xbuf;
 };

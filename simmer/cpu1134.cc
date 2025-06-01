@@ -207,7 +207,6 @@ bool CPU1134::wrslave (uint32_t physaddr, uint16_t data, bool byte)
     if ((physaddr & 0777760) == 0772300) {
         uint16_t page  = (physaddr & 016) >> 1;
         uint16_t npdr  = data & 077416;
-        fprintf (stderr, "CPU1134::wrslave*: knlpdr[%u] = %06o (PC=%06o)\n", page, npdr, gprs[7]);
         knlpdrs[page]  = npdr;
         return true;
     }
@@ -215,7 +214,6 @@ bool CPU1134::wrslave (uint32_t physaddr, uint16_t data, bool byte)
     if ((physaddr & 0777760) == 0772340) {
         uint16_t page  = (physaddr & 016) >> 1;
         uint16_t npar  = data & 007777;
-        fprintf (stderr, "CPU1134::wrslave*: knlpar[%u] = %06o (PC=%06o)\n", page, npar, gprs[7]);
         knlpars[page]  = npar;
         knlpdrs[page] &= 077416;
         return true;
@@ -348,7 +346,7 @@ void CPU1134::stepit ()
             disread (this, gprs[7] + 4, &op2);
             std::string strbuf;
             disassem (&strbuf, instreg, op1, op2, disread, this);
-            fprintf (logit, "%06o %s\n", gprs[7], strbuf.c_str ());
+            fprintf (logit, "%06o.%06o %s\n", gprs[7], psw, strbuf.c_str ());
         }
 
         // increment program counter
@@ -887,7 +885,7 @@ void CPU1134::stepit ()
                 uint16_t newps = rdwordvirt (vec | 2, 0);
 
                 if (logit != NULL) {
-                    fprintf (logit, "%06o %06o trap %03o %06o %06o\n", gprs[7], psw, vec, newpc, newps);
+                    fprintf (logit, "%06o.%06o trap %03o %06o %06o\n", gprs[7], psw, vec, newpc, newps);
                 }
 
                 uint16_t nspgprx = gprx (6, newps >> 14);
