@@ -16,7 +16,7 @@ proc start {} {
     wrword 026 0340
 
     pin set man_ac_lo_out_h 1 man_dc_lo_out_h 1
-    pin set sl_haltreq 0
+    pin set ky_haltreq 0
     pin set man_dc_lo_out_h 0 man_ac_lo_out_h 0
 }
 

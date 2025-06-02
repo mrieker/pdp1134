@@ -21,20 +21,20 @@
 #include <stdio.h>
 
 #include "cpu1134.h"
-#include "swlight.h"
+#include "ky11.h"
 
-SWLight *SWLight::singleton;
+KY11 *KY11::singleton;
 
 // check for hard halt requested
 // - persists until explicitly released by user
-bool SWLight::swlhaltreq ()
+bool KY11::kyhaltreq ()
 {
     return singleton->haltreq;
 }
 
 // check to see if user wants this cpu step to go through
 // - clears itself and sets hard halt request for next cycle
-bool SWLight::swlstepreq ()
+bool KY11::kystepreq ()
 {
     if (singleton->stepreq) {       // see if allow one step to go through
         singleton->stepreq = false; // ok, just this one cycle
@@ -44,7 +44,7 @@ bool SWLight::swlstepreq ()
     return ! singleton->haltreq;    // not stepping, maybe already in hard halt
 }
 
-SWLight::SWLight ()
+KY11::KY11 ()
 {
     singleton = this;
     unidevtable[017570/2] = this;
@@ -65,10 +65,10 @@ SWLight::SWLight ()
 //  axibus access  //
 /////////////////////
 
-uint32_t SWLight::axirdslv (uint32_t index)
+uint32_t KY11::axirdslv (uint32_t index)
 {
     switch (index) {
-        case 0: return 0x534C200D;
+        case 0: return 0x4B59200D;
         case 1: return ((uint32_t) lights << 16) | switches;
         case 2: return
                     (enable  << 31) |
@@ -85,7 +85,7 @@ uint32_t SWLight::axirdslv (uint32_t index)
     return 0xDEADBEEF;
 }
 
-void SWLight::axiwrslv (uint32_t index, uint32_t data)
+void KY11::axiwrslv (uint32_t index, uint32_t data)
 {
     switch (index) {
         case 1: {
@@ -130,18 +130,18 @@ void SWLight::axiwrslv (uint32_t index, uint32_t data)
 //  unibus access  //
 /////////////////////
 
-void SWLight::resetslave ()
+void KY11::resetslave ()
 {
     irqlev = 0;
 }
 
-uint8_t SWLight::getintslave (uint16_t level)
+uint8_t KY11::getintslave (uint16_t level)
 {
     return (level == irqlev) ? irqvec * 4 : 0;
 }
 
 // something on unibus is attempting to read switches
-bool SWLight::rdslave (uint32_t physaddr, uint16_t *data)
+bool KY11::rdslave (uint32_t physaddr, uint16_t *data)
 {
     if (! enable) return false;
     *data = switches;
@@ -149,7 +149,7 @@ bool SWLight::rdslave (uint32_t physaddr, uint16_t *data)
 }
 
 // something on unibus is attempting to write lights
-bool SWLight::wrslave (uint32_t physaddr, uint16_t data, bool byte)
+bool KY11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
 {
     if (! enable) return false;
     if (! byte) lights = data;

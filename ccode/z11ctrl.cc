@@ -169,7 +169,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
     if (addr >= 0760000) {
         if ((addr >= 0777700) && (addr <= 0777717)) goto good;  // registers
         if ((addr >= 0772300) && (addr <= 0772377)) goto good;  // knl pdrs, pars
-        if ((addr >= 0777570) && (addr <= 0777577)) goto good;  // swlight, mmr0, mmr2
+        if ((addr >= 0777570) && (addr <= 0777577)) goto good;  // sr/lr, mmr0, mmr2
         if ((addr >= 0777600) && (addr <= 0777677)) goto good;  // usr pdrs, pars
         if (addr == 0777776) goto good;                         // psw
         return false;                                           // other i/o registers

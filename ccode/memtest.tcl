@@ -1,6 +1,6 @@
 
 # simple test for external memory
-# ...and dma section of swlight.v
+# ...and dma section of ky11.v
 
 proc myrdword {addr} {
     return [rdword $addr]
@@ -51,7 +51,7 @@ proc memtest {{loaddr 0} {hiaddr 07777}} {
 
         for {set mode 0} {! [ctrlcflag] && ($mode < 3)} {incr mode} {
 
-            # write random numbers via swlight.v
+            # write random numbers via ky11.v
             puts "pass $pass.$mode"
             for {set addr $loaddr} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 2} {
                 switch $mode {
@@ -63,7 +63,7 @@ proc memtest {{loaddr 0} {hiaddr 07777}} {
                 mywrword $addr $r
             }
 
-            # readback via swlight.v and verify
+            # readback via ky11.v and verify
             for {set addr $loaddr} {! [ctrlcflag] && ($addr <= $hiaddr)} {incr addr 2} {
                 set r $rands($addr)
                 set m [myrdword $addr]

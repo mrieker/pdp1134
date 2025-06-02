@@ -18,17 +18,17 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-#ifndef _SWLIGHT_H
-#define _SWLIGHT_H
+#ifndef _KY11_H
+#define _KY11_H
 
 #include "axidev.h"
 #include "unidev.h"
 
-struct SWLight : AxiDev, UniDev {
-    static bool swlhaltreq ();
-    static bool swlstepreq ();
+struct KY11 : AxiDev, UniDev {
+    static bool kyhaltreq ();
+    static bool kystepreq ();
 
-    SWLight ();
+    KY11 ();
 
 protected:
     // AxiDev
@@ -42,7 +42,7 @@ protected:
     virtual bool wrslave (uint32_t addr, uint16_t data, bool byte);
 
 private:
-    static SWLight *singleton;
+    static KY11 *singleton;
 
     bool dmafail;
     bool enable;

@@ -24,7 +24,7 @@
 #include <stdlib.h>
 
 #include "cpu1134.h"
-#include "swlight.h"
+#include "ky11.h"
 #include "../ccode/disassem.h"
 #include "../ccode/z11defs.h"
 
@@ -109,7 +109,7 @@ uint32_t CPU1134::axirdslv (uint32_t index)
         case  2: return regctlb;
         case  3: return 0;
         case  4: return
-            ((jammedup () || SWLight::swlhaltreq ())  << 28);    // dev_hltgr_l
+            ((jammedup () || KY11::kyhaltreq ())  << 28);    // dev_hltgr_l
         case  5: return 0;
         case  6: return 0;
         case  7: return 0;
@@ -296,7 +296,7 @@ void CPU1134::stepit ()
     }
 
     // don't do anything if console has us halted
-    if (! SWLight::swlstepreq ()) {
+    if (! KY11::kystepreq ()) {
         if (dbg1 && (lastprint != P_HALTBYSW)) {
             printf ("CPU1134::stepit*: halted by switches at PC=%06o PS=%06o\n", gprs[7], psw);
             lastprint = P_HALTBYSW;
@@ -1151,7 +1151,7 @@ bool CPU1134::disread (void *vhis, uint32_t addr, uint16_t *data_r)
     if (addr >= 0760000) {
         if ((addr >= 0777700) && (addr <= 0777717)) goto good;  // registers
         if ((addr >= 0772300) && (addr <= 0772377)) goto good;  // knl pdrs, pars
-        if ((addr >= 0777570) && (addr <= 0777577)) goto good;  // swlight, mmr0, mmr2
+        if ((addr >= 0777570) && (addr <= 0777577)) goto good;  // sr/lr, mmr0, mmr2
         if ((addr >= 0777600) && (addr <= 0777677)) goto good;  // usr pdrs, pars
         if (addr == 0777776) goto good;                         // psw
         return false;                                           // other i/o registers

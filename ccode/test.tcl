@@ -25,9 +25,9 @@ proc test1 {} {
     wrword 0777707 0100         ;# PC = 0100
     while {! [ctrlcflag]} {
         puts "  R0=[octal [rdword 0777700]]"
-        pin set sl_haltreq 0
+        pin set ky_haltreq 0
         after 100
-        pin set sl_haltreq 1
+        pin set ky_haltreq 1
     }
 }
 
@@ -44,7 +44,7 @@ proc test2 {} {
     wrword 0112 0177566
     wrword 0114 0000771         ;# 0114: BR .-12
     wrword 0777707 0100         ;# PC = 0100
-    pin set sl_haltreq 0
+    pin set ky_haltreq 0
     dumptty
 }
 
@@ -79,7 +79,7 @@ proc test3 {} {
 # requires z11pr be running to read paper tape file
 proc test4 {} {
     pin set fpgamode 0 fpgamode 1 bm_enablo 1
-    pin set sl_haltreq 1 man_hltrq_out_h 0
+    pin set ky_haltreq 1 man_hltrq_out_h 0
     pin set dl_enable 1
 
     wrword 0100 0005237         ;# 0100: INC  @#177550

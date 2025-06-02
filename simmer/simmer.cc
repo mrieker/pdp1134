@@ -41,10 +41,10 @@
 #include "cpu1134.h"
 #include "dl11.h"
 #include "kl11.h"
+#include "ky11.h"
 #include "rl11.h"
 #include "simrpage.h"
 #include "stepper.h"
-#include "swlight.h"
 
 static bool atomic_compare_exchange (uint32_t *ptr, uint32_t *oldptr, uint32_t newval)
 {
@@ -108,8 +108,8 @@ int main (int argc, char **argv)
     CPU1134 *cpu1134 = new CPU1134 ();
     new DL11 ();
     new KL11 ();
+    new KY11 ();
     new RL11 ();
-    new SWLight ();
     AxiDev::axiassign ();
 
     if (cpulogname != NULL) {

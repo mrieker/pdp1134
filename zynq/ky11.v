@@ -25,7 +25,7 @@
 // * memory (bus) read/write functions for exam/deposit
 //   can also be used by arm devices for dma
 
-module swlight (
+module ky11 (
     input CLOCK, RESET,
 
     input armwrite,
@@ -75,7 +75,7 @@ module swlight (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h534C200D : // [31:16] = 'SL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B59200D : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { lights, switches } :
                       (armraddr == 2) ? {
                             enable,         //31

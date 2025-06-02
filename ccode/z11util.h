@@ -52,7 +52,7 @@ struct Z11Page {
 
 private:
     int zynqfd;
-    uint32_t volatile *slat;
+    uint32_t volatile *kyat;
     uint32_t volatile *zynqpage;
     void *zynqptr;
 

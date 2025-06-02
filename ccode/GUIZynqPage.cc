@@ -33,7 +33,7 @@
 
 static Z11Page *z11page;
 static uint32_t volatile *pdpat;
-static uint32_t volatile *slat;
+static uint32_t volatile *kyat;
 
 /*
  * Class:     GUIZynqPage
@@ -45,7 +45,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_open
 {
     z11page = new Z11Page ();
     pdpat = z11page->findev ("11", NULL, NULL, false, false);
-    slat  = z11page->findev ("SL", NULL, NULL, false, false);
+    kyat  = z11page->findev ("KY", NULL, NULL, false, false);
     return 0;
 }
 
@@ -57,7 +57,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_open
 JNIEXPORT jint JNICALL Java_GUIZynqPage_step
   (JNIEnv *env, jclass klass)
 {
-    slat[2] |= SL2_STEPREQ;
+    kyat[2] |= KY2_STEPREQ;
     return 0;
 }
 
@@ -69,7 +69,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_step
 JNIEXPORT jint JNICALL Java_GUIZynqPage_cont
   (JNIEnv *env, jclass klass)
 {
-    slat[2] &= ~ SL2_HALTREQ;
+    kyat[2] &= ~ KY2_HALTREQ;
     return 0;
 }
 
@@ -81,7 +81,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_cont
 JNIEXPORT jint JNICALL Java_GUIZynqPage_halt
   (JNIEnv *env, jclass klass)
 {
-    slat[2] |= SL2_HALTREQ;
+    kyat[2] |= KY2_HALTREQ;
     return 0;
 }
 
@@ -93,7 +93,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_halt
 JNIEXPORT jint JNICALL Java_GUIZynqPage_reset
   (JNIEnv *env, jclass klass)
 {
-    slat[2] |= SL2_HALTREQ;     // so it halts when started back up
+    kyat[2] |= KY2_HALTREQ;     // so it halts when started back up
     pdpat[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
     usleep (200000);
     pdpat[Z_RA] &= ~ a_man_dc_lo_out_h;
@@ -132,7 +132,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_data
 JNIEXPORT jint JNICALL Java_GUIZynqPage_getlr
   (JNIEnv *env, jclass klass)
 {
-    return (slat[1] >> 16) & 0xFFFF;
+    return (kyat[1] >> 16) & 0xFFFF;
 }
 
 /*
@@ -143,7 +143,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_getlr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_getsr
   (JNIEnv *env, jclass klass)
 {
-    return slat[1] & 0xFFFF;
+    return kyat[1] & 0xFFFF;
 }
 
 /*
@@ -154,8 +154,8 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_getsr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_running
   (JNIEnv *env, jclass klass)
 {
-    if (! (slat[2] & SL2_HALTED)) return 1;     //  1 = running
-    return (slat[2] & SL2_HALTINS) ? -1 : 0;    // -1 = halt instr; 0 = requested halt
+    if (! (kyat[2] & KY2_HALTED)) return 1;     //  1 = running
+    return (kyat[2] & KY2_HALTINS) ? -1 : 0;    // -1 = halt instr; 0 = requested halt
 }
 
 /*
@@ -166,7 +166,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_running
 JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
   (JNIEnv *env, jclass klass, jint data)
 {
-    slat[1] = (slat[1] & 0xFFFF0000) | (data & 0xFFFF);
+    kyat[1] = (kyat[1] & 0xFFFF0000) | (data & 0xFFFF);
 }
 
 /*

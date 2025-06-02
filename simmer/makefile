@@ -7,10 +7,10 @@ OBJS := \
 	cpu1134.$(MACH).o \
 	dl11.$(MACH).o \
 	kl11.$(MACH).o \
+	ky11.$(MACH).o \
 	rl11.$(MACH).o \
 	simmer.$(MACH).o \
 	stepper.$(MACH).o \
-	swlight.$(MACH).o \
 	unidev.$(MACH).o \
 	../ccode/disassem.$(MACH).o \
 	../ccode/strprintf.$(MACH).o \

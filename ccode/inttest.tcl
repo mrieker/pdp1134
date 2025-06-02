@@ -1,19 +1,19 @@
 
 # use to test interrupts
-# uses swlight sl_irqlev,sl_irqvec
+# uses ky11.v ky_irqlev,ky_irqvec
 # 1) first set sw_irqvec to vector 0000..0344 multiple of 4
 # 2) then set sw_irqlev to level 4..7
 # 3) pdp can clear sw_irqlev by clearing 777570
 
 proc loadtest {} {
     pin set fpgamode 2
-    pin set sl_enable 1
+    pin set ky_enable 1
     pin set bm_enablo 0xFFFF
 
     hardreset
 
     wrword 01000 0005003    ;# clr  r3          clear interrupt flag
-    wrword 01002 0005037    ;# clr  @#177570    clear sl_irqlev
+    wrword 01002 0005037    ;# clr  @#177570    clear ky_irqlev
     wrword 01004 0177570
     wrword 01006 0012706    ;# mov  #4000,sp    reset stack
     wrword 01010 0004000
@@ -49,8 +49,8 @@ proc runtest {{nsteps 1000}} {
         set lev [expr {[randbits 2] + 4}]
         set vec [expr {[randbits 6] * 4}]
         if {$vec == 0} continue
-        pin set sl_irqvec $vec sl_irqlev $lev
-        for {set i 0} {[pin get sl_irqlev] != 0} {incr i} {
+        pin set ky_irqvec $vec ky_irqlev $lev
+        for {set i 0} {[pin get ky_irqlev] != 0} {incr i} {
             if {$i > 1000000} {
                 error "timed out lev=$lev vec=$vec"
             }

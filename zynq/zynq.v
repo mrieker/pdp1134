@@ -695,15 +695,15 @@ module Zynq (
         ,.trigger (rltrigger));
 
     // switches and lights
-    wire sl_bbsy_out_h, sl_hltrq_out_h, sl_msyn_out_h;
-    wire sl_npg_out_l, sl_npr_out_h, sl_sack_out_h, sl_ssyn_out_h;
-    wire[1:0] sl_c_out_h;
-    wire[2:0] sl_irqlev;
-    wire[7:2] sl_irqvec;
-    wire[15:00] sl_d_out_h;
-    wire[17:00] sl_a_out_h;
+    wire ky_bbsy_out_h, ky_hltrq_out_h, ky_msyn_out_h;
+    wire ky_npg_out_l, ky_npr_out_h, ky_sack_out_h, ky_ssyn_out_h;
+    wire[1:0] ky_c_out_h;
+    wire[2:0] ky_irqlev;
+    wire[7:2] ky_irqvec;
+    wire[15:00] ky_d_out_h;
+    wire[17:00] ky_a_out_h;
 
-    swlight slinst (
+    ky11 kyinst (
         .CLOCK (CLOCK),
         .RESET (fpgaoff),
 
@@ -730,19 +730,19 @@ module Zynq (
         .del_msyn_in_h (dev_del_msyn_h), //<< signal from pdp/sim when reading/writing switch/light register
         .del_ssyn_in_h (dev_del_ssyn_h), //<< signal from pdp/sim/device indicating data transfer complete
 
-        .irqlev (sl_irqlev),            //>> arm requesting interrupt
-        .irqvec (sl_irqvec),
+        .irqlev (ky_irqlev),            //>> arm requesting interrupt
+        .irqvec (ky_irqvec),
 
-        .a_out_h     (sl_a_out_h),      //>> signal from front panel to read or write memory or device register
-        .bbsy_out_h  (sl_bbsy_out_h),   //>> front panel is using the bus
-        .c_out_h     (sl_c_out_h),      //>> control from front panel to read or write memory or device register
-        .d_out_h     (sl_d_out_h),      //>> data being written to pdp/sim/memory or data being read from switch register
-        .hltrq_out_h (sl_hltrq_out_h),  //>> halt switch on requesting pdp/sim to halt
-        .msyn_out_h  (sl_msyn_out_h),   //>> memory cycle being performed by front panel
-        .npg_out_l   (sl_npg_out_l),    //>> pass dma grant signal along
-        .npr_out_h   (sl_npr_out_h),    //>> request use of bus for dma transfer
-        .sack_out_h  (sl_sack_out_h),   //>> acknowledge selection to pdp/sim
-        .ssyn_out_h  (sl_ssyn_out_h));  //>> switch register or light register transfer complete
+        .a_out_h     (ky_a_out_h),      //>> signal from front panel to read or write memory or device register
+        .bbsy_out_h  (ky_bbsy_out_h),   //>> front panel is using the bus
+        .c_out_h     (ky_c_out_h),      //>> control from front panel to read or write memory or device register
+        .d_out_h     (ky_d_out_h),      //>> data being written to pdp/sim/memory or data being read from switch register
+        .hltrq_out_h (ky_hltrq_out_h),  //>> halt switch on requesting pdp/sim to halt
+        .msyn_out_h  (ky_msyn_out_h),   //>> memory cycle being performed by front panel
+        .npg_out_l   (ky_npg_out_l),    //>> pass dma grant signal along
+        .npr_out_h   (ky_npr_out_h),    //>> request use of bus for dma transfer
+        .sack_out_h  (ky_sack_out_h),   //>> acknowledge selection to pdp/sim
+        .ssyn_out_h  (ky_ssyn_out_h));  //>> switch register or light register transfer complete
 
     // console tty
     wire tt0intreq, tt0_ssyn_out_h;
@@ -808,10 +808,10 @@ module Zynq (
 
     // generate interrupt request cycles from simple request/vector lines from internal devices
 
-    wire[7:0] intvec4 = (sl_irqlev == 4) ? { sl_irqvec, 2'b0 } : pcintreq ? pcintvec : tt0intreq ? tt0intvec : 1;
-    wire[7:0] intvec5 = (sl_irqlev == 5) ? { sl_irqvec, 2'b0 } : rlintreq ? rlintvec : 1;
-    wire[7:0] intvec6 = (sl_irqlev == 6) ? { sl_irqvec, 2'b0 } : klintreq ? klintvec : 1;
-    wire[7:0] intvec7 = (sl_irqlev == 7) ? { sl_irqvec, 2'b0 } : 1;
+    wire[7:0] intvec4 = (ky_irqlev == 4) ? { ky_irqvec, 2'b0 } : pcintreq ? pcintvec : tt0intreq ? tt0intvec : 1;
+    wire[7:0] intvec5 = (ky_irqlev == 5) ? { ky_irqvec, 2'b0 } : rlintreq ? rlintvec : 1;
+    wire[7:0] intvec6 = (ky_irqlev == 6) ? { ky_irqvec, 2'b0 } : klintreq ? klintvec : 1;
+    wire[7:0] intvec7 = (ky_irqlev == 7) ? { ky_irqvec, 2'b0 } : 1;
 
     wire irq4_bbsy_out_h, irq4_sack_out_h;
     wire irq5_bbsy_out_h, irq5_sack_out_h;
@@ -935,21 +935,21 @@ module Zynq (
     wire        man_ssyn_out_h  = regctla[16];
 
     // wired-or of internal device outputs
-    wire[17:00] wor_a_h     = man_a_out_h     | ~ sim_a_out_l     | sl_a_out_h;
+    wire[17:00] wor_a_h     = man_a_out_h     | ~ sim_a_out_l     | ky_a_out_h;
     wire        wor_ac_lo_h = man_ac_lo_out_h;
-    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h   | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | sl_bbsy_out_h;
+    wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h   | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | ky_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;
-    wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l     | sl_c_out_h;
-    wire[15:00] wor_d_h     = man_d_out_h     | bm_d_out_h | kl_d_out_h | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | sl_d_out_h | tt0_d_out_h |
+    wire[1:0]   wor_c_h     = man_c_out_h     | ~ sim_c_out_l     | ky_c_out_h;
+    wire[15:00] wor_d_h     = man_d_out_h     | bm_d_out_h | kl_d_out_h | pc_d_out_h | rl_d_out_h | ~ sim_d_out_l | ky_d_out_h | tt0_d_out_h |
                               { 8'b0, irq4_d70_out_h | irq5_d70_out_h | irq6_d70_out_h | irq7_d70_out_h };
     wire        wor_dc_lo_h = man_dc_lo_out_h;
-    wire        wor_hltrq_h = man_hltrq_out_h | ~ sim_hltrq_out_l | sl_hltrq_out_h;
+    wire        wor_hltrq_h = man_hltrq_out_h | ~ sim_hltrq_out_l | ky_hltrq_out_h;
     wire        wor_init_h  = man_init_out_h  | ~ (sim_reset_h    | sim_init_out_l);
     wire        wor_intr_h  = man_intr_out_h  | irq4_intr_out_h   | irq5_intr_out_h  | irq6_intr_out_h | irq7_intr_out_h;
-    wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l  | sl_msyn_out_h;
-    wire        wor_npr_h   = man_npr_out_h   | sl_npr_out_h;
-    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h   | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | sl_sack_out_h;
-    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h     | ~ sim_ssyn_out_l | sl_ssyn_out_h   | pc_ssyn_out_h   | rl_ssyn_out_h    | kl_ssyn_out_h | tt0_ssyn_out_h;
+    wire        wor_msyn_h  = man_msyn_out_h  | ~ sim_msyn_out_l  | ky_msyn_out_h;
+    wire        wor_npr_h   = man_npr_out_h   | ky_npr_out_h;
+    wire        wor_sack_h  = man_sack_out_h  | irq4_sack_out_h   | irq5_sack_out_h  | irq6_sack_out_h | irq7_sack_out_h | ky_sack_out_h;
+    wire        wor_ssyn_h  = man_ssyn_out_h  | bm_ssyn_out_h     | ~ sim_ssyn_out_l | ky_ssyn_out_h   | pc_ssyn_out_h   | rl_ssyn_out_h    | kl_ssyn_out_h | tt0_ssyn_out_h;
 
     assign pa_out_h = 0;
     assign pb_out_h = 0;

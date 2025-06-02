@@ -1,6 +1,6 @@
 
 # simple test for bigmem.v
-# ...and dma section of swlight.v
+# ...and dma section of ky11.v
 
 # halt processor, enable bigmem
 set fpgamode [pin fpgamode]
@@ -34,17 +34,17 @@ for {set pass 1} {$pass <= 5} {incr pass} {
         }
     }
 
-    # readback via swlight.v and verify
+    # readback via ky11.v and verify
     for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r $rands($addr)
         set m [rdword $addr]
         if {$m != $r} {
-            puts "sl [octal $addr] readback [octal $m] should be [octal $r]"
+            puts "ky [octal $addr] readback [octal $m] should be [octal $r]"
             return
         }
     }
 
-    # write random numbers via swlight.v to bigmem
+    # write random numbers via ky11.v to bigmem
     puts "pass $pass.B"
     for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r [randbits 16]
@@ -62,12 +62,12 @@ for {set pass 1} {$pass <= 5} {incr pass} {
         }
     }
 
-    # readback via swlight.v and verify
+    # readback via ky11.v and verify
     for {set addr $loaddr} {$addr <= $hiaddr} {incr addr 2} {
         set r $rands($addr)
         set m [rdword $addr]
         if {$m != $r} {
-            puts "sl [octal $addr] readback [octal $m] should be [octal $r]"
+            puts "ky [octal $addr] readback [octal $m] should be [octal $r]"
             return
         }
     }
@@ -78,19 +78,19 @@ for {set pass 1} {$pass <= 5} {incr pass} {
         set r [randbits 16]
         set rands($reg) $r
         wrword 077770$reg $r
-        if {[pin get sl_dmafail]} {
-            puts "sl write R$reg failed"
+        if {[pin get ky_dmafail]} {
+            puts "ky write R$reg failed"
             return
         }
     }
     for {set reg 0} {$reg < 8} {incr reg} {
         set r $rands($reg)
         set m [rdword 077770$reg]
-        if {[pin get sl_dmafail]} {
-            puts "sl read R$reg failed"
+        if {[pin get ky_dmafail]} {
+            puts "ky read R$reg failed"
             return
         } elseif {$m != $r} {
-            puts "sl R$reg readback [octal $m] should be [octal $r]"
+            puts "ky R$reg readback [octal $m] should be [octal $r]"
         }
     }
 }

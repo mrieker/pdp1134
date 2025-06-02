@@ -40,7 +40,7 @@ struct PinDef {
 
 #define DEV_11 0
 #define DEV_BM 1
-#define DEV_SL 2
+#define DEV_KY 2
 #define DEV_DL 3
 #define DEV_KL 4
 
@@ -145,23 +145,23 @@ static PinDef const pindefs[] = {
     { "bm_delay",        DEV_BM, 4,    0xE0000000,        0, false },
     { "bm_armdata",      DEV_BM, 4,    0x0000FFFF,        0, true  },
 
-    { "sl_switches",     DEV_SL, 1,    0x0000FFFF,        0, true  },
-    { "sl_lights",       DEV_SL, 1,    0xFFFF0000,        0, false },
-    { "sl_enable",       DEV_SL, 2,    0x80000000,        0, true  },
-    { "sl_haltreq",      DEV_SL, 2,    0x40000000,        0, true  },
-    { "sl_halted",       DEV_SL, 2,    0x20000000,        0, false },
-    { "sl_stepreq",      DEV_SL, 2,    0x10000000,        0, true  },
-    { "sl_haltstate",    DEV_SL, 2,    0x00380000,        0, false },
-    { "sl_hltrq_out_h",  DEV_SL, 2,    0x00040000,        0, false },
-    { "sl_haltins",      DEV_SL, 2,    0x00020000,        0, false },
-    { "sl_irqlev",       DEV_SL, 2,    SL2_IRQLEV,        0, true  },
-    { "sl_irqvec",       DEV_SL, 2,    SL2_IRQVEC,        2, true  },
-    { "sl_dmastate",     DEV_SL, 3,    0xE0000000,        0, true  },
-    { "sl_dmafail",      DEV_SL, 3,    0x10000000,        0, false },
-    { "sl_dmactrl",      DEV_SL, 3,    0x0C000000,        0, true  },
-    { "sl_dmaaddr",      DEV_SL, 3,    0x0003FFFF,        0, true  },
-    { "sl_dmadata",      DEV_SL, 4,    0x0800FFFF,        0, true  },
-    { "sl_dmalock",      DEV_SL, 5,    0xFFFFFFFF,        0, true  },
+    { "ky_switches",     DEV_KY, 1,    0x0000FFFF,        0, true  },
+    { "ky_lights",       DEV_KY, 1,    0xFFFF0000,        0, false },
+    { "ky_enable",       DEV_KY, 2,    0x80000000,        0, true  },
+    { "ky_haltreq",      DEV_KY, 2,    0x40000000,        0, true  },
+    { "ky_halted",       DEV_KY, 2,    0x20000000,        0, false },
+    { "ky_stepreq",      DEV_KY, 2,    0x10000000,        0, true  },
+    { "ky_haltstate",    DEV_KY, 2,    0x00380000,        0, false },
+    { "ky_hltrq_out_h",  DEV_KY, 2,    0x00040000,        0, false },
+    { "ky_haltins",      DEV_KY, 2,    0x00020000,        0, false },
+    { "ky_irqlev",       DEV_KY, 2,    KY2_IRQLEV,        0, true  },
+    { "ky_irqvec",       DEV_KY, 2,    KY2_IRQVEC,        2, true  },
+    { "ky_dmastate",     DEV_KY, 3,    0xE0000000,        0, true  },
+    { "ky_dmafail",      DEV_KY, 3,    0x10000000,        0, false },
+    { "ky_dmactrl",      DEV_KY, 3,    0x0C000000,        0, true  },
+    { "ky_dmaaddr",      DEV_KY, 3,    0x0003FFFF,        0, true  },
+    { "ky_dmadata",      DEV_KY, 4,    0x0800FFFF,        0, true  },
+    { "ky_dmalock",      DEV_KY, 5,    0xFFFFFFFF,        0, true  },
 
     { "dl_rcsr",         DEV_DL, 1,    0x0000FFFF,        0, true  },
     { "dl_rbuf",         DEV_DL, 1,    0xFFFF0000,        0, true  },
@@ -197,7 +197,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         z11page = new Z11Page ();
         devs[DEV_11] = z11page->findev ("11", NULL, NULL, false);
         devs[DEV_BM] = z11page->findev ("BM", NULL, NULL, false);
-        devs[DEV_SL] = z11page->findev ("SL", NULL, NULL, false);
+        devs[DEV_KY] = z11page->findev ("KY", NULL, NULL, false);
         devs[DEV_DL] = z11page->findev ("DL", NULL, NULL, false);
         devs[DEV_KL] = z11page->findev ("KL", NULL, NULL, false);
     }

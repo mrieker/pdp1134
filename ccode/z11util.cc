@@ -32,19 +32,6 @@
 #include "z11defs.h"
 #include "z11util.h"
 
-#define SL3_DMASTATE 0xE0000000U
-#define SL3_DMAFAIL  0x10000000U
-#define SL3_DMACTRL  0x0C000000U
-#define SL3_DMAADDR  0x0003FFFFU
-#define SL4_DMADATA  0x0000FFFFU
-#define SL5_DMALOCK  0xFFFFFFFFU
-
-#define SL3_DMASTATE0 0x20000000U
-#define SL3_DMACTRL0  0x04000000U
-#define SL3_DMAADDR0  0x00000001U
-#define SL4_DMADATA0  0x00000001U
-
-
 uint32_t Z11Page::mypid = getpid ();
 
 Z11Page::Z11Page ()
@@ -52,7 +39,7 @@ Z11Page::Z11Page ()
     zynqpage = NULL;
     zynqptr = NULL;
 
-    slat = NULL;
+    kyat = NULL;
 
 #if defined VERISIM
 
@@ -93,7 +80,7 @@ Z11Page::~Z11Page ()
     zynqpage = NULL;
     zynqptr = NULL;
     zynqfd = -1;
-    slat = NULL;
+    kyat = NULL;
 }
 
 // find a device in the Z11 page
@@ -195,15 +182,15 @@ found:;
 bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
     dmalock ();
-    ZWR(slat[3], SL3_DMASTATE0 | SL3_DMAADDR0 * xba);
-    for (int i = 0; (ZRD(slat[3]) & SL3_DMASTATE) != 0; i ++) {
+    ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
+    for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
             fprintf (stderr, "Z11Page::dmaread: dma stuck\n");
             ABORT ();
         }
     }
-    bool ok = ! (ZRD(slat[3]) & SL3_DMAFAIL);
-    *data = (ZRD(slat[4]) & SL4_DMADATA) / SL4_DMADATA0;
+    bool ok = ! (ZRD(kyat[3]) & KY3_DMAFAIL);
+    *data = (ZRD(kyat[4]) & KY4_DMADATA) / KY4_DMADATA0;
     dmaunlk ();
     return ok;
 }
@@ -213,15 +200,15 @@ bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
 bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 {
     dmalock ();
-    ZWR(slat[4], SL4_DMADATA0 * data);
-    ZWR(slat[3], SL3_DMASTATE0 | SL3_DMACTRL0 * 2 | SL3_DMAADDR0 * xba);
-    for (int i = 0; (ZRD(slat[3]) & SL3_DMASTATE) != 0; i ++) {
+    ZWR(kyat[4], KY4_DMADATA0 * data);
+    ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
+    for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
             fprintf (stderr, "Z11Page::dmawrite: dma stuck\n");
             ABORT ();
         }
     }
-    bool ok = ! (ZRD(slat[3]) & SL3_DMAFAIL);
+    bool ok = ! (ZRD(kyat[3]) & KY3_DMAFAIL);
     dmaunlk ();
     return ok;
 }
@@ -230,22 +217,22 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 // wait indefinitely in case being used by TCL scripting
 void Z11Page::dmalock ()
 {
-    ASSERT (SL5_DMALOCK == 0xFFFFFFFFU);
+    ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
 
-    // use swlight.v for dma transfers
-    if (slat == NULL) {
-        slat = findev ("SL", NULL, NULL, false, false);
+    // use ky11.v for dma transfers
+    if (kyat == NULL) {
+        kyat = findev ("KY", NULL, NULL, false, false);
     }
 
-    ASSERT (ZRD(slat[5]) != mypid);
+    ASSERT (ZRD(kyat[5]) != mypid);
     int nus = 10;
     while (true) {
-        ZWR(slat[5], mypid);
-        uint32_t lkpid = ZRD(slat[5]);
+        ZWR(kyat[5], mypid);
+        uint32_t lkpid = ZRD(kyat[5]);
         if (lkpid == mypid) break;
         if ((lkpid != 0) && (kill (lkpid, 0) < 0) && (errno == ESRCH)) {
             fprintf (stderr, "Z11Page::dmalock: unlocking from dead %u\n", lkpid);
-            ZWR(slat[5], lkpid);
+            ZWR(kyat[5], lkpid);
         }
         if (nus < 1000) ++ nus;
         usleep (nus);
@@ -255,9 +242,9 @@ void Z11Page::dmalock ()
 // release exclusive access to dma controller
 void Z11Page::dmaunlk ()
 {
-    ASSERT (SL5_DMALOCK == 0xFFFFFFFFU);
-    ASSERT (ZRD(slat[5]) == mypid);
-    ZWR(slat[5], mypid);
+    ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
+    ASSERT (ZRD(kyat[5]) == mypid);
+    ZWR(kyat[5], mypid);
 }
 
 // generate a random number

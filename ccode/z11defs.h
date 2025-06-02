@@ -139,14 +139,26 @@
 #define ILACTL_AFTER  (ILACTL_AFTER0 * (ILACTL_DEPTH-1))
 #define ILACTL_INDEX  (ILACTL_INDEX0 * (ILACTL_DEPTH-1))
 
-#define SL2_ENABLE    0x80000000U   // enable 777570 switches & lights registers
-#define SL2_HALTREQ   0x40000000U   // request processor to halt
-#define SL2_HALTED    0x20000000U   // processor has halted
-#define SL2_STEPREQ   0x10000000U   // single-step processor
-#define SL2_HALTSTATE 0x00380000U
-#define SL2_HLTRQOUTH 0x00040000U   // swlight.v is requesting processor to halt
-#define SL2_HALTINS   0x00020000U   // processor has HALT instr in its IR
-#define SL2_IRQLEV    0x0001C000U   // interrupt request level 4..7
-#define SL2_IRQVEC    0x00003FC0U   // interrupt request vector[7:0]
+#define KY2_ENABLE    0x80000000U   // enable 777570 switches & lights registers
+#define KY2_HALTREQ   0x40000000U   // request processor to halt
+#define KY2_HALTED    0x20000000U   // processor has halted
+#define KY2_STEPREQ   0x10000000U   // single-step processor
+#define KY2_HALTSTATE 0x00380000U
+#define KY2_HLTRQOUTH 0x00040000U   // ky11.v is requesting processor to halt
+#define KY2_HALTINS   0x00020000U   // processor has HALT instr in its IR
+#define KY2_IRQLEV    0x0001C000U   // interrupt request level 4..7
+#define KY2_IRQVEC    0x00003FC0U   // interrupt request vector[7:0]
+
+#define KY3_DMASTATE  0xE0000000U
+#define KY3_DMAFAIL   0x10000000U
+#define KY3_DMACTRL   0x0C000000U
+#define KY3_DMAADDR   0x0003FFFFU
+#define KY4_DMADATA   0x0000FFFFU
+#define KY5_DMALOCK   0xFFFFFFFFU
+
+#define KY3_DMASTATE0 0x20000000U
+#define KY3_DMACTRL0  0x04000000U
+#define KY3_DMAADDR0  0x00000001U
+#define KY4_DMADATA0  0x00000001U
 
 #endif
