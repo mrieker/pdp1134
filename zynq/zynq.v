@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314018;
+    localparam VERSION = 32'h31314019;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -135,7 +135,7 @@ module Zynq (
     assign pb_out_h = 0;
 
     // arm writes these to control fpga
-    reg[31:00] regctla, regctlb, regctli;
+    reg[31:00] regctla, regctlb, regctli, regctll;
     wire[31:00] regctlj, regctlk;
 
     // regctla[31:30] determine overall FPGA mode
@@ -205,20 +205,21 @@ module Zynq (
     synk synkbg_7  (CLOCK, syn_bg_in_l[7], bg_in_l[7]);
 
     // input demux signal latches
-    // - loaded from mux pins every MUXDELAY*3*10nS
+    // - loaded from mux pins every muxdelayt3*10nS
     reg dmx_haltloaded, dmx_hltrq_in_h, dmx_npr_in_h;
     reg[1:0] dmx_c_in_h;
     reg[7:4] dmx_br_in_h;
     reg[17:00] dmx_a_in_h;
     reg[15:00] dmx_d_in_h;
 
-    // del_msyn_in_h - delayed MUXDELAY*3*10nS so all demuxed signals up-to-date
+    // del_msyn_in_h - delayed muxdelayt3*10nS so all demuxed signals up-to-date
     // - specifically we care about dmx_a_in_h, dmx_c_in_h, dmx_d_in_h
     //   the other dmx_ signals are just passed to arm for debugging
-    localparam MUXDELAY = 31;
+    wire[5:0] muxdelaym1 = { 1'b0, regctll[4:0] - 5'b1 };
+    wire[7:0] muxdelayt3 = { 2'b0, regctll[4:0], 1'b0 } + { 3'b0, regctll[4:0] };
     reg del_msyn_in_h;
 
-    // del_ssyn_in_h - delayed MUXDELAY*3*10nS so all data demuxed signals are up-to-date
+    // del_ssyn_in_h - delayed muxdelayt3*10nS so all data demuxed signals are up-to-date
     // - dmx_a_in_h and dmx_c_in_h should still be ok from msyn
     //   dmx_d_in_h will be up to date for write functions
     //   ...but needs to be updated for read functions
@@ -239,7 +240,7 @@ module Zynq (
         end else begin
 
             // give transistors MUXDELAY*10nS to switch and soak
-            if (muxcount[5:0] != MUXDELAY-1) begin
+            if (muxcount[5:0] != muxdelaym1) begin
                 dmx_haltloaded <= 0;
                 muxcount[5:0]  <= muxcount[5:0] + 1;
             end else begin
@@ -310,7 +311,7 @@ module Zynq (
             if (~ syn_msyn_in_h) begin
                 del_msyn_in_h <= 0;                 // drop delayed msyn as soon as external drops
                 mmuxdelay     <= 0;                 // init delay counter for next time
-            end else if (mmuxdelay != MUXDELAY*3) begin
+            end else if (mmuxdelay != muxdelayt3) begin
                 mmuxdelay     <= mmuxdelay + 1;
             end else begin                          // see if all 3 clocked in since transition
                 del_msyn_in_h <= 1;                 // ok to assert delayed msyn now
@@ -324,7 +325,7 @@ module Zynq (
             if (~ syn_ssyn_in_h) begin
                 del_ssyn_in_h <= 0;                 // drop delayed ssyn as soon as external drops
                 smuxdelay     <= 0;                 // init delay counter for next time
-            end else if (~ dmx_c_in_h[1] & (smuxdelay != MUXDELAY*3)) begin
+            end else if (~ dmx_c_in_h[1] & (smuxdelay != muxdelayt3)) begin
                 smuxdelay     <= smuxdelay + 1;     // read - count through delay; write - don't bother
             end else begin                          // see if all 3 clocked in since transition
                 del_ssyn_in_h <= 1;                 // ok to assert delayed(read)/undelayed(write) ssyn now
@@ -502,6 +503,7 @@ module Zynq (
         (readaddr        == 10'b0000001001) ? regctli     :
         (readaddr        == 10'b0000001010) ? regctlj     :
         (readaddr        == 10'b0000001011) ? regctlk     :
+        (readaddr        == 10'b0000001100) ? regctll     :
         (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
         (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
@@ -539,6 +541,8 @@ module Zynq (
             regctlb[31:28] <= 0;
             regctlb[27:24] <= 4'b1111;                      // man_bg_out_l
             regctlb[23:00] <= 0;
+            regctll[31:05] <= 0;
+            regctll[04:00] <= 21;                           // muxdelay (18=bad; 19=ok)
 
         end else begin
 
@@ -570,6 +574,9 @@ module Zynq (
                     end
                     10'b0000000010: begin
                         regctlb <= saxi_WDATA;
+                    end
+                    10'b0000001100: begin
+                        regctll <= saxi_WDATA;
                     end
                     default: begin end
                 endcase

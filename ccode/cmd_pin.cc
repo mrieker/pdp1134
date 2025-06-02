@@ -126,9 +126,9 @@ static PinDef const pindefs[] = {
     { "muxcount",        DEV_11, Z_RE, e_muxcount,        0, false },
 
     { "dmx_a_in_h",      DEV_11, Z_RF, f_dmx_a_in_h,      0, false },
-
     { "dmx_d_in_h",      DEV_11, Z_RG, g_dmx_d_in_h,      0, false },
     { "dev_d_h",         DEV_11, Z_RG, g_dev_d_h,         0, false },
+    { "muxdelay",        DEV_11, Z_RL, l_muxdelay,        0, true  },
 
     { "ilaafter",        DEV_11, 28,   ILACTL_AFTER,      0, true  },
     { "ilaarmed",        DEV_11, 28,   ILACTL_ARMED,      0, true  },
