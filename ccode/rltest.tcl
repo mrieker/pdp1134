@@ -9,7 +9,7 @@
 #       $ ./z11dl -cps 960
 #  > flickstart 0400
 #
-pin set fpgamode 2                                  ;# 1=sim; 2=real
+pin set fpgamode 1                                  ;# 1=sim; 2=real
 pin set bm_enablo 0xffffffff bm_enabhi 0x3fffffff   ;# fpga memory enable
 pin set dl_enable 1
 hardreset

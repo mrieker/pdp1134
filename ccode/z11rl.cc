@@ -367,7 +367,10 @@ void *rlthread (void *dummy)
 
                         for (int i = 0; i < WRDPERSEC; i ++) {
                             uint16_t memword;
-                            if (! z11p->dmaread (rlxba, &memword)) goto nxmerr;
+                            uint32_t rc = z11p->dmaread (rlxba, &memword);
+                            if (rc & KY3_DMATIMO) goto nxmerr;
+                            if (rc & KY3_DMAPERR) goto mperr;
+                            if (rc != 0) ABORT ();
                             if (memword != buf[i]) goto wckerr;
                             rlxba = (rlxba + 2) & 0x3FFFE;
                             if (++ rlmp == 0) break;
@@ -444,7 +447,10 @@ void *rlthread (void *dummy)
                         uint32_t xbasave = rlxba;
                         uint16_t buf[WRDPERSEC];
                         for (int i = 0; i < WRDPERSEC; i ++) {
-                            if (! z11p->dmaread (rlxba, &buf[i])) goto nxmerr;
+                            uint32_t rc = z11p->dmaread (rlxba, &buf[i]);
+                            if (rc & KY3_DMATIMO) goto nxmerr;
+                            if (rc & KY3_DMAPERR) goto mperr;
+                            if (rc != 0) ABORT ();
                             rlxba = (rlxba + 2) & 0x3FFFE;
                             if (++ rlmp == 0) {
                                 memset (&buf[i+1], 0, (WRDPERSEC - i - 1) * sizeof buf[0]);
@@ -529,6 +535,9 @@ void *rlthread (void *dummy)
             goto alldone;
         nxmerr:;
             rlcs |= 8U << 10;                       // non-existant memory
+            goto alldone;
+        mperr:;
+            rlcs |= 9u << 10;                       // memory parity error
         alldone:;
             rlmp3 = rlmp2 = rlmp;
         rhddone:;

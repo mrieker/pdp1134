@@ -1,0 +1,212 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; test bigmem.v parity error trap
+;   $ ../MACRO11/src/macro11 -o petest.obj -l petest.lst petest.mac
+;   $ ./z11ctrl
+;   > pin set fpgamode 1 or 2		1 for simulator; 2 for real pdp
+;   > hardreset
+;   > pin set bm_enablo 0xffffffff	turn on some bigmem.v memory
+;   > pin set bm_ctladdr 0		set up 772100 for parity control register
+;   > pin set bm_ctlenab 1		enable parity control register
+;   > loadlst petest.lst
+;   > exec ./z11dl -killit -nokb > /dev/tty &
+;   > flickstart 0400
+;   trapped:  R0=000476 R1=000340 R2=001612 R3=004321 R4=100321 R5=000114 PC=000572
+;                                              ^^^^^^    ^^^^^^    ^^^^^^
+
+	PECTL = 172100
+	PEVEC = 114
+
+	. = . + 400
+
+	stktop = 100000
+
+start:
+	mtps	#340
+	mov	#stktop,sp
+
+	clr	r0		; point to vector 0
+	mov	#100,r1		; 100 vectors
+	mov	#jmptbl,r2
+fillvec:
+	mov	r2,(r0)+	; fill in vector PC
+	mov	#340,(r0)+	; fill in vector PS
+	mov	jmptbl+0,(r2)+	; set up JSR R5,@#trapped
+	mov	jmptbl+2,(r2)+
+	sob	r1,fillvec
+
+	mov	#4321,r3	; changes to 1234 if mov completes
+	clr	r4
+	mov	#5,@#PECTL	; turn on traps, turn on wrong parity
+	mov	#1234,@#32140	; write bad parity
+	mov	#1,@#PECTL	; leave traps on, turn off wrong parity
+	mov	@#32140,r3	; try to read bad memory
+	jsr	r5,prascz
+		.asciz	"did not trap: "
+		.even
+	jsr	pc,dmpreg
+	halt
+	br	.-2
+
+trapped:
+	tst	(sp)+		; pop old r5
+	jsr	r5,prascz
+		.asciz	"trapped: "
+		.even
+	mov	(sp)+,r0	; r0 = trap PC
+	mov	(sp)+,r1	; r1 = trap PS
+				; r2,r3 = as at time of trap
+	mov	@#PECTL,r4	; r4 = pectl
+	sub	#jmptbl+4,r5	; r5 = trap vector
+	jsr	pc,dmpreg
+	halt
+	br	.-2
+
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	14(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+; print asciz string following the jsr r5 call
+;  scratch:
+;   r0
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	jsr	pc,prchar
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	jsr	pc,prchar
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	jsr	pc,prchar
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print decimal number
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prdcml:
+	clr	-(sp)
+100$:
+	clr	r0
+	div	#12,r0
+	add	#60,r1
+	mov	r1,-(sp)
+	mov	r0,r1
+	bne	100$
+	mov	(sp)+,r0
+200$:
+	jsr	pc,prchar
+	mov	(sp)+,r0
+	bne	200$
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	jsr	pc,prchar
+	mov	#12,r0
+	jsr	pc,prchar
+	rts	pc
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+prchar:
+	tstb	@#177564
+	bpl	prchar
+	movb	r0,@#177566
+	rts	pc
+
+
+; one entry per possible trap vector
+
+jmptbl:	jsr	r5,@#trapped
+

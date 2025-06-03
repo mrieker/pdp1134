@@ -78,16 +78,16 @@ for {set pass 1} {$pass <= 5} {incr pass} {
         set r [randbits 16]
         set rands($reg) $r
         wrword 077770$reg $r
-        if {[pin get ky_dmafail]} {
-            puts "ky write R$reg failed"
+        if {[pin get ky_dmatimo]} {
+            puts "ky write R$reg timed out"
             return
         }
     }
     for {set reg 0} {$reg < 8} {incr reg} {
         set r $rands($reg)
         set m [rdword 077770$reg]
-        if {[pin get ky_dmafail]} {
-            puts "ky read R$reg failed"
+        if {[pin get ky_dmatimo]} {
+            puts "ky read R$reg timed out"
             return
         } elseif {$m != $r} {
             puts "ky R$reg readback [octal $m] should be [octal $r]"

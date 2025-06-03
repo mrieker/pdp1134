@@ -178,25 +178,25 @@ found:;
 }
 
 // read a word from unibus via dma
-// works even when 11/34 is halted
-bool Z11Page::dmaread (uint32_t xba, uint16_t *data)
+// uses ky11.v so it works even when 11/34 is halted
+uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
     dmalock ();
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
-    for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
+    uint32_t rc;
+    for (int i = 0; ((rc = ZRD(kyat[3])) & KY3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
             fprintf (stderr, "Z11Page::dmaread: dma stuck\n");
             ABORT ();
         }
     }
-    bool ok = ! (ZRD(kyat[3]) & KY3_DMAFAIL);
     *data = (ZRD(kyat[4]) & KY4_DMADATA) / KY4_DMADATA0;
     dmaunlk ();
-    return ok;
+    return rc & (KY3_DMATIMO | KY3_DMAPERR);
 }
 
 // write a word to unibus via dma
-// works even when 11/34 is halted
+// uses ky11.v so it works even when 11/34 is halted
 bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 {
     dmalock ();
@@ -208,7 +208,7 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
             ABORT ();
         }
     }
-    bool ok = ! (ZRD(kyat[3]) & KY3_DMAFAIL);
+    bool ok = ! (ZRD(kyat[3]) & KY3_DMATIMO);
     dmaunlk ();
     return ok;
 }

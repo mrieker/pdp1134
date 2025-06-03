@@ -29,8 +29,9 @@ int main (int argc, char **argv)
     uint32_t count = 0;
     while (true) {
         uint16_t memword;
-        if (! z11p->dmaread (0123456, &memword)) {
-            fprintf (stderr, "dma timeout\n");
+        uint32_t rc = z11p->dmaread (0123456, &memword);
+        if (rc != 0) {
+            fprintf (stderr, "dma error %08X\n", rc);
             return 1;
         }
         if (++ count % (1U << 20) == 0) printf ("%06o\n", memword);

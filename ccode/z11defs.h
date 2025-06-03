@@ -110,6 +110,8 @@
 #define d_dev_ssyn_h  (1U << 18)
 #define d_dev_a_h     (0777777U << 0)
 
+#define e_dmx_pb_in_h    (   1U << 27)
+#define e_dmx_pa_in_h    (   1U << 26)
 #define e_muxcount       (0377U << 18)
 #define e_dmx_npr_in_h   (   1U << 17)
 #define e_dmx_hltrq_in_h (   1U << 16)
@@ -141,6 +143,12 @@
 #define ILACTL_AFTER  (ILACTL_AFTER0 * (ILACTL_DEPTH-1))
 #define ILACTL_INDEX  (ILACTL_INDEX0 * (ILACTL_DEPTH-1))
 
+#define BM_ENABLO     0xFFFFFFFFU
+#define BM2_ENABHI    0x3FFFFFFFU
+#define BM5_CTLREG    0xFFFF0000U
+#define BM5_CTLENAB   0x00000010U
+#define BM5_CTLADDR   0x0000000FU
+
 #define KY2_ENABLE    0x80000000U   // enable 777570 switches & lights registers
 #define KY2_HALTREQ   0x40000000U   // request processor to halt
 #define KY2_HALTED    0x20000000U   // processor has halted
@@ -152,8 +160,9 @@
 #define KY2_IRQVEC    0x00003FC0U   // interrupt request vector[7:0]
 
 #define KY3_DMASTATE  0xE0000000U
-#define KY3_DMAFAIL   0x10000000U
+#define KY3_DMATIMO   0x10000000U
 #define KY3_DMACTRL   0x0C000000U
+#define KY3_DMAPERR   0x02000000U
 #define KY3_DMAADDR   0x0003FFFFU
 #define KY4_DMADATA   0x0000FFFFU
 #define KY5_DMALOCK   0xFFFFFFFFU

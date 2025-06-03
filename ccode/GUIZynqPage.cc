@@ -178,7 +178,11 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
   (JNIEnv *env, jclass klass, jint addr)
 {
     uint16_t data;
-    return z11page->dmaread (addr, &data) ? ((uint32_t) data) : -1;
+    uint32_t rc = z11page->dmaread (addr, &data);
+    if (rc & KY3_DMATIMO) return -1;
+    if (rc & KY3_DMAPERR) return -2;
+    if (rc != 0) abort ();
+    return (uint32_t) data;
 }
 
 /*

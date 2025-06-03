@@ -41,6 +41,10 @@ proc bmrdbyte {addr} {
             error "bmrdbyte: stuck at $x"
         }
     }
+    set pem [expr {1 + ($addr & 1)}]
+    if {[pin bm_armperr] & $pem} {
+        error [format "bmrdbyte: parity error at %06o" $addr]
+    }
     set data [pin bm_armdata]
     return [expr {($addr & 1) ? ($data >> 8) : ($data & 255)}]
 }
@@ -59,11 +63,19 @@ proc bmrdword {addr} {
             error "bmrdword: stuck at $x"
         }
     }
+    if {[pin bm_armperr] & 3} {
+        error [format "bmrdword: parity error at %06o" $addr]
+    }
     return [pin bm_armdata]
 }
 
 # write byte directly to bigmem (no dma cycle)
-proc bmwrbyte {addr data} {
+#  input:
+#   addr = 18-bit address to write to
+#   data = 8-bit data to write
+#   pe = 0 : write correct parity to location
+#        1 : write incorrect parity to location
+proc bmwrbyte {addr data {pe 0}} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "bmwrbyte: bad address %o" $addr]
     }
@@ -71,7 +83,9 @@ proc bmwrbyte {addr data} {
         error [format "bmwrbyte: bad data %o" $data]
     }
     set data [expr {$data * 0401}]
-    pin set bm_armaddr $addr bm_armdata $data bm_armfunc 1
+    set pem  [expr {$pe * 3}]
+    set func [expr {1 + ($addr & 1)}]
+    pin set bm_armaddr $addr bm_armdata $data bm_armperr $pem bm_armfunc $func
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
         if {$i > 1000} {
             error "bmwrbyte: stuck at $x"
@@ -80,7 +94,12 @@ proc bmwrbyte {addr data} {
 }
 
 # write word directly to bigmem (no dma cycle)
-proc bmwrword {addr data} {
+#  input:
+#   addr = 18-bit address to write to
+#   data = 16-bit data to write
+#   pe = 0 : write correct parity to location
+#        1 : write incorrect parity to location
+proc bmwrword {addr data {pe 0}} {
     if {($addr < 0) || ($addr > 0777777)} {
         error [format "bmwrword: bad address %o" $addr]
     }
@@ -90,7 +109,8 @@ proc bmwrword {addr data} {
     if {($data < 0) || ($data > 0177777)} {
         error [format "bmwrword: bad data %o" $data]
     }
-    pin set bm_armaddr $addr bm_armdata $data bm_armfunc 3
+    set pem [expr {$pe * 3}]
+    pin set bm_armaddr $addr bm_armdata $data bm_armperr $pem bm_armfunc 3
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
         if {$i > 1000} {
             error "bmwrword: stuck at $x"
@@ -305,7 +325,7 @@ proc loadlst {lstname} {
                         incr addr 2
                     }
                     default {
-                        error "bad data $digits at addr $addr"
+                        error "bad data $digits at addr [octal $addr]"
                     }
                 }
             }
@@ -346,9 +366,13 @@ proc rdbyte {addr} {
             error "rdbyte: dmastate stuck at $dmastate"
         }
     }
-    if {[pin ky_dmafail]} {
+    if {[pin ky_dmatimo]} {
         unlkdma
         error [format "rdbyte %06o timed out" $addr]
+    }
+    if {[pin ky_dmaperr]} {
+        unlkdma
+        error [format "rdbyte %06o parity error" $addr]
     }
     set data [pin ky_dmadata]
     unlkdma
@@ -372,9 +396,13 @@ proc rdword {addr} {
             error "rdword: dmastate stuck at $dmastate"
         }
     }
-    if {[pin ky_dmafail]} {
+    if {[pin ky_dmatimo]} {
         unlkdma
         error [format "rdword %06o timed out" $addr]
+    }
+    if {[pin ky_dmaperr]} {
+        unlkdma
+        error [format "rdword %06o parity error" $addr]
     }
     set data [pin ky_dmadata]
     unlkdma
@@ -400,8 +428,8 @@ proc realmem {} {
                 error "realmem: dmastate stuck at $dmastate"
             }
         }
-        # failure means timeout, so that's the end of memory
-        if {[pin ky_dmafail]} break
+        # if timeout, reached end of memory
+        if {[pin ky_dmatimo]} break
     }
     # tell others we're done with ky_dma... pins
     unlkdma
@@ -444,7 +472,7 @@ proc wrbyte {addr data} {
             error "wrbyte: dmastate stuck at $dmastate"
         }
     }
-    if {[pin ky_dmafail]} {
+    if {[pin ky_dmatimo]} {
         unlkdma
         error [format "wrbyte %06o timed out" $addr]
     }
@@ -470,7 +498,7 @@ proc wrword {addr data} {
             error "wrword: dmastate stuck at $dmastate"
         }
     }
-    if {[pin ky_dmafail]} {
+    if {[pin ky_dmatimo]} {
         unlkdma
         error [format "wrword %06o timed out" $addr]
     }

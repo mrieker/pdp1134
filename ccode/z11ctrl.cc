@@ -110,7 +110,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
     if (! (addr & disassem_PA)) {
 
         // virtual, see if MMU enabled
-        if (! drctx->mmr0valid && ! z11page->dmaread (0777572, &drctx->mmr0)) {
+        if (! drctx->mmr0valid && z11page->dmaread (0777572, &drctx->mmr0)) {
             return false;
         }
         drctx->mmr0valid = true;
@@ -121,7 +121,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
         } else {
 
             // MMU enabled, see if KNL or USR mode
-            if (! drctx->pswvalid && ! z11page->dmaread (0777776, &drctx->psw)) {
+            if (! drctx->pswvalid && z11page->dmaread (0777776, &drctx->psw)) {
                 return false;
             }
             drctx->pswvalid = true;
@@ -133,7 +133,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
             if (drctx->psw & 0140000) page += 8;
 
             // read descriptor for addressed page
-            if ((drctx->pdrvalid != page) && ! z11page->dmaread (regs + ((page & 7) * 2), &drctx->pdr)) {
+            if ((drctx->pdrvalid != page) && z11page->dmaread (regs + ((page & 7) * 2), &drctx->pdr)) {
                 return false;
             }
             drctx->pdrvalid = page;
@@ -155,7 +155,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
             }
 
             // get and apply relocation factor
-            if ((drctx->parvalid != page) && ! z11page->dmaread (regs + 040 + ((page & 7) * 2), &drctx->par)) {
+            if ((drctx->parvalid != page) && z11page->dmaread (regs + 040 + ((page & 7) * 2), &drctx->par)) {
                 return false;
             }
             drctx->parvalid = page;
@@ -175,7 +175,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
         return false;                                           // other i/o registers
     }
 good:;
-    return z11page->dmaread (addr, data_r);
+    return z11page->dmaread (addr, data_r) == 0;
 }
 
 // disassemble instruciton

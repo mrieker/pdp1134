@@ -40,6 +40,8 @@ module sim1134 (
     input[1:0] bus_c_in_l,
     input[15:00] bus_d_in_l,
     input bus_init_in_l,
+    input bus_pa_in_l,
+    input bus_pb_in_l,
     input bus_msyn_in_l,
     input bus_ssyn_in_l,
 
@@ -153,6 +155,7 @@ module sim1134 (
     localparam[7:0] T_PWRFAIL = 8'o024;
     localparam[7:0] T_EMT     = 8'o030;
     localparam[7:0] T_TRAP    = 8'o034;
+    localparam[7:0] T_PARERR  = 8'o114;
     localparam[7:0] T_MMUTRAP = 8'o250;
 
     reg[15:00] cpuerr, instreg;
@@ -344,10 +347,7 @@ module sim1134 (
         //  other:
         //   jams state = S_SERVICE with trapvec set if error
         else if (memfunc != 0) begin
-            if (trapvec != 0) begin
-                memfunc <= 0;
-                rwstate <= 0;
-            end else case (rwstate)
+            case (rwstate)
 
                 // getting started
                 0: begin
@@ -355,6 +355,7 @@ module sim1134 (
                     // check for accessing word at an odd address
                     if (~ membyte & virtaddr[00]) begin
                         cpuerr[06] <= 1;
+                        memfunc    <= 0;
                         state      <= S_SERVICE;
                         trapvec    <= T_CPUERR;
                     end
@@ -384,8 +385,9 @@ module sim1134 (
                             mmr0[06:05] <= memmode;
                             mmr0[03:01] <= virtaddr[15:13];
                         end
-                        state       <= S_SERVICE;
-                        trapvec     <= T_MMUTRAP;
+                        memfunc <= 0;
+                        state   <= S_SERVICE;
+                        trapvec <= T_MMUTRAP;
                     end
 
                     // check page length violation
@@ -395,8 +397,9 @@ module sim1134 (
                             mmr0[06:05] <= memmode;
                             mmr0[03:01] <= virtaddr[15:13];
                         end
-                        state       <= S_SERVICE;
-                        trapvec     <= T_MMUTRAP;
+                        memfunc <= 0;
+                        state   <= S_SERVICE;
+                        trapvec <= T_MMUTRAP;
                     end
 
                     // access codes 1 means read-only access to the page
@@ -406,8 +409,9 @@ module sim1134 (
                             mmr0[06:05] <= memmode;
                             mmr0[03:01] <= virtaddr[15:13];
                         end
-                        state       <= S_SERVICE;
-                        trapvec     <= T_MMUTRAP;
+                        memfunc <= 0;
+                        state   <= S_SERVICE;
+                        trapvec <= T_MMUTRAP;
                     end
 
                     // mmu allows access
@@ -427,12 +431,12 @@ module sim1134 (
                         bus_bbsy_out_l <= 0;
                         bus_c_out_l[1] <= ~  (memfunc == MF_WR);
                         bus_c_out_l[0] <= ~ ((memfunc == MF_WR) ? membyte : (memfunc == MF_RM));
+                        rwstate        <= 3;
+                        rwdelay        <= 0;
                         if (memfunc == MF_WR) begin
                             cpu_d_out_l[15:08] <= ~ (physaddr[00] ? writedata[07:00] : writedata[15:08]);
                             cpu_d_out_l[07:00] <= ~ (physaddr[00] ? writedata[15:08] : writedata[07:00]);
                         end
-                        rwstate        <= 3;
-                        rwdelay        <= 0;
                     end
                 end
 
@@ -455,12 +459,10 @@ module sim1134 (
                         rwdelay        <= 0;
                         rwstate        <= 6;
                     end else if (rwdelay == 1000) begin
-                        bus_a_out_l    <= 18'o777777;
-                        bus_bbsy_out_l <= 1;
-                        bus_c_out_l    <= 3;
-                        cpu_d_out_l    <= 16'o177777;
                         bus_msyn_out_l <= 1;
                         cpuerr[04]     <= 1;
+                        rwdelay        <= 0;
+                        rwstate        <= 7;
                         state          <= S_SERVICE;
                         trapvec        <= T_CPUERR;
                     end else begin
@@ -475,10 +477,14 @@ module sim1134 (
                         if ((memfunc == MF_RM) | (memfunc == MF_RD)) begin
                             readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
                             readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
+                            if (bus_pa_in_l & ~ bus_pb_in_l) begin
+                                state   <= S_SERVICE;
+                                trapvec <= T_PARERR;
+                            end
                         end
                         bus_msyn_out_l <= 1;
-                        rwstate        <= 7;
                         rwdelay        <= 0;
+                        rwstate        <= 7;
                     end else begin
                         rwdelay        <= rwdelay + 1;
                     end
@@ -488,7 +494,7 @@ module sim1134 (
                 // also wait for slave to drop SSYN
                 7: begin
                     if (rwdelay != 8) begin
-                        rwdelay <= rwdelay + 1;
+                        rwdelay        <= rwdelay + 1;
                     end else if (bus_ssyn_in_l) begin
                         bus_a_out_l    <= 18'o777777;
                         bus_bbsy_out_l <= 1;
