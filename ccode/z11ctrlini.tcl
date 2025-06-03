@@ -9,6 +9,7 @@ proc helpini {} {
     puts "  bmwrbyte addr data - write byte to fpga memory"
     puts "  bmwrword addr data - write word to fpga memory"
     puts "       dumpmem lo hi - dump memory from lo to hi address"
+    puts "        enabmem size - enable given size of memory"
     puts "           flickcont - continue processing"
     puts "  flickstart pc \[ps\] - reset processor and start at given address"
     puts "           flickstep - step processor one instruction then print PC"
@@ -20,6 +21,7 @@ proc helpini {} {
     puts "             octal x - convert integer x to 6-digit octal string"
     puts "         rdbyte addr - read byte at given physical address"
     puts "         rdword addr - read word at given physical address"
+    puts "             realmem - determine size of real memory"
     puts "           steptrace - single step with disassembly"
     puts "       steptraceloop - single step with disassembly - looped"
     puts "    wrbyte addr data - write data byte to given physical address"
@@ -140,6 +142,29 @@ proc dumpmem {loaddr hiaddr {rwfunc rdword}} {
         }
         puts ">"
     }
+}
+
+# enable memory to the given size
+# uses any available real memory then fills with fpga (bigmem.v) after that
+proc enabmem {{size 0760000}} {
+    if {$size > 0760000} {set size 0760000}
+    # see how much real memory there is
+    set realsize [realmem]
+    # one bit in enablo per 4KB block 000000..377777
+    set enablo 0
+    # one bit in enabhi per 4KB block 400000..757777
+    set enabhi 0
+    # if less than wanted, enable some bigmem.v memory to fill in
+    while {$realsize < $size} {
+        if {$realsize < 0400000} {
+            incr enablo [expr (1 << ($realsize / 010000))]
+        } else {
+            incr enabhi [expr (1 << (($realsize - 0400000) / 010000))]
+        }
+        incr realsize 010000
+    }
+    # turn on needed bigmem.v pages
+    pin set bm_enablo $enablo bm_enabhi $enabhi
 }
 
 # continue processing
@@ -354,6 +379,34 @@ proc rdword {addr} {
     set data [pin ky_dmadata]
     unlkdma
     return $data
+}
+
+# measure how much real memory is on the system
+# reads starting at 000000 up to 0760000 in 4KB increments
+# ...until a bus timeout occurs
+proc realmem {} {
+    # make sure nothing else futzing with ky_dma... pins
+    lockdma
+    # turn off all bigmem.v memory pages
+    pin set bm_enablo 0 bm_enabhi 0
+    # loop through addresses, 4KB at a time
+    for {set addr 0} {$addr < 0760000} {incr addr 01000} {
+        # tell ky11.v to try to read word from $addr
+        pin set ky_dmaaddr $addr ky_dmactrl 0 ky_dmastate 1
+        # it should always complete the cycle, one way or the other
+        for {set i 0} {[set dmastate [pin ky_dmastate]] != 0} {incr i} {
+            if {$i > 1000} {
+                unlkdma
+                error "realmem: dmastate stuck at $dmastate"
+            }
+        }
+        # failure means timeout, so that's the end of memory
+        if {[pin ky_dmafail]} break
+    }
+    # tell others we're done with ky_dma... pins
+    unlkdma
+    # return size found
+    return $addr
 }
 
 # step, printing disassembly
