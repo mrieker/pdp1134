@@ -56,6 +56,7 @@ private:
     bool dbg1, dbg2;
     bool havedstaddr;
     bool lastpoweron;
+    bool waiting;
     bool yellowstkck;
     uint16_t dstaddr;
     uint16_t gprs[16];

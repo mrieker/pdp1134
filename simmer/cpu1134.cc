@@ -116,7 +116,7 @@ uint32_t CPU1134::axirdslv (uint32_t index)
         case  8: return 0;
         case  9: return regctli;
         case 10: return ((uint32_t) psw << 16) | gprs[7];
-        case 11: return (lastpoweron << 1) | jammedup ();
+        case 11: return (waiting << 2) | (lastpoweron << 1) | jammedup ();
         case 28: return 0;
         case 29: return 0;
         case 30: return 0;
@@ -288,6 +288,7 @@ void CPU1134::stepit ()
             gprs[7] = rdwordphys (024);
             psw     = rdwordphys (026);
             instreg = ~ HALTOP;
+            waiting = false;
             if (dbg1) printf ("CPU1134::stepit*: powered up to PC=%06o PS=%06o\n", gprs[7], psw);
         } catch (CPU1134Trap &t) {
             fprintf (stderr, "CPU1134::stepit: trap %03o reading power-on vector\n", t.vector);
@@ -333,6 +334,10 @@ void CPU1134::stepit ()
                 throw CPU1134Trap (vector);
             }
         }
+
+        // checked all the interrupts/traps
+        // all done as is if last instruction was a WAIT
+        if (waiting) return;
 
         // fetch next instruction
         instreg = rdwordvirt (gprs[7], psw >> 14);
@@ -636,6 +641,7 @@ void CPU1134::stepit ()
                             }
                             case 1: {
                                 if (dbg2) printf (" WAIT");
+                                waiting = true;
                                 goto s_endinst;                         // WAIT
                             }
                             case 2: {                                   // RTI
@@ -876,6 +882,8 @@ void CPU1134::stepit ()
     }
 
     catch (CPU1134Trap &t) {
+        waiting = false;    // any trap wakes from WAIT
+
         try {
             uint8_t vec = t.vector;
             while (true) {
