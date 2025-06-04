@@ -49,6 +49,10 @@ struct Z11Page {
 
     uint32_t dmaread (uint32_t xba, uint16_t *data);
     bool dmawrite (uint32_t xba, uint16_t data);
+    uint32_t dmareadlocked (uint32_t xba, uint16_t *data);
+    bool dmawritelocked (uint32_t xba, uint16_t data);
+    void dmalock ();
+    void dmaunlk ();
 
 private:
     int zynqfd;
@@ -58,8 +62,6 @@ private:
 
     static uint32_t mypid;
 
-    void dmalock ();
-    void dmaunlk ();
 };
 
 uint32_t randbits (int nbits);

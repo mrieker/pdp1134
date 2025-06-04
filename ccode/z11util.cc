@@ -182,6 +182,13 @@ found:;
 uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
     dmalock ();
+    uint32_t rc = dmareadlocked (xba, data);
+    dmaunlk ();
+    return rc;
+}
+
+uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
+{
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
     uint32_t rc;
     for (int i = 0; ((rc = ZRD(kyat[3])) & KY3_DMASTATE) != 0; i ++) {
@@ -191,7 +198,6 @@ uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
         }
     }
     *data = (ZRD(kyat[4]) & KY4_DMADATA) / KY4_DMADATA0;
-    dmaunlk ();
     return rc & (KY3_DMATIMO | KY3_DMAPERR);
 }
 
@@ -200,6 +206,13 @@ uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 {
     dmalock ();
+    bool ok = dmawritelocked (xba, data);
+    dmaunlk ();
+    return ok;
+}
+
+bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
+{
     ZWR(kyat[4], KY4_DMADATA0 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
@@ -208,9 +221,7 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
             ABORT ();
         }
     }
-    bool ok = ! (ZRD(kyat[3]) & KY3_DMATIMO);
-    dmaunlk ();
-    return ok;
+    return ! (ZRD(kyat[3]) & KY3_DMATIMO);
 }
 
 // acquire exclusive access to dma controller

@@ -14,7 +14,7 @@ endif
 
 GPP    := g++ $(CFLAGS) $(TCLINC) -std=c++11 -g -Wall -fPIC
 
-default: z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MACH) z11rl.$(MACH) \
+default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MACH) z11rl.$(MACH) \
 	GUI.jar libGUIZynqPage.$(MACH).so
 
 lib.$(MACH).a: \
