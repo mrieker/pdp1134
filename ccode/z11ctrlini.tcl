@@ -14,6 +14,7 @@ proc helpini {} {
     puts "  flickstart pc \[ps\] - reset processor and start at given address"
     puts "           flickstep - step processor one instruction then print PC"
     puts "                       can be used as an halt if processor running"
+    puts "      getenv var def - get envar 'var', default to 'def'"
     puts "           hardreset - hard reset processor to halted state"
     puts "             loadbin - load binary tape file, return start address"
     puts "             loadlst - load from MACRO11 listing"
@@ -210,6 +211,11 @@ proc flickstep {} {
         }
     }
     return [rdword 0777707]
+}
+
+# get environment variable, return default value if not defined
+proc getenv {varname {defvalu ""}} {
+    return [expr {[info exists ::env($varname)] ? $::env($varname) : $defvalu}]
 }
 
 # hard reset by asserting HLTRQ and strobing AC_LO,DC_LO

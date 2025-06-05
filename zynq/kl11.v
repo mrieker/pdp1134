@@ -28,7 +28,7 @@ module kl11 (
     input[31:00] armwdata,
     output[31:00] armrdata,
 
-    output intreq,
+    output reg intreq,
     output[7:0] irvec,
     input intgnt,
     input[7:0] igvec,
@@ -45,20 +45,10 @@ module kl11 (
     reg enable, lkflag, lkiena, trigger, tripped;
     reg[22:00] counter;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B4C0002 : // [31:16] = 'KL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B4C0003 : // [31:16] = 'KL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       { enable, counter, lkflag, lkiena, 4'b0, trigger, tripped };
 
-    intreq lkintreq (
-        .CLOCK    (CLOCK),
-        .RESET    (init_in_h),
-        .INTVEC   (8'o100),
-        .rirqlevl (lkflag & lkiena),
-        .xirqlevl (0),
-        .intreq   (intreq),
-        .irvec    (irvec),
-        .intgnt   (intgnt),
-        .igvec    (igvec)
-    );
+    assign irvec = 8'o100;
 
     always @(posedge CLOCK) begin
         if (RESET) begin
@@ -79,6 +69,7 @@ module kl11 (
         end
 
         if (init_in_h) begin
+            intreq     <= 0;
             lkflag     <= 1;
             lkiena     <= 0;
             tripped    <= trigger;
@@ -86,8 +77,14 @@ module kl11 (
             ssyn_out_h <= 0;
         end
 
+        // maybe pdp is granting interrupt
+        else if (intgnt & (igvec == irvec) & intreq) begin
+            intreq  <= 0;
+        end
+
         // if it hasn't seen this transition yet, flag the pdp
         else if (tripped != trigger) begin
+            intreq  <= lkiena;
             lkflag  <= 1;
             tripped <= trigger;
         end
@@ -96,16 +93,16 @@ module kl11 (
         else if (~ msyn_in_h) begin
             d_out_h    <= 0;
             ssyn_out_h <= 0;
-        end else if (enable & (((a_in_h[17:00] ^ 18'o777546) & 18'o777776) == 0) & ~ ssyn_out_h) begin
+        end else if (enable & ((a_in_h[17:00] & 18'o777776) == 18'o777546) & ~ ssyn_out_h) begin
             ssyn_out_h <= 1;
             if (c_in_h[1]) begin
                 // pdp writing register
                 if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                    lkflag <= lkflag & d_in_h[07];
+                    lkflag <= 0;
                     lkiena <= d_in_h[06];
                 end
             end else begin
-                // pdp reading a register
+                // pdp reading register
                 d_out_h <= { 8'b0, lkflag, lkiena, 6'b0 };
             end
         end

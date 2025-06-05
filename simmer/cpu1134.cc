@@ -378,7 +378,7 @@ void CPU1134::stepit ()
                     }
                     case 002: {
                         if ((instreg & 0177770) == 0000200) {   // RTS
-                            if (dbg2) printf (" RTS R%o", instreg & 7);
+                            if (dbg2) printf (" RTS  R%o", instreg & 7);
                             uint16_t spgprx = gprx (6, psw >> 14);
                             uint16_t rgprx = gprx (instreg, psw >> 14);
                             gprs[7] = gprs[rgprx];
@@ -417,7 +417,7 @@ void CPU1134::stepit ()
                     }
                     case 040 ... 047: {   // JSR
                         if (! byte) {
-                            if (dbg2) printf (" JSR R%o", (instreg >> 6) & 7);
+                            if (dbg2) printf (" JSR  R%o,", (instreg >> 6) & 7);
                             if ((instreg & 070) == 0) throw CPU1134Trap (T_ILLJMPM);
                             uint16_t jmpaddr = getopaddr (instreg, false);
                             if (dbg2) printf (" => %06o", jmpaddr);

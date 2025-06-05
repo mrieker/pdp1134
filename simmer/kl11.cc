@@ -67,8 +67,8 @@ void KL11::resetslave ()
 {
     intreq  = false;
     lastick = nowtick ();
-    lkiena  = false;
     lkflag  = false;
+    lkiena  = false;
 }
 
 uint8_t KL11::getintslave (uint16_t level)
@@ -91,20 +91,19 @@ bool KL11::rdslave (uint32_t physaddr, uint16_t *data)
 bool KL11::wrslave (uint32_t physaddr, uint16_t data, bool byte)
 {
     if (! enable) return false;
-    lkflag = (data >> 7) & 1;
-    lkiena = (data >> 6) & 1;
-    if (! lkflag) lastick = nowtick ();
-    if (! lkflag || ! lkiena) intreq = false;
+    intreq  = false;
+    lastick = nowtick ();
+    lkflag  = false;
+    lkiena  = (data >> 6) & 1;
     return true;
 }
 
 void KL11::update ()
 {
-    bool oldflag = lkflag;
     uint32_t thistick = nowtick ();
     if (lastick != thistick) {
         lastick  = thistick;
         lkflag   = true;
+        intreq   = lkiena;
     }
-    if (! oldflag && lkflag && lkiena) intreq = true;
 }
