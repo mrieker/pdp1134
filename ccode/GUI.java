@@ -59,7 +59,7 @@ public class GUI extends JPanel {
 
     public final static Color ledoncolor = Color.CYAN;
 
-    public final static int UPDMS = 33;
+    public final static int UPDMS = 3;
 
     public final static byte CB_STEP   = 1;
     public final static byte CB_HALT   = 2;

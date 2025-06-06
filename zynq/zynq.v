@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131401A;
+    localparam VERSION = 32'h3131401B;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -132,7 +132,10 @@ module Zynq (
 
     // arm writes these to control fpga
     reg[31:00] regctla, regctlb, regctli, regctll;
-    wire[31:00] regctlj, regctlk;
+    wire[31:00] regctlj;
+
+    reg[23:06]  regctlk_2306;
+    wire[05:00] regctlk_0500;
 
     // regctla[31:30] determine overall FPGA mode
     wire[1:0] fpgamode = regctla[31:30];
@@ -353,15 +356,13 @@ module Zynq (
 
     wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
 
-    assign regctlk[31:06] = 0;
-
     sim1134 siminst (
         .CLOCK (CLOCK),
         .RESET (sim_reset_h),
 
         .pcout (regctlj[15:00]),
         .psout (regctlj[31:16]),
-        .stout (regctlk[05:00]),
+        .stout (regctlk_0500),
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -490,6 +491,17 @@ module Zynq (
         lastdevmsyn <= dev_syn_msyn_h;
     end
 
+    // latch address and data for front panel lights
+    always @(posedge CLOCK) begin
+        if (~ RESET_N) begin
+            regctlk_2306   <= 0;
+            regctll[21:06] <= 0;
+        end else if (dev_syn_ssyn_h) begin
+            regctlk_2306   <= dev_a_h;
+            regctll[21:06] <= dev_d_h;
+        end
+    end
+
     /////////////////////////////////////
     //  arm reading/writing registers  //
     /////////////////////////////////////
@@ -508,7 +520,7 @@ module Zynq (
         (readaddr        == 10'b0000001000) ? regctlh     :
         (readaddr        == 10'b0000001001) ? regctli     :
         (readaddr        == 10'b0000001010) ? regctlj     :
-        (readaddr        == 10'b0000001011) ? regctlk     :
+        (readaddr        == 10'b0000001011) ? { 8'b0, regctlk_2306, regctlk_0500 } :
         (readaddr        == 10'b0000001100) ? regctll     :
         (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
         (readaddr        == 10'b0000011101) ? 0 :
@@ -547,7 +559,7 @@ module Zynq (
             regctlb[31:28] <= 0;
             regctlb[27:24] <= 4'b1111;                      // man_bg_out_l
             regctlb[23:00] <= 0;
-            regctll[31:05] <= 0;
+            regctll[31:22] <= 0;
             regctll[04:00] <= 21;                           // muxdelay (18=bad; 19=ok)
 
         end else begin
@@ -582,7 +594,7 @@ module Zynq (
                         regctlb <= saxi_WDATA;
                     end
                     10'b0000001100: begin
-                        regctll <= saxi_WDATA;
+                        regctll[05:00] <= saxi_WDATA[05:00];
                     end
                     default: begin end
                 endcase

@@ -110,7 +110,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_reset
 JNIEXPORT jint JNICALL Java_GUIZynqPage_addr
   (JNIEnv *env, jclass klass)
 {
-    return FIELD (pdpat[Z_RD], d_dev_a_h);
+    return FIELD (pdpat[Z_RK], k_lataddr);
 }
 
 /*
@@ -121,7 +121,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_addr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_data
   (JNIEnv *env, jclass klass)
 {
-    return FIELD (pdpat[Z_RG], g_dev_d_h);
+    return FIELD (pdpat[Z_RL], l_latdata);
 }
 
 /*

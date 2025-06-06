@@ -129,7 +129,9 @@
 #define j_simpc       (0x0000FFFFU)
 #define j_simps       (0xFFFF0000U)
 #define k_simst       (0x0000003FU)
+#define k_lataddr     (0x00FFFFC0U)
 #define l_muxdelay    (0x0000003FU)
+#define l_latdata     (0x003FFFC0U)
 
 #define ILACTL 034
 #define ILATIM 035
