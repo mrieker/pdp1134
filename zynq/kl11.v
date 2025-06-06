@@ -42,11 +42,11 @@ module kl11 (
     output reg[15:00] d_out_h,
     output reg ssyn_out_h);
 
-    reg enable, lkflag, lkiena, trigger, tripped;
-    reg[22:00] counter;
+    reg enable, fiftyhz, lkflag, lkiena, trigger, tripped;
+    reg[22:00] counter, intcount;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B4C0003 : // [31:16] = 'KL'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      { enable, counter, lkflag, lkiena, 4'b0, trigger, tripped };
+    assign armrdata = (armraddr == 0) ? 32'h4B4C0004 : // [31:16] = 'KL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+                      { enable, intcount, lkflag, lkiena, 3'b0, fiftyhz, trigger, tripped };
 
     assign irvec = 8'o100;
 
@@ -54,21 +54,33 @@ module kl11 (
         if (RESET) begin
             counter <= 0;
             enable  <= 0;
+            fiftyhz <= 0;
             trigger <= 0;
         end else begin
 
             // arm processor is writing one of the registers
             if (armwrite & armwaddr) begin
-                enable <= armwdata[31];
+                enable  <= armwdata[31];
+                fiftyhz <= armwdata[02];
             end
 
-            // toggle trigger 60 times a second
-            // 1E8/60 = 1E7/6 = 5E6/3
-            if ((counter == 0) | (counter == 4999999/3) | (counter == 4999999*2/3)) trigger <= ~ trigger;
-            counter <= (counter == 4999999) ? 0 : counter + 1;
+            if (fiftyhz) begin
+
+                // toggle trigger 50 times a second
+                // 1E8/50 = 2E6
+                if (counter == 0) trigger <= ~ trigger;
+                counter <= (counter == 1999999) ? 0 : counter + 1;
+            end else begin
+
+                // toggle trigger 60 times a second
+                // 1E8/60 = 1E7/6 = 5E6/3
+                if ((counter == 0) | (counter == 4999999/3) | (counter == 4999999*2/3)) trigger <= ~ trigger;
+                counter <= (counter == 4999999) ? 0 : counter + 1;
+            end
         end
 
         if (init_in_h) begin
+            intcount   <= 0;
             intreq     <= 0;
             lkflag     <= 1;
             lkiena     <= 0;
@@ -79,7 +91,8 @@ module kl11 (
 
         // maybe pdp is granting interrupt
         else if (intgnt & (igvec == irvec) & intreq) begin
-            intreq  <= 0;
+            intcount <= intcount + 1;
+            intreq   <= 0;
         end
 
         // if it hasn't seen this transition yet, flag the pdp

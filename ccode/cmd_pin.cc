@@ -175,6 +175,7 @@ static PinDef const pindefs[] = {
     { "dl_enable",       DEV_DL, 3,    0x80000000,        0, true  },
 
     { "kl_enable",       DEV_KL, 1,    0x80000000,        0, true  },
+    { "kl_fiftyhz",      DEV_KL, 1,    0x00000004,        0, true  },
 
     { "", 0, 0, 0, 0, false }
 };

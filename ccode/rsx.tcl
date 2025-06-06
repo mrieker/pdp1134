@@ -5,7 +5,7 @@ if {[pin get fpgamode] == 0} {
 enabmem                         ;# make sure we have some memory
 hardreset                       ;# clobber processor if it was babbling
 puts [format "fpgamode=%u bm_enable=%08X.%08X" [pin fpgamode] [pin bm_enabhi] [pin bm_enablo]]
-pin set kl_enable 1 ky_enable 1 ;# make sure lineclock and console plugged in
+pin set kl_fiftyhz 1 kl_enable 1 ky_enable 1 ;# make sure lineclock and console plugged in
 
 set home [getenv HOME /tmp]
 set rsx $home/rsx11.rl02
