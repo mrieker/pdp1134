@@ -137,10 +137,11 @@ public class GUI extends JPanel {
 
             // get initial switch register contents from 777570
             int srint = access.rdmem (0777570);
-            writeswitches (srint);
+            write16switches (srint);
 
-            // set initial display to match processor
-            updisplay.actionPerformed (null);
+            // loop timer to update display from fpga & buttons/switches
+            runupdatimer = new Timer (UPDMS, updisplay);
+            runupdatimer.start ();
         } catch (Exception e) {
             e.printStackTrace ();
             System.exit (1);
@@ -599,7 +600,9 @@ public class GUI extends JPanel {
 
     public static JLabel messagelabel;
 
-    // update display with processor state
+    // update display with processor state - runs continuously
+    // if processor is running, display current processor state
+    // otherwise, leave display alone so ldad/exam/dep buttons will work
     public final static ActionListener updisplay =
         new ActionListener () {
             @Override
@@ -608,45 +611,61 @@ public class GUI extends JPanel {
                 // read values from zynq fpga (either directly or via tcp)
                 access.sample ();
 
-                // update display LEDs
-                writeaddrleds (access.addr);
-                writedataleds (access.data);
+                // run light always says what is happening
+                runled.setOn (access.running > 0);
+
+                // light register lights also always reflect the fpga register
                 writelregleds (access.lreg);
-                runled.setOn  (access.running > 0);
-                berrled.setOn (false);
+
+                // same with switch register - in case z11ctrl or similar flips them
+                // the upper 2 switches are only kept here (no way for z11ctrl etc to flip them)
+                write16switches (access.sreg & 0177777);
 
                 // update grayed buttons based on running state
                 //  running = +1 : processor is running
                 //             0 : processor halted but is resumable
                 //            -1 : processor halted, reset required
                 if (lastrunning != access.running) {
-                    lastrunning = access.running;
-                    ldadbutton.setEnabled  (lastrunning <= 0);
-                    exambutton.setEnabled  (lastrunning <= 0);
-                    depbutton.setEnabled   (lastrunning <= 0);
-                    haltbutton.setEnabled  (lastrunning  > 0);
-                    stepbutton.setEnabled  (lastrunning == 0);
-                    contbutton.setEnabled  (lastrunning == 0);
-                    startbutton.setEnabled (lastrunning <= 0);
+                    ldadbutton.setEnabled  (access.running <= 0);
+                    exambutton.setEnabled  (access.running <= 0);
+                    depbutton.setEnabled   (access.running <= 0);
+                    haltbutton.setEnabled  (access.running  > 0);
+                    stepbutton.setEnabled  (access.running == 0);
+                    contbutton.setEnabled  (access.running == 0);
+                    startbutton.setEnabled (access.running <= 0);
                     resetbutton.setEnabled (true);
                 }
 
-                // if halted, display PC,PS
-                if (access.running <= 0) {
-                    displaypcps ();
+                // if processor currently running, update lights from fpga
+                if (access.running > 0) {
+                    writeaddrleds (access.addr);
+                    writedataleds (access.data);
+                    berrled.setOn (false);
                 }
 
-                // start automatic updates while running
-                if ((access.running > 0) && (runupdatimer == null)) {
-                    runupdatimer = new Timer (UPDMS, updisplay);
-                    runupdatimer.start ();
+                // if processor just halted, display PC,PS
+                else if (lastrunning > 0) {
+                    int pc = access.rdmem (0777707);
+                    String text = "";
+                    if (pc >= 0) {
+                        loadedaddress = pc;
+                        autoincloadedaddress = 0;
+                        writeaddrleds (pc);
+                        text += String.format ("stopped at PC %06o", pc);
+                    } else {
+                        text += "stopped at PC unknown";
+                    }
+                    int ps = access.rdmem (0777776);
+                    if (ps >= 0) {
+                        writedataleds (ps);
+                        text += String.format (", PS %06o", ps);
+                    } else {
+                        text += ", PS unknown";
+                    }
+                    messagelabel.setText (text);
                 }
 
-                // stop automatic updates while halted so we don't munch addr & data leds, etc
-                if ((access.running <= 0) && (runupdatimer != null)) {
-                    runupdatimer.stop ();
-                    runupdatimer = null;
-                }
+                lastrunning = access.running;
             }
         };
 
@@ -852,7 +871,7 @@ public class GUI extends JPanel {
     }
 
     // read 18-bit value from SR (switch register) leds
-    public static int readswitches ()
+    public static int read18switches ()
     {
         int sr = 0;
         for (int i = 0; i < 18; i ++) {
@@ -862,10 +881,11 @@ public class GUI extends JPanel {
         return sr;
     }
 
-    // write 18-bit value to SR (switch register) leds
-    public static void writeswitches (int sr)
+    // write 16-bit value to SR (switch register) leds
+    // leave the upper 2 switches alone
+    public static void write16switches (int sr)
     {
-        for (int i = 0; i < 18; i ++) {
+        for (int i = 0; i < 16; i ++) {
             Switch sw = switches[i];
             sw.setOn ((sr & (1 << i)) != 0);
         }
@@ -950,7 +970,7 @@ public class GUI extends JPanel {
         public void actionPerformed (ActionEvent ae)
         {
             setOn (! ison);
-            access.setsr (readswitches () & 0177777);
+            access.setsr (read18switches () & 0177777);
         }
 
         public void setOn (boolean on)
@@ -1080,28 +1100,6 @@ public class GUI extends JPanel {
         return ok;
     }
 
-    // processor just halted, display PC and PS
-    public static void displaypcps ()
-    {
-        int pc = access.rdmem (0777707);
-        String text = "";
-        if (pc >= 0) {
-            loadedaddress = pc;
-            autoincloadedaddress = 0;
-            writeaddrleds (pc);
-            text += String.format ("stopped at PC %06o", pc);
-        } else {
-            text += "stopped at PC unknown";
-        }
-        int ps = access.rdmem (0777776);
-        if (ps >= 0) {
-            text += String.format (", PS %06o", ps);
-        } else {
-            text += ", PS unknown";
-        }
-        messagelabel.setText (text);
-    }
-
     ///////////////////////////
     // MEMORY ACCESS BUTTONS //
     ///////////////////////////
@@ -1121,7 +1119,7 @@ public class GUI extends JPanel {
         {
             messagelabel.setText ("");
             autoincloadedaddress = 0;
-            loadedaddress = readswitches () & 0777777;
+            loadedaddress = read18switches () & 0777777;
             if ((loadedaddress < 0777700) || (loadedaddress > 0777717)) {
                 loadedaddress &= 0777776;
             }
@@ -1172,7 +1170,7 @@ public class GUI extends JPanel {
                 loadedaddress = (loadedaddress + inc) & 0777777;
             }
             writeaddrleds (loadedaddress);
-            int data = readswitches () & 0177777;
+            int data = read18switches () & 0177777;
             int rc = access.wrmem (loadedaddress, data);
             berrled.setOn (rc < 0);
             writedataleds (data);
