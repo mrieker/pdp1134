@@ -59,7 +59,7 @@ public class GUI extends JPanel {
 
     public final static Color ledoncolor = Color.CYAN;
 
-    public final static int UPDMS = 100;
+    public final static int UPDMS = 33;
 
     public final static byte CB_STEP   = 1;
     public final static byte CB_HALT   = 2;
@@ -69,6 +69,7 @@ public class GUI extends JPanel {
     public final static byte CB_RDMEM  = 6;
     public final static byte CB_WRMEM  = 7;
     public final static byte CB_RESET  = 8;
+    public final static byte CB_CHKHLT = 9;
 
     // access the processor one way or another
     public abstract static class IAccess {
@@ -83,6 +84,7 @@ public class GUI extends JPanel {
         public abstract void cont ();
         public abstract void halt ();
         public abstract void reset ();
+        public abstract boolean chkhlt ();
         public abstract void setsr (int sr);
         public abstract int rdmem (int addr);
         public abstract int wrmem (int addr, int data);
@@ -92,40 +94,65 @@ public class GUI extends JPanel {
     public static IAccess access;
 
     public static void main (String[] args)
+    {
+        try {
+
+            // maybe enter server mode
+            //  java GUI -listen <port>
+            if ((args.length > 1) && args[0].equals ("-listen")) {
+                int port = 0;
+                try {
+                    port = Integer.parseInt (args[1]);
+                } catch (Exception e) {
+                    System.err.println ("bad/missing -listen port number");
+                    System.exit (1);
+                }
+
+                // open access to the Zynq
+                String[] args2 = new String[args.length-2];
+                for (int i = 0; i < args2.length; i ++) args2[i] = args[i+2];
+                openAccess (args2);
+
+                // forward from incoming circuit to Zynq and wisa-wersa
+                runServer (port);
+                System.exit (0);
+            }
+
+            // not server, create window and show it
+            JFrame jframe = new JFrame ("PDP-11/34A");
+            jframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
+            jframe.setContentPane (new GUI ());
+            SwingUtilities.invokeLater (new Runnable () {
+                @Override
+                public void run ()
+                {
+                    jframe.pack ();
+                    jframe.setLocationRelativeTo (null);
+                    jframe.setVisible (true);
+                }
+            });
+
+            // open access to Zynq board
+            openAccess (args);
+
+            // get initial switch register contents from 777570
+            int srint = access.rdmem (0777570);
+            writeswitches (srint);
+
+            // set initial display to match processor
+            updisplay.actionPerformed (null);
+        } catch (Exception e) {
+            e.printStackTrace ();
+            System.exit (1);
+        }
+    }
+
+    // set up access to the zynq board
+    // either direct (we're running on the zynq)
+    // ...or remote (we connecting to zynq via tcp connection)
+    public static void openAccess (String[] args)
             throws Exception
     {
-        // maybe enter server mode
-        //  java GUI -server <port>
-        if ((args.length > 1) && args[0].equals ("-listen")) {
-            int port = 0;
-            try {
-                port = Integer.parseInt (args[1]);
-            } catch (Exception e) {
-                System.err.println ("bad/missing -listen port number");
-                System.exit (1);
-            }
-            if (args.length > 2) {
-                System.err.println ("extra parameters after -listen port number");
-                System.exit (1);
-            }
-            runServer (port);
-            System.exit (0);
-        }
-
-        // not server, create window and show it
-        JFrame jframe = new JFrame ("PDP-11/34A");
-        jframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
-        jframe.setContentPane (new GUI ());
-        SwingUtilities.invokeLater (new Runnable () {
-            @Override
-            public void run ()
-            {
-                jframe.pack ();
-                jframe.setLocationRelativeTo (null);
-                jframe.setVisible (true);
-            }
-        });
-
         // if -connect, use TCP to connect to server and access the processor that way
         if ((args.length > 1) && args[0].equals ("-connect")) {
             String host = "localhost";
@@ -143,24 +170,18 @@ public class GUI extends JPanel {
                 System.exit (1);
             }
             Socket socket = new Socket (host, port);
-            String[] tcpargs = new String[args.length-2];
-            for (i = 0; i < tcpargs.length; i ++) {
-                tcpargs[i] = args[i+2];
-            }
-            access = new TCPAccess (socket, tcpargs);
+            access = new TCPAccess (socket);
+        }
+
+        else if (args.length > 0) {
+            System.err.println ("unknown argument/option " + args[0]);
+            System.exit (1);
         }
 
         // no -connect, access processor directly
         else {
-            access = new DirectAccess (args);
+            access = new DirectAccess ();
         }
-
-        // get initial switch register contents from 777570
-        int srint = access.rdmem (0777570);
-        writeswitches (srint);
-
-        // set initial display to match processor
-        updisplay.actionPerformed (null);
     }
 
     //////////////
@@ -171,92 +192,99 @@ public class GUI extends JPanel {
     public static void runServer (int port)
             throws Exception
     {
-        // get inbound connection from client
         ServerSocket serversocket = new ServerSocket (port);
-        System.out.println ("GUI: listening on port " + port);
-        Socket socket = serversocket.accept ();
-        System.out.println ("GUI: connection accepted");
-        InputStream istream = socket.getInputStream ();
-        OutputStream ostream = socket.getOutputStream ();
 
-        // read command line arguments
-        int argc = readShort (istream);
-        String[] args = new String[argc];
-        for (int i = 0; i < argc; i ++) {
-            args[i] = readString (istream);
-        }
+        while (true) {
+            Socket socket = null;
+            try {
 
-        // get access to zynq fpga page
-        access = new DirectAccess (args);
+                // get inbound connection from client
+                System.out.println ("GUI: listening on port " + port);
+                socket = serversocket.accept ();
+                System.out.println ("GUI: connection accepted");
+                InputStream istream = socket.getInputStream ();
+                OutputStream ostream = socket.getOutputStream ();
 
-        // read and process incoming command bytes
-        byte[] sample = new byte[9];
-        for (int cmdbyte; (cmdbyte = istream.read ()) >= 0;) {
-            switch (cmdbyte) {
-                case CB_STEP: {
-                    access.step ();
-                    break;
-                }
-                case CB_HALT: {
-                    access.halt ();
-                    break;
-                }
-                case CB_CONT: {
-                    access.cont ();
-                    break;
-                }
-                case CB_SAMPLE: {
-                    access.sample ();
+                // read and process incoming command bytes
+                byte[] sample = new byte[10];
+                for (int cmdbyte; (cmdbyte = istream.read ()) >= 0;) {
+                    switch (cmdbyte) {
+                        case CB_STEP: {
+                            access.step ();
+                            break;
+                        }
+                        case CB_HALT: {
+                            access.halt ();
+                            break;
+                        }
+                        case CB_CONT: {
+                            access.cont ();
+                            break;
+                        }
+                        case CB_SAMPLE: {
+                            access.sample ();
 
-                    sample[0] = (byte)(access.addr);
-                    sample[1] = (byte)(access.addr >>  8);
-                    sample[2] = (byte)(access.data);
-                    sample[3] = (byte)(access.data >>  8);
-                    sample[4] = (byte)(access.lreg);
-                    sample[5] = (byte)(access.lreg >>  8);
-                    sample[6] = (byte)(access.sreg);
-                    sample[7] = (byte)(access.sreg >>  8);
-                    sample[8] = (byte)(access.running);
+                            sample[0] = (byte)(access.addr);
+                            sample[1] = (byte)(access.addr >>  8);
+                            sample[2] = (byte)(access.addr >>  16);
+                            sample[3] = (byte)(access.data);
+                            sample[4] = (byte)(access.data >>  8);
+                            sample[5] = (byte)(access.lreg);
+                            sample[6] = (byte)(access.lreg >>  8);
+                            sample[7] = (byte)(access.sreg);
+                            sample[8] = (byte)(access.sreg >>  8);
+                            sample[9] = (byte)(access.running);
 
-                    ostream.write (sample, 0, 7);
-                    break;
+                            ostream.write (sample, 0, 10);
+                            break;
+                        }
+                        case CB_SETSR: {
+                            int sr = read24 (istream);
+                            access.setsr (sr);
+                            break;
+                        }
+                        case CB_RDMEM: {
+                            int addr = read24 (istream);
+                            int rc = access.rdmem (addr);
+                            sample[0] = (byte)(rc);
+                            sample[1] = (byte)(rc >>  8);
+                            sample[2] = (byte)(rc >> 16);
+                            sample[3] = (byte)(rc >> 24);
+                            ostream.write (sample, 0, 4);
+                            break;
+                        }
+                        case CB_WRMEM: {
+                            int addr = read24 (istream);
+                            int data = read16 (istream);
+                            int rc = access.wrmem (addr, data);
+                            sample[0] = (byte)(rc);
+                            sample[1] = (byte)(rc >>  8);
+                            sample[2] = (byte)(rc >> 16);
+                            sample[3] = (byte)(rc >> 24);
+                            ostream.write (sample, 0, 4);
+                            break;
+                        }
+                        case CB_RESET: {
+                            access.reset ();
+                            break;
+                        }
+                        case CB_CHKHLT: {
+                            boolean ok = access.chkhlt ();
+                            ostream.write ((byte) (ok ? 1 : 0));
+                            break;
+                        }
+                        default: {
+                            throw new Exception ("bad command byte received " + cmdbyte);
+                        }
+                    }
                 }
-                case CB_SETSR: {
-                    int sr = readShort (istream);
-                    access.setsr (sr);
-                    break;
-                }
-                case CB_RDMEM: {
-                    int addr = readShort (istream);
-                    int rc = access.rdmem (addr);
-                    sample[0] = (byte)(rc);
-                    sample[1] = (byte)(rc >>  8);
-                    sample[2] = (byte)(rc >> 16);
-                    sample[3] = (byte)(rc >> 24);
-                    ostream.write (sample, 0, 4);
-                    break;
-                }
-                case CB_WRMEM: {
-                    int addr = readShort (istream);
-                    int data = readShort (istream);
-                    int rc = access.wrmem (addr, data);
-                    sample[0] = (byte)(rc);
-                    sample[1] = (byte)(rc >>  8);
-                    sample[2] = (byte)(rc >> 16);
-                    sample[3] = (byte)(rc >> 24);
-                    ostream.write (sample, 0, 4);
-                    break;
-                }
-                case CB_RESET: {
-                    access.reset ();
-                    break;
-                }
-                default: {
-                    throw new Exception ("bad command byte received " + cmdbyte);
-                }
+            } catch (Exception e) {
+                e.printStackTrace ();
             }
+            try {
+                socket.close ();
+            } catch (Exception e) { }
         }
-        socket.close ();
     }
 
     // read string from client
@@ -265,7 +293,7 @@ public class GUI extends JPanel {
     public static String readString (InputStream istream)
             throws Exception
     {
-        int len = readShort (istream);
+        int len = read16 (istream);
         byte[] bytes = new byte[len];
         for (int i = 0; i < len;) {
             int rc = istream.read (bytes, i, len - i);
@@ -275,13 +303,25 @@ public class GUI extends JPanel {
         return new String (bytes);
     }
 
-    // read short from client
+    // read 16-bit integer from client
     // - little endian
-    public static int readShort (InputStream istream)
+    public static int read16 (InputStream istream)
             throws Exception
     {
         int value = istream.read ();
         value |= istream.read () << 8;
+        if (value < 0) throw new EOFException ("EOF reading network");
+        return value;
+    }
+
+    // read 24-bit integer from client
+    // - little endian
+    public static int read24 (InputStream istream)
+            throws Exception
+    {
+        int value = istream.read ();
+        value |= istream.read () <<  8;
+        value |= istream.read () << 16;
         if (value < 0) throw new EOFException ("EOF reading network");
         return value;
     }
@@ -297,23 +337,11 @@ public class GUI extends JPanel {
 
         public byte[] samplebytes = new byte[25];
 
-        public TCPAccess (Socket socket, String[] args)
+        public TCPAccess (Socket socket)
             throws Exception
         {
             istream = socket.getInputStream ();
             ostream = socket.getOutputStream ();
-
-            byte[] shortbytes = new byte[2];
-            shortbytes[0] = (byte)args.length;
-            shortbytes[1] = (byte)(args.length >> 8);
-            ostream.write (shortbytes);
-            for (String arg : args) {
-                byte[] argbytes = arg.getBytes ();
-                shortbytes[0] = (byte)argbytes.length;
-                shortbytes[1] = (byte)(argbytes.length >> 8);
-                ostream.write (shortbytes);
-                ostream.write (argbytes);
-            }
         }
 
         @Override
@@ -361,12 +389,27 @@ public class GUI extends JPanel {
         }
 
         @Override
+        public boolean chkhlt ()
+        {
+            int rc = 0;
+            try {
+                ostream.write (CB_CHKHLT);
+                rc = istream.read ();
+                if (rc < 0) throw new EOFException ("eof reading network");
+            } catch (Exception e) {
+                e.printStackTrace ();
+                System.exit (1);
+            }
+            return rc > 0;
+        }
+
+        @Override
         public void sample ()
         {
             try {
                 ostream.write (CB_SAMPLE);
                 for (int i = 0; i < 9;) {
-                    int rc = istream.read (samplebytes, i, 9 - i);
+                    int rc = istream.read (samplebytes, i, 10 - i);
                     if (rc <= 0) throw new EOFException ("eof reading network");
                     i += rc;
                 }
@@ -375,19 +418,22 @@ public class GUI extends JPanel {
                 System.exit (1);
             }
 
-            addr = ((samplebytes[1] & 0xFF) << 8) | (samplebytes[0] & 0xFF);
-            data = ((samplebytes[3] & 0xFF) << 8) | (samplebytes[2] & 0xFF);
-            lreg = ((samplebytes[5] & 0xFF) << 8) | (samplebytes[4] & 0xFF);
-            sreg = ((samplebytes[7] & 0xFF) << 8) | (samplebytes[6] & 0xFF);
-            running = samplebytes[8];
+            addr = ((samplebytes[2] & 0xFF) << 16) | ((samplebytes[1] & 0xFF) << 8) | (samplebytes[0] & 0xFF);
+            data =                                   ((samplebytes[4] & 0xFF) << 8) | (samplebytes[3] & 0xFF);
+            lreg =                                   ((samplebytes[6] & 0xFF) << 8) | (samplebytes[5] & 0xFF);
+            sreg =                                   ((samplebytes[8] & 0xFF) << 8) | (samplebytes[7] & 0xFF);
+            running = samplebytes[9];
         }
 
         @Override
         public void setsr (int sr)
         {
-            byte[] msg = { CB_SETSR, (byte) sr, (byte) (sr >> 8) };
+            samplebytes[0] = CB_SETSR;
+            samplebytes[1] = (byte) sr;
+            samplebytes[2] = (byte) (sr >> 8);
+            samplebytes[3] = (byte) (sr >> 16);
             try {
-                ostream.write (msg);
+                ostream.write (samplebytes, 0, 4);
             } catch (Exception e) {
                 e.printStackTrace ();
                 System.exit (1);
@@ -397,10 +443,12 @@ public class GUI extends JPanel {
         @Override
         public int rdmem (int addr)
         {
-            byte[] msg = { CB_RDMEM, (byte) addr, (byte) (addr >> 8) };
-            byte[] reply = new byte[4];
+            samplebytes[0] = CB_RDMEM;
+            samplebytes[1] = (byte) addr;
+            samplebytes[2] = (byte) (addr >> 8);
+            samplebytes[3] = (byte) (addr >> 16);
             try {
-                ostream.write (msg);
+                ostream.write (samplebytes, 0, 4);
                 for (int i = 0; i < 4;) {
                     int rc = istream.read (samplebytes, i, 4 - i);
                     if (rc <= 0) throw new EOFException ("eof reading network");
@@ -416,10 +464,14 @@ public class GUI extends JPanel {
         @Override
         public int wrmem (int addr, int data)
         {
-            byte[] msg = { CB_WRMEM, (byte) addr, (byte) (addr >> 8), (byte) data, (byte) (data >> 8) };
-            byte[] reply = new byte[4];
+            samplebytes[0] = CB_WRMEM;
+            samplebytes[1] = (byte) addr;
+            samplebytes[2] = (byte) (addr >> 8);
+            samplebytes[3] = (byte) (addr >> 16);
+            samplebytes[4] = (byte) data;
+            samplebytes[5] = (byte) (data >> 8);
             try {
-                ostream.write (msg);
+                ostream.write (samplebytes, 0, 6);
                 for (int i = 0; i < 4;) {
                     int rc = istream.read (samplebytes, i, 4 - i);
                     if (rc <= 0) throw new EOFException ("eof reading network");
@@ -440,7 +492,7 @@ public class GUI extends JPanel {
     // access the zynq fpga page via mmap()
     public static class DirectAccess extends IAccess {
 
-        public DirectAccess (String[] args)
+        public DirectAccess ()
         {
             GUIZynqPage.open ();
         }
@@ -467,6 +519,17 @@ public class GUI extends JPanel {
         public void reset ()
         {
             GUIZynqPage.reset ();
+        }
+
+        @Override
+        public boolean chkhlt ()
+        {
+            for (int i = 0; GUIZynqPage.running () > 0; i ++) {
+                if (i > 100000) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
@@ -646,13 +709,13 @@ public class GUI extends JPanel {
         bits1109.add (centeredLabel (""));
         bits0806.add (centeredLabel (""));
         bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0503.add (centeredLabel ("A"));
-        bits0200.add (centeredLabel ("D"));
-        bits0200.add (centeredLabel ("D"));
-        bits0200.add (centeredLabel ("R"));
+        bits0806.add (centeredLabel ("A"));
+        bits0503.add (centeredLabel ("D"));
+        bits0503.add (centeredLabel ("D"));
+        bits0503.add (centeredLabel ("R"));
+        bits0200.add (centeredLabel ("E"));
+        bits0200.add (centeredLabel ("S"));
+        bits0200.add (centeredLabel ("S"));
 
         // row 1 - address bits
         for (int i = 3; -- i >= 0;) {
@@ -696,18 +759,18 @@ public class GUI extends JPanel {
             bits0200.add (dataleds[ 0+i] = new LED ());
         }
 
-        // row 4 - 777570 label
+        // row 4 - 777570 lights label
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
         bits1412.add (centeredLabel (""));
         bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel ("7"));
-        bits1109.add (centeredLabel ("7"));
-        bits1109.add (centeredLabel ("7"));
-        bits1109.add (centeredLabel ("5"));
-        bits0806.add (centeredLabel ("7"));
-        bits0806.add (centeredLabel ("0"));
+        bits1412.add (centeredLabel (""));
+        bits1109.add (centeredLabel (""));
+        bits1109.add (centeredLabel (""));
+        bits1109.add (centeredLabel (""));
+        bits0806.add (centeredLabel (""));
+        bits0806.add (centeredLabel (""));
         bits0806.add (centeredLabel (""));
         bits0503.add (centeredLabel ("L"));
         bits0503.add (centeredLabel ("I"));
@@ -728,7 +791,7 @@ public class GUI extends JPanel {
             bits0200.add (lregleds[ 0+i] = new LED ());
         }
 
-        // row 6 - blank
+        // row 6 - switches label
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
@@ -739,14 +802,14 @@ public class GUI extends JPanel {
         bits1109.add (centeredLabel (""));
         bits1109.add (centeredLabel (""));
         bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0200.add (centeredLabel (""));
-        bits0200.add (centeredLabel (""));
-        bits0200.add (centeredLabel (""));
+        bits0806.add (centeredLabel ("S"));
+        bits0806.add (centeredLabel ("W"));
+        bits0503.add (centeredLabel ("I"));
+        bits0503.add (centeredLabel ("T"));
+        bits0503.add (centeredLabel ("C"));
+        bits0200.add (centeredLabel ("H"));
+        bits0200.add (centeredLabel ("E"));
+        bits0200.add (centeredLabel ("S"));
 
         // row 7 - switch register
         for (int i = 3; -- i >= 0;) {
@@ -1012,13 +1075,9 @@ public class GUI extends JPanel {
     // halt was requested, wait here for processor to actually halt
     public static boolean checkforhalt ()
     {
-        for (int i = 0; GUIZynqPage.running () > 0; i ++) {
-            if (i > 100000) {
-                messagelabel.setText ("processor failed to halt");
-                return false;
-            }
-        }
-        return true;
+        boolean ok = access.chkhlt ();
+        if (! ok) messagelabel.setText ("processor failed to halt");
+        return ok;
     }
 
     // processor just halted, display PC and PS
