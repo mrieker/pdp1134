@@ -7,4 +7,4 @@ unm=`uname -m`
 $dir/loadmod.sh
 export CLASSPATH=$0.jar
 export LD_LIBRARY_PATH=$dir
-exec java -Dunamem=$unm GUI "$@"
+exec java -Dccode=$dir -Dunamem=$unm GUI "$@"

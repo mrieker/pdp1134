@@ -1165,6 +1165,8 @@ public class GUI extends JPanel {
 
     // - boot processor
     public static class BootButton extends MemButton {
+        public Process bootprocess;
+
         public BootButton ()
         {
             super ("BOOT");
@@ -1181,16 +1183,22 @@ public class GUI extends JPanel {
                 @Override
                 public void run ()
                 {
+                    Process oldbp = bootprocess;
+                    bootprocess = null;
+                    if (oldbp != null) {
+                        oldbp.destroyForcibly ();
+                    }
                     try {
-                        ProcessBuilder pb = new ProcessBuilder ("./guiboot.sh", Integer.toString (switches));
+                        String ccode = System.getProperty ("ccode");
+                        ProcessBuilder pb = new ProcessBuilder (ccode + "/guiboot.sh", Integer.toString (switches));
                         pb.redirectErrorStream (true);  // "2>&1"
-                        Process p = pb.start ();
-                        BufferedReader br = new BufferedReader (new InputStreamReader (p.getInputStream ()));
+                        bootprocess = pb.start ();
+                        BufferedReader br = new BufferedReader (new InputStreamReader (bootprocess.getInputStream ()));
                         for (String line; (line = br.readLine ()) != null;) {
                             System.out.println ("BootButton: " + line);
                             messageFromThread (line);
                         }
-                        p.waitFor ();
+                        bootprocess.waitFor ();
                     } catch (Exception e) {
                         e.printStackTrace ();
                         messageFromThread (e.getMessage ());

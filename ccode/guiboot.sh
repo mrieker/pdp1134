@@ -1,5 +1,8 @@
 #!/bin/bash
 #
-#  Script passed to z11ctrl when GUI BOOT button clicked
+#  Script spawned by GUI BOOT button
 #
+#   $1 = 18-bit switch register value (in decimal)
+#
+cd `dirname $0`
 exec ./z11ctrl rsx.tcl

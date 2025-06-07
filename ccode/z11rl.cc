@@ -253,7 +253,7 @@ static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const
         close (fd);
         return false;
     }
-    fprintf (stderr, "IODevRL11::loadfile: drive %d loaded with read%s file %s\n", diskno, (readwrite ? "/write" : "-only"), filenm);
+    fprintf (stderr, "z11rl: drive %d loaded with read%s file %s\n", diskno, (readwrite ? "/write" : "-only"), filenm);
     LOCKIT;
     close (fds[diskno]);
     fds[diskno] = fd;
@@ -275,7 +275,7 @@ static int cmd_rkunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
             Tcl_SetResultF (interp, "disknumber %d not in range 0..3", diskno);
             return TCL_ERROR;
         }
-        fprintf (stderr, "IODevRL11::scriptcmd: drive %d unloaded\n", diskno);
+        fprintf (stderr, "z11rl: drive %d unloaded\n", diskno);
         LOCKIT;
         close (fds[diskno]);
         fds[diskno] = -1;
