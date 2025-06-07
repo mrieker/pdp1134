@@ -15,4 +15,4 @@ after 3000                      ;# give it time to start up
 loadlst $rsx/dl.lst             ;# load bootstrap in memory
 flickstart 010000               ;# start it going
 
-exec -ignorestderr ./z11dl -cps 960 -killit < /dev/tty > /dev/tty
+puts "rsx booting... use z11dl to access tty"

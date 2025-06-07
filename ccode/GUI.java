@@ -42,8 +42,10 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.io.BufferedReader;
 import java.io.EOFException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -650,6 +652,7 @@ public class GUI extends JPanel {
     public static ContButton  contbutton;
     public static StartButton startbutton;
     public static ResetButton resetbutton;
+    public static BootButton  bootbutton;
 
     public static JLabel messagelabel;
 
@@ -687,9 +690,10 @@ public class GUI extends JPanel {
                     contbutton.setEnabled  (access.running == 0);
                     startbutton.setEnabled (access.running <= 0);
                     resetbutton.setEnabled (true);
+                    bootbutton.setEnabled  (true);
                 }
 
-                // if processor currently running, update lights from fpga
+                // if processor currently running, update lights from what fpga last captured from unibus
                 if (access.running > 0) {
                     writeaddrleds (access.addr);
                     writedataleds (access.data);
@@ -711,6 +715,7 @@ public class GUI extends JPanel {
                             text += String.format (" (pa %06o)", pcpa);
                         }
                         loadedaddress = pc;
+                        if (ps >= 0) loadedaddress |= (ps & 0140000) << 2;
                         loadedaddrvirt = true;
                         depbutton.autoincrement = false;
                         exambutton.autoincrement = false;
@@ -719,7 +724,6 @@ public class GUI extends JPanel {
                         writeaddrleds (-1);
                         text += "stopped at PC unknown";
                     }
-                    updateaddrlabel ();
                     writedataleds (ps);
                     if (ps >= 0) {
                         text += String.format (", PS %06o", ps);
@@ -729,7 +733,10 @@ public class GUI extends JPanel {
                     messagelabel.setText (text);
                 }
 
-                lastrunning = access.running;
+                if (lastrunning != access.running) {
+                    lastrunning = access.running;
+                    updateaddrlabel ();
+                }
             }
         };
 
@@ -917,6 +924,7 @@ public class GUI extends JPanel {
         buttonbox1.add (contbutton  = new ContButton  ());
         buttonbox1.add (startbutton = new StartButton ());
         buttonbox1.add (resetbutton = new ResetButton ());
+        buttonbox1.add (bootbutton  = new BootButton  ());
 
         buttonbox1.add (runled = new LED ());
         buttonbox1.add (berrled = new FlashingLED ());
@@ -1155,6 +1163,55 @@ public class GUI extends JPanel {
         }
     }
 
+    // - boot processor
+    public static class BootButton extends MemButton {
+        public BootButton ()
+        {
+            super ("BOOT");
+        }
+
+        @Override  // MemButton
+        public void actionPerformed (ActionEvent ae)
+        {
+            resetbutton.actionPerformed (ae);
+
+            messagelabel.setText ("booting...");
+            int switches = read18switches ();
+            Thread t = new Thread () {
+                @Override
+                public void run ()
+                {
+                    try {
+                        ProcessBuilder pb = new ProcessBuilder ("./guiboot.sh", Integer.toString (switches));
+                        pb.redirectErrorStream (true);  // "2>&1"
+                        Process p = pb.start ();
+                        BufferedReader br = new BufferedReader (new InputStreamReader (p.getInputStream ()));
+                        for (String line; (line = br.readLine ()) != null;) {
+                            System.out.println ("BootButton: " + line);
+                            messageFromThread (line);
+                        }
+                        p.waitFor ();
+                    } catch (Exception e) {
+                        e.printStackTrace ();
+                        messageFromThread (e.getMessage ());
+                    }
+                }
+            };
+            t.start ();
+        }
+    }
+
+    public static void messageFromThread (String msg)
+    {
+        SwingUtilities.invokeLater (new Runnable () {
+            @Override
+            public void run ()
+            {
+                messagelabel.setText (msg);
+            }
+        });
+    }
+
     // - start running program after resetting processor
     public static class StartButton extends MemButton {
         public StartButton ()
@@ -1248,7 +1305,7 @@ public class GUI extends JPanel {
     // update VIRT/PHYS tag on address lights label
     public static void updateaddrlabel ()
     {
-        if (loadedaddrvirt) {
+        if (loadedaddrvirt & (access.running <= 0)) {
             addrlbls[15].setText ("");
             addrlbls[14].setText ("V");
             addrlbls[13].setText ("I");
