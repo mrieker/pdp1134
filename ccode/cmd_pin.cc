@@ -42,7 +42,7 @@ struct PinDef {
 #define DEV_BM 1
 #define DEV_KY 2
 #define DEV_DL 3
-#define DEV_KL 4
+#define DEV_KW 4
 
 static uint32_t volatile *devs[5];
 
@@ -174,8 +174,8 @@ static PinDef const pindefs[] = {
     { "dl_xbuf",         DEV_DL, 2,    0xFFFF0000,        0, true  },
     { "dl_enable",       DEV_DL, 3,    0x80000000,        0, true  },
 
-    { "kl_enable",       DEV_KL, 1,    0x80000000,        0, true  },
-    { "kl_fiftyhz",      DEV_KL, 1,    0x00000004,        0, true  },
+    { "kw_enable",       DEV_KW, 1,    0x80000000,        0, true  },
+    { "kw_fiftyhz",      DEV_KW, 1,    0x00000004,        0, true  },
 
     { "", 0, 0, 0, 0, false }
 };
@@ -205,7 +205,7 @@ int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const
         devs[DEV_BM] = z11page->findev ("BM", NULL, NULL, false);
         devs[DEV_KY] = z11page->findev ("KY", NULL, NULL, false);
         devs[DEV_DL] = z11page->findev ("DL", NULL, NULL, false);
-        devs[DEV_KL] = z11page->findev ("KL", NULL, NULL, false);
+        devs[DEV_KW] = z11page->findev ("KW", NULL, NULL, false);
     }
 
     if ((objc == 2) && (strcasecmp (Tcl_GetString (objv[1]), "list") == 0)) {

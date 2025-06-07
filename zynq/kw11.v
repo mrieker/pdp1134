@@ -20,7 +20,7 @@
 
 // PDP-11 line clock interface
 
-module kl11 (
+module kw11 (
     input CLOCK, RESET,
 
     input armwrite,
@@ -45,7 +45,7 @@ module kl11 (
     reg enable, fiftyhz, lkflag, lkiena, trigger, tripped;
     reg[22:00] counter, intcount;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B4C0004 : // [31:16] = 'KL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B570004 : // [31:16] = 'KW'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       { enable, intcount, lkflag, lkiena, 3'b0, fiftyhz, trigger, tripped };
 
     assign irvec = 8'o100;
