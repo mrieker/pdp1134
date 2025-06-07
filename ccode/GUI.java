@@ -1444,8 +1444,8 @@ public class GUI extends JPanel {
         "bus timed out",
         "parity error" };
 
-    public static ImageIcon redbutin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("redbutin80.png"));
-    public static ImageIcon redbutout = new ImageIcon (GUI.class.getClassLoader ().getResource ("redbutout80.png"));
+    public static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc.png"));
+    public static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc.png"));
 
     public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
         public MemButton (String lbl)
@@ -1456,7 +1456,7 @@ public class GUI extends JPanel {
 
             setPreferredSize (new Dimension (80, 80));
             setForeground (Color.WHITE);
-            setIcon (redbutout);
+            setIcon (buttonout);
             addMouseListener (this);
             setVerticalTextPosition (SwingConstants.CENTER);
             setHorizontalTextPosition (SwingConstants.CENTER);
@@ -1477,13 +1477,13 @@ public class GUI extends JPanel {
         @Override   // MouseListener
         public void mousePressed(MouseEvent e)
         {
-            setIcon (redbutin);
+            setIcon (buttonin);
         }
 
         @Override   // MouseListener
         public void mouseReleased(MouseEvent e)
         {
-            setIcon (redbutout);
+            setIcon (buttonout);
         }
     }
 }
