@@ -40,18 +40,22 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.io.EOFException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
@@ -562,6 +566,54 @@ public class GUI extends JPanel {
         }
     }
 
+    // convert virtual address to physical address
+    public static int vatopa (int va, int mode)
+    {
+        if ((va < 0) || (va > 0177777)) return -1;
+        int mmr0 = access.rdmem (0777572);
+        if (mmr0 < 0) return -2;
+        if ((mmr0 & 1) == 0) {
+            if (va >= 0160000) va |= 0760000;
+            return va;
+        }
+        if (mode < 0) {
+            int psw = access.rdmem (0777776);
+            if (psw < 0) return -3;
+            mode = psw >> 14;
+        }
+        int regs = 0;
+        switch (mode) {
+            case 0: regs = 0772300; break;
+            case 3: regs = 0777600; break;
+            default: return -4;
+        }
+        int page = va >> 13;
+        int pdr = access.rdmem (regs + 2 * page);
+        if (pdr < 0) return -5;
+        if ((pdr & 2) == 0) return -6;
+        int blok = (va  >> 6) & 0177;
+        int len  = (pdr >> 8) & 0177;
+        if ((pdr & 8) != 0) {
+            if (blok < len) return -7;
+        } else {
+            if (blok > len) return -8;
+        }
+        int par = access.rdmem (regs + 040 + 2 * page);
+        if (par < 0) return -9;
+        return (va & 017777) + ((par & 07777) << 6);
+    }
+
+    public static String[] vatopaerr = {
+        "va out of range",
+        "unable to read mmr0",
+        "unable to read psw",
+        "invalid processor mode",
+        "unable to read pdr",
+        "page marked no-access",
+        "below length of expand-down page",
+        "above length of expand-up page",
+        "unable to read par" };
+
     ////////////////////
     //  GUI ELEMENTS  //
     ////////////////////
@@ -582,9 +634,10 @@ public class GUI extends JPanel {
     public static LED gpioclkled;
     public static LED[] mbleds = new LED[13];
 
-    public static LED[] addrleds = new LED[18];
-    public static LED[] dataleds = new LED[16];
-    public static LED[] lregleds = new LED[16];
+    public static JLabel[] addrlbls = new JLabel[18];
+    public static LED[]    addrleds = new LED[18];
+    public static LED[]    dataleds = new LED[16];
+    public static LED[]    lregleds = new LED[16];
     public static Switch[] switches = new Switch[18];
     public static LED berrled;
     public static LED runled;
@@ -646,18 +699,29 @@ public class GUI extends JPanel {
                 // if processor just halted, display PC,PS
                 else if (lastrunning > 0) {
                     int pc = access.rdmem (0777707);
+                    int ps = access.rdmem (0777776);
                     String text = "";
                     if (pc >= 0) {
-                        loadedaddress = pc;
-                        autoincloadedaddress = 0;
-                        writeaddrleds (pc);
                         text += String.format ("stopped at PC %06o", pc);
+                        int pcpa = vatopa (pc, ps >> 14);
+                        berrled.setOn (pcpa < 0);
+                        if (pcpa < 0) {
+                            text += ", " + vatopaerr[~pcpa];
+                        } else if (pcpa != pc) {
+                            text += String.format (" (pa %06o)", pcpa);
+                        }
+                        loadedaddress = pc;
+                        loadedaddrvirt = true;
+                        depbutton.autoincrement = false;
+                        exambutton.autoincrement = false;
+                        writeaddrleds (loadedaddress);
                     } else {
+                        writeaddrleds (-1);
                         text += "stopped at PC unknown";
                     }
-                    int ps = access.rdmem (0777776);
+                    updateaddrlabel ();
+                    writedataleds (ps);
                     if (ps >= 0) {
-                        writedataleds (ps);
                         text += String.format (", PS %06o", ps);
                     } else {
                         text += ", PS unknown";
@@ -717,24 +781,24 @@ public class GUI extends JPanel {
         bits0200.setLayout (new GridLayout (9, 3));
 
         // row 0 - address label
-        bits1715.add (centeredLabel (""));
-        bits1715.add (centeredLabel (""));
-        bits1715.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel ("A"));
-        bits0503.add (centeredLabel ("D"));
-        bits0503.add (centeredLabel ("D"));
-        bits0503.add (centeredLabel ("R"));
-        bits0200.add (centeredLabel ("E"));
-        bits0200.add (centeredLabel ("S"));
-        bits0200.add (centeredLabel ("S"));
+        bits1715.add (addrlbls[17] = centeredLabel (""));
+        bits1715.add (addrlbls[16] = centeredLabel (""));
+        bits1715.add (addrlbls[15] = centeredLabel (""));
+        bits1412.add (addrlbls[14] = centeredLabel (""));
+        bits1412.add (addrlbls[13] = centeredLabel (""));
+        bits1412.add (addrlbls[12] = centeredLabel (""));
+        bits1109.add (addrlbls[11] = centeredLabel (""));
+        bits1109.add (addrlbls[10] = centeredLabel (""));
+        bits1109.add (addrlbls[ 9] = centeredLabel (""));
+        bits0806.add (addrlbls[ 8] = centeredLabel (""));
+        bits0806.add (addrlbls[ 7] = centeredLabel (""));
+        bits0806.add (addrlbls[ 6] = centeredLabel ("A"));
+        bits0503.add (addrlbls[ 5] = centeredLabel ("D"));
+        bits0503.add (addrlbls[ 4] = centeredLabel ("D"));
+        bits0503.add (addrlbls[ 3] = centeredLabel ("R"));
+        bits0200.add (addrlbls[ 2] = centeredLabel ("E"));
+        bits0200.add (addrlbls[ 1] = centeredLabel ("S"));
+        bits0200.add (addrlbls[ 0] = centeredLabel ("S"));
 
         // row 1 - address bits
         for (int i = 3; -- i >= 0;) {
@@ -855,7 +919,7 @@ public class GUI extends JPanel {
         buttonbox1.add (resetbutton = new ResetButton ());
 
         buttonbox1.add (runled = new LED ());
-        buttonbox1.add (berrled = new LED ());
+        buttonbox1.add (berrled = new FlashingLED ());
 
         JPanel messagebox = new JPanel ();
         add (messagebox);
@@ -915,14 +979,36 @@ public class GUI extends JPanel {
         }
     }
 
+    public static class FlashingLED extends LED implements ActionListener {
+        public FlashingLED ()
+        {
+            Timer flasher = new Timer (333, this);
+            flasher.start ();
+        }
+
+        @Override   // ActionListener
+        public void actionPerformed (ActionEvent ae)
+        {
+            loc = (loc == Color.CYAN) ? Color.RED : Color.CYAN;
+            repaint ();
+        }
+    }
+
     public static class LED extends JPanel {
         public final static int P = 5;  // padding
         public final static int D = 20; // diameter
 
         public boolean ison;
+        public Color loc;
 
         public LED ()
         {
+            this (ledoncolor);
+        }
+
+        public LED (Color ledon)
+        {
+            loc = ledon;
             Dimension d = new Dimension (P + D + P, P + D + P);
             setMaximumSize (d);
             setMinimumSize (d);
@@ -944,7 +1030,7 @@ public class GUI extends JPanel {
         {
             g.setColor (Color.GRAY);
             g.fillArc (P - 3, P - 3, D + 6, D + 6, 0, 360);
-            Color ledcolor = ison ? ledoncolor : Color.BLACK;
+            Color ledcolor = ison ? loc : Color.BLACK;
             g.setColor (ledcolor);
             g.fillArc (P, P, D, D, 0, 360);
         }
@@ -996,19 +1082,20 @@ public class GUI extends JPanel {
     // PROCESSOR CONTROL BUTTONS //
     ///////////////////////////////
 
-    public static class StepButton extends JButton implements ActionListener {
+    public static class StepButton extends MemButton {
         public StepButton ()
         {
             super ("STEP");
-            addActionListener (this);
         }
 
         @Override  // ActionListener
         public void actionPerformed (ActionEvent ae)
         {
+            berrled.setOn (false);
             messagelabel.setText ("stepping processor");
             access.step ();                     // tell processor to step single instruction
             checkforhalt ();                    // make sure it halted
+            lastrunning = 12345;                // force updisplay to refresh everything
             updisplay.actionPerformed (null);   // update display
         }
     }
@@ -1023,6 +1110,7 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            berrled.setOn (false);
             messagelabel.setText ("halting processor");
             access.halt ();                     // tell processor to stop executing instructions
             checkforhalt ();                    // make sure it halted
@@ -1040,6 +1128,7 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            berrled.setOn (false);
             messagelabel.setText ("resuming processor");
             access.cont ();
             messagelabel.setText ("processor resumed");
@@ -1057,6 +1146,7 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            berrled.setOn (false);
             messagelabel.setText ("resetting processor");
             access.reset ();
             checkforhalt ();
@@ -1075,6 +1165,7 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
+            berrled.setOn (false);
             messagelabel.setText ("resetting processor");
             access.reset ();
             if (checkforhalt ()) {
@@ -1104,11 +1195,13 @@ public class GUI extends JPanel {
     // MEMORY ACCESS BUTTONS //
     ///////////////////////////
 
+    public static boolean loadedaddrvirt;
     public static int loadedaddress;
-    public static int autoincloadedaddress;
 
     // - load address button
     public static class LdAdButton extends MemButton {
+        public long pressedat;
+
         public LdAdButton ()
         {
             super ("LDAD");
@@ -1118,76 +1211,214 @@ public class GUI extends JPanel {
         public void actionPerformed (ActionEvent ae)
         {
             messagelabel.setText ("");
-            autoincloadedaddress = 0;
+            depbutton.autoincrement = false;
+            exambutton.autoincrement = false;
             loadedaddress = read18switches () & 0777777;
             if ((loadedaddress < 0777700) || (loadedaddress > 0777717)) {
                 loadedaddress &= 0777776;
             }
             writeaddrleds (loadedaddress);
             writedataleds (0);
-            messagelabel.setText (String.format ("loaded address %06o", loadedaddress));
+            long releasedat = System.currentTimeMillis ();
+            loadedaddrvirt = (releasedat - pressedat) >= 800;
+            updateaddrlabel ();
+            String as = String.format ("loaded %s address %06o", loadedaddrvirt ? "virtual" : "physical", loadedaddress);
+            boolean berr = false;
+            if (loadedaddrvirt) {
+                int pa = vatopa (loadedaddress & 0177777, loadedaddress >> 14);
+                if (pa < 0) {
+                    as  += ", " + vatopaerr[~pa];
+                    berr = true;
+                } else {
+                    as  += String.format (" (pa %06o)", pa);
+                }
+            }
+            berrled.setOn (berr);
+            messagelabel.setText (as);
+        }
+
+        @Override   // MouseListener
+        public void mousePressed(MouseEvent e)
+        {
+            super.mousePressed (e);
+            pressedat = System.currentTimeMillis ();
+        }
+    }
+
+    // update VIRT/PHYS tag on address lights label
+    public static void updateaddrlabel ()
+    {
+        if (loadedaddrvirt) {
+            addrlbls[15].setText ("");
+            addrlbls[14].setText ("V");
+            addrlbls[13].setText ("I");
+            addrlbls[12].setText ("R");
+            addrlbls[11].setText ("T");
+            addrlbls[10].setText ("U");
+            addrlbls[ 9].setText ("A");
+            addrlbls[ 8].setText ("L");
+        } else {
+            addrlbls[15].setText ("P");
+            addrlbls[14].setText ("H");
+            addrlbls[13].setText ("Y");
+            addrlbls[12].setText ("S");
+            addrlbls[11].setText ("I");
+            addrlbls[10].setText ("C");
+            addrlbls[ 9].setText ("A");
+            addrlbls[ 8].setText ("L");
         }
     }
 
     // - examine button
-    public static class ExamButton extends MemButton {
+    public static class ExamButton extends ExDepButton {
         public ExamButton ()
         {
             super ("EXAM");
         }
 
-        @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        @Override  // ExDepButton
+        public String memop ()
         {
-            messagelabel.setText ("");
-            if (autoincloadedaddress < 0) {
-                int inc = ((loadedaddress >= 0777700) && (loadedaddress <= 0777717)) ? 1 : 2;
-                loadedaddress = (loadedaddress + inc) & 0777777;
-            }
-            writeaddrleds (loadedaddress);
-            int rc = access.rdmem (loadedaddress);
-            berrled.setOn (rc < 0);
-            writedataleds (rc & 0177777);
-            autoincloadedaddress = -1;
-            if (rc < 0) messagelabel.setText (String.format ("examined address %06o, bus timed out", loadedaddress));
-            else messagelabel.setText (String.format ("examined address %06o, data %06o", loadedaddress, rc & 0177777));
+            return "examined";
+        }
+
+        @Override  // ExDepButton
+        public int rwmem (int pa)
+        {
+            return access.rdmem (pa);
         }
     }
 
     // - deposit button
-    public static class DepButton extends MemButton {
+    public static class DepButton extends ExDepButton {
         public DepButton ()
         {
             super ("DEP");
         }
 
+        @Override  // ExDepButton
+        public String memop ()
+        {
+            return "deposited to";
+        }
+
+        @Override  // ExDepButton
+        public int rwmem (int pa)
+        {
+            int data = read18switches () & 0177777;
+            return access.wrmem (pa, data);
+        }
+    }
+
+    // - examine/deposit button
+    public static abstract class ExDepButton extends MemButton {
+        public boolean autoincrement;
+
+        public ExDepButton (String lbl)
+        {
+            super (lbl);
+        }
+
+        public abstract String memop ();
+        public abstract int rwmem (int pa);
+
         @Override  // MemButton
         public void actionPerformed (ActionEvent ae)
         {
             messagelabel.setText ("");
-            if (autoincloadedaddress > 0) {
-                int inc = ((loadedaddress >= 0777700) && (loadedaddress <= 0777717)) ? 1 : 2;
-                loadedaddress = (loadedaddress + inc) & 0777777;
+
+            // get physical address
+            int pa = loadedaddrvirt ? vatopa (loadedaddress & 0177777, loadedaddress >> 16) : loadedaddress;
+
+            // possibly auto-increment the address
+            if (autoincrement && (pa >= 0)) {
+                int inc = ((pa >= 0777700) && (pa <= 0777717)) ? 1 : 2;
+                if (loadedaddrvirt) {
+                    loadedaddress = (loadedaddress & 0600000) | ((loadedaddress + inc) & 0177777);
+                    pa = vatopa (loadedaddress & 0177777, loadedaddress >> 16);
+                } else {
+                    loadedaddress = (loadedaddress + inc) & 0777777;
+                    pa = loadedaddress;
+                }
             }
+
+            // display the possibly updated address (virtual or physical as the user originally selected)
             writeaddrleds (loadedaddress);
-            int data = read18switches () & 0177777;
-            int rc = access.wrmem (loadedaddress, data);
+            String st = String.format ("%s %s address %06o", memop (), loadedaddrvirt ? "virtual" : "physical", loadedaddress);;
+
+            int rc;
+            if (pa < 0) {
+                st += String.format (", %s", vatopaerr[~pa]);
+                rc  = pa;
+            } else {
+                if (loadedaddrvirt) {
+                    st += String.format (" (pa %06o)", pa);
+                }
+
+                // read or write memory location
+                rc = rwmem (pa);
+                if (rc < 0) {
+                    st += ", " + rwmemerr[~rc];
+                } else {
+                    st += String.format (", data %06o", rc);
+                }
+            }
+
             berrled.setOn (rc < 0);
-            writedataleds (data);
-            autoincloadedaddress = 1;
-            if (rc < 0) messagelabel.setText (String.format ("deposited to address %06o, bus timed out", loadedaddress));
-            else messagelabel.setText (String.format ("deposited to address %06o, data %06o", loadedaddress, data));
+            writedataleds (rc & 0177777);
+
+            messagelabel.setText (st);
+
+            depbutton.autoincrement  = false;
+            exambutton.autoincrement = false;
+            autoincrement = rc >= 0;
         }
     }
 
-    public static abstract class MemButton extends JButton implements ActionListener {
+    public static String[] rwmemerr = {
+        "bus timed out",
+        "parity error" };
+
+    public static ImageIcon redbutin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("redbutin80.png"));
+    public static ImageIcon redbutout = new ImageIcon (GUI.class.getClassLoader ().getResource ("redbutout80.png"));
+
+    public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
         public MemButton (String lbl)
         {
             super (lbl);
+
             addActionListener (this);
+
+            setPreferredSize (new Dimension (80, 80));
+            setForeground (Color.WHITE);
+            setIcon (redbutout);
+            addMouseListener (this);
+            setVerticalTextPosition (SwingConstants.CENTER);
+            setHorizontalTextPosition (SwingConstants.CENTER);
         }
 
         @Override  // ActionListener
         public abstract void actionPerformed (ActionEvent ae);
+
+        @Override   // MouseListener
+        public void mouseClicked(MouseEvent e) { }
+
+        @Override   // MouseListener
+        public void mouseEntered(MouseEvent e) { }
+
+        @Override   // MouseListener
+        public void mouseExited(MouseEvent e) { }
+
+        @Override   // MouseListener
+        public void mousePressed(MouseEvent e)
+        {
+            setIcon (redbutin);
+        }
+
+        @Override   // MouseListener
+        public void mouseReleased(MouseEvent e)
+        {
+            setIcon (redbutout);
+        }
     }
 }

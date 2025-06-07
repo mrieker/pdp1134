@@ -143,7 +143,7 @@ static bool disread (void *param, uint32_t addr, uint16_t *data_r)
                 return false;
             }
             uint16_t blok = (addr >> 6) & 0177;
-            uint16_t len  = (drctx->pdr >> 7) & 0177;
+            uint16_t len  = (drctx->pdr >> 8) & 0177;
             if (drctx->pdr & 8) {
                 if (blok < len) {
                     return false;

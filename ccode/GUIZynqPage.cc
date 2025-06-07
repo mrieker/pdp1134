@@ -193,5 +193,5 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
 JNIEXPORT jint JNICALL Java_GUIZynqPage_wrmem
   (JNIEnv *env, jclass klass, jint addr, jint data)
 {
-    return z11page->dmawrite (addr & 0777777, data & 0177777) ? 0 : -1;
+    return z11page->dmawrite (addr, data) ? data : -1;
 }
