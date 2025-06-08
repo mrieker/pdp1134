@@ -63,8 +63,6 @@ import javax.swing.Timer;
 
 public class GUI extends JPanel {
 
-    public final static Color ledoncolor = Color.CYAN;
-
     public final static int UPDMS = 3;
 
     public final static byte CB_STEP   = 1;
@@ -76,6 +74,14 @@ public class GUI extends JPanel {
     public final static byte CB_WRMEM  = 7;
     public final static byte CB_RESET  = 8;
     public final static byte CB_CHKHLT = 9;
+
+    public final static Dimension buttondim = new Dimension (117, 117);
+    public final static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc117.png"));
+    public final static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc117.png"));
+
+    public final static Dimension leddim = new Dimension (52, 52);
+    public final static ImageIcon ledon  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc52.png"));
+    public final static ImageIcon ledoff = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc52.png"));
 
     // access the processor one way or another
     public abstract static class IAccess {
@@ -818,7 +824,7 @@ public class GUI extends JPanel {
         }
 
         // row 2 - data label
-        bits1715.add (centeredLabel (""));
+        bits1715.add (centeredLabel ("RUN"));
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
         bits1412.add (centeredLabel (""));
@@ -838,7 +844,7 @@ public class GUI extends JPanel {
         bits0200.add (centeredLabel ("A"));
 
         // row 3 - data bits
-        bits1715.add (centeredLabel (""));
+        bits1715.add (runled = new LED ());
         bits1715.add (centeredLabel (""));
         bits1715.add (dataleds[15] = new LED ());
         for (int i = 3; -- i >= 0;) {
@@ -850,7 +856,7 @@ public class GUI extends JPanel {
         }
 
         // row 4 - 777570 lights label
-        bits1715.add (centeredLabel (""));
+        bits1715.add (centeredLabel ("BER"));
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
         bits1412.add (centeredLabel (""));
@@ -870,7 +876,7 @@ public class GUI extends JPanel {
         bits0200.add (centeredLabel ("S"));
 
         // row 5 - 777570 lights
-        bits1715.add (centeredLabel (""));
+        bits1715.add (berrled = new FlashingLED ());
         bits1715.add (centeredLabel (""));
         bits1715.add (lregleds[15] = new LED ());
         for (int i = 3; -- i >= 0;) {
@@ -925,9 +931,6 @@ public class GUI extends JPanel {
         buttonbox1.add (startbutton = new StartButton ());
         buttonbox1.add (resetbutton = new ResetButton ());
         buttonbox1.add (bootbutton  = new BootButton  ());
-
-        buttonbox1.add (runled = new LED ());
-        buttonbox1.add (berrled = new FlashingLED ());
 
         JPanel messagebox = new JPanel ();
         add (messagebox);
@@ -997,66 +1000,59 @@ public class GUI extends JPanel {
         @Override   // ActionListener
         public void actionPerformed (ActionEvent ae)
         {
-            loc = (loc == Color.CYAN) ? Color.RED : Color.CYAN;
+            loc = (loc == Color.YELLOW) ? Color.RED : Color.YELLOW;
             repaint ();
         }
     }
 
-    public static class LED extends JPanel {
-        public final static int P = 5;  // padding
-        public final static int D = 20; // diameter
-
+    public static class LED extends JButton {
         public boolean ison;
         public Color loc;
 
+        private int dotxl, dotyt, dotw, doth;
+
         public LED ()
         {
-            this (ledoncolor);
+            this (Color.RED);
         }
 
         public LED (Color ledon)
         {
             loc = ledon;
-            Dimension d = new Dimension (P + D + P, P + D + P);
-            setMaximumSize (d);
-            setMinimumSize (d);
-            setPreferredSize (d);
-            setSize (d);
-            repaint ();
+            setMaximumSize (leddim);
+            setMinimumSize (leddim);
+            setPreferredSize (leddim);
+            setSize (leddim);
+            setIcon (ledoff);
+
+            dotw  = (int) leddim.getWidth  () * 2 / 3;
+            doth  = (int) leddim.getHeight () * 2 / 3;
+            dotxl = (int) leddim.getWidth  () / 6 + 2;
+            dotyt = (int) leddim.getHeight () / 6;
         }
 
         public void setOn (boolean on)
         {
             if (ison != on) {
                 ison = on;
-                repaint ();
+                setIcon (ison ? ledon : ledoff);
             }
         }
 
         @Override
         public void paint (Graphics g)
         {
-            g.setColor (Color.GRAY);
-            g.fillArc (P - 3, P - 3, D + 6, D + 6, 0, 360);
-            Color ledcolor = ison ? loc : Color.BLACK;
-            g.setColor (ledcolor);
-            g.fillArc (P, P, D, D, 0, 360);
+            super.paint (g);
+            if (ison) {
+                g.setColor (loc);
+                g.fillArc (dotxl, dotyt, dotw, doth, 0, 360);
+            }
         }
     }
 
-    public static class Switch extends JButton implements ActionListener {
-        public final static int P = 5;
-        public final static int D = 20;
-
-        public boolean ison;
-
+    public static class Switch extends LED implements ActionListener {
         public Switch ()
         {
-            Dimension d = new Dimension (P + D + P, P + D + P);
-            setMaximumSize (d);
-            setMinimumSize (d);
-            setPreferredSize (d);
-            setSize (d);
             addActionListener (this);
         }
 
@@ -1065,24 +1061,6 @@ public class GUI extends JPanel {
         {
             setOn (! ison);
             access.setsr (read18switches () & 0177777);
-        }
-
-        public void setOn (boolean on)
-        {
-            if (ison != on) {
-                ison = on;
-                repaint ();
-            }
-        }
-
-        @Override
-        public void paint (Graphics g)
-        {
-            g.setColor (Color.GRAY);
-            g.fillArc (P - 3, P - 3, D + 6, D + 6, 0, 360);
-            Color ledcolor = ison ? ledoncolor : Color.BLACK;
-            g.setColor (ledcolor);
-            g.fillArc (P, P, D, D, 0, 360);
         }
     }
 
@@ -1269,7 +1247,7 @@ public class GUI extends JPanel {
 
         public LdAdButton ()
         {
-            super ("LDAD");
+            super ("LD.AD");
         }
 
         @Override  // MemButton
@@ -1444,9 +1422,6 @@ public class GUI extends JPanel {
         "bus timed out",
         "parity error" };
 
-    public static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc.png"));
-    public static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc.png"));
-
     public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
         public MemButton (String lbl)
         {
@@ -1454,7 +1429,10 @@ public class GUI extends JPanel {
 
             addActionListener (this);
 
-            setPreferredSize (new Dimension (80, 80));
+            setMaximumSize (buttondim);
+            setMinimumSize (buttondim);
+            setPreferredSize (buttondim);
+            setSize (buttondim);
             setForeground (Color.WHITE);
             setIcon (buttonout);
             addMouseListener (this);
