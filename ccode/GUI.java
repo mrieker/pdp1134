@@ -23,12 +23,6 @@
 // run directly on zturn:
 //  ./GUI
 
-// can also do client/server:
-//  on zturn:
-//   ./GUI -listen 1234
-//  on homepc/raspi:
-//   ./GUI -connect zturn:1234
-
 // apt install default-jdk
 // ln -s /usr/lib/jvm/java-11-openjdk-armhf /opt/jdk
 
@@ -43,12 +37,7 @@ import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.io.BufferedReader;
-import java.io.EOFException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.ServerSocket;
-import java.net.Socket;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -65,16 +54,6 @@ public class GUI extends JPanel {
 
     public final static int UPDMS = 3;
 
-    public final static byte CB_STEP   = 1;
-    public final static byte CB_HALT   = 2;
-    public final static byte CB_CONT   = 3;
-    public final static byte CB_SAMPLE = 4;
-    public final static byte CB_SETSR  = 5;
-    public final static byte CB_RDMEM  = 6;
-    public final static byte CB_WRMEM  = 7;
-    public final static byte CB_RESET  = 8;
-    public final static byte CB_CHKHLT = 9;
-
     public final static Dimension buttondim = new Dimension (117, 117);
     public final static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc117.png"));
     public final static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc117.png"));
@@ -83,564 +62,43 @@ public class GUI extends JPanel {
     public final static ImageIcon ledon  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc52.png"));
     public final static ImageIcon ledoff = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc52.png"));
 
-    // access the processor one way or another
-    public abstract static class IAccess {
-        public int addr;
-        public int data;
-        public int lreg;
-        public int sreg;
-        public int running;
-
-        public abstract void sample ();
-        public abstract void step ();
-        public abstract void cont ();
-        public abstract void halt ();
-        public abstract void reset ();
-        public abstract boolean chkhlt ();
-        public abstract void setsr (int sr);
-        public abstract int rdmem (int addr);
-        public abstract int wrmem (int addr, int data);
-    }
-
-    // run the GUI with the given processor access
-    public static IAccess access;
-
     public static void main (String[] args)
-    {
-        try {
-
-            // maybe enter server mode
-            //  java GUI -listen <port>
-            if ((args.length > 1) && args[0].equals ("-listen")) {
-                int port = 0;
-                try {
-                    port = Integer.parseInt (args[1]);
-                } catch (Exception e) {
-                    System.err.println ("bad/missing -listen port number");
-                    System.exit (1);
-                }
-
-                // open access to the Zynq
-                String[] args2 = new String[args.length-2];
-                for (int i = 0; i < args2.length; i ++) args2[i] = args[i+2];
-                openAccess (args2);
-
-                // forward from incoming circuit to Zynq and wisa-wersa
-                runServer (port);
-                System.exit (0);
-            }
-
-            // not server, create window and show it
-            JFrame jframe = new JFrame ("PDP-11/34A");
-            jframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
-            jframe.setContentPane (new GUI ());
-            SwingUtilities.invokeLater (new Runnable () {
-                @Override
-                public void run ()
-                {
-                    jframe.pack ();
-                    jframe.setLocationRelativeTo (null);
-                    jframe.setVisible (true);
-                }
-            });
-
-            // open access to Zynq board
-            openAccess (args);
-
-            // get initial switch register contents from 777570
-            int srint = access.rdmem (0777570);
-            write16switches (srint);
-
-            // loop timer to update display from fpga & buttons/switches
-            runupdatimer = new Timer (UPDMS, updisplay);
-            runupdatimer.start ();
-        } catch (Exception e) {
-            e.printStackTrace ();
-            System.exit (1);
-        }
-    }
-
-    // set up access to the zynq board
-    // either direct (we're running on the zynq)
-    // ...or remote (we connecting to zynq via tcp connection)
-    public static void openAccess (String[] args)
             throws Exception
     {
-        // if -connect, use TCP to connect to server and access the processor that way
-        if ((args.length > 1) && args[0].equals ("-connect")) {
-            String host = "localhost";
-            int i = args[1].indexOf (':');
-            String portstr = args[1];
-            if (i >= 0) {
-                host = portstr.substring (0, i);
-                portstr = portstr.substring (++ i);
-            }
-            int port = 0;
-            try {
-                port = Integer.parseInt (portstr);
-            } catch (Exception e) {
-                System.err.println ("bad port number " + portstr);
-                System.exit (1);
-            }
-            Socket socket = new Socket (host, port);
-            access = new TCPAccess (socket);
-        }
-
-        else if (args.length > 0) {
+        if (args.length > 0) {
             System.err.println ("unknown argument/option " + args[0]);
             System.exit (1);
         }
 
-        // no -connect, access processor directly
-        else {
-            access = new DirectAccess ();
-        }
+        // open access to Zynq board
+        GUIZynqPage.open ();
+
+        // create window and show it
+        JFrame jframe = new JFrame ("PDP-11/34A");
+        jframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
+        jframe.setContentPane (new GUI ());
+        SwingUtilities.invokeLater (new Runnable () {
+            @Override
+            public void run ()
+            {
+                jframe.pack ();
+                jframe.setLocationRelativeTo (null);
+                jframe.setVisible (true);
+
+                // get initial switch register contents from 777570
+                int srint = GUIZynqPage.rdmem (0777570);
+                write16switches (srint);
+
+                // loop timer to update display from fpga & buttons/switches
+                Timer runupdatimer = new Timer (UPDMS, updisplay);
+                runupdatimer.start ();
+            }
+        });
     }
-
-    //////////////
-    //  SERVER  //
-    //////////////
-
-    // act as TCP server to control the processor
-    public static void runServer (int port)
-            throws Exception
-    {
-        ServerSocket serversocket = new ServerSocket (port);
-
-        while (true) {
-            Socket socket = null;
-            try {
-
-                // get inbound connection from client
-                System.out.println ("GUI: listening on port " + port);
-                socket = serversocket.accept ();
-                System.out.println ("GUI: connection accepted");
-                InputStream istream = socket.getInputStream ();
-                OutputStream ostream = socket.getOutputStream ();
-
-                // read and process incoming command bytes
-                byte[] sample = new byte[10];
-                for (int cmdbyte; (cmdbyte = istream.read ()) >= 0;) {
-                    switch (cmdbyte) {
-                        case CB_STEP: {
-                            access.step ();
-                            break;
-                        }
-                        case CB_HALT: {
-                            access.halt ();
-                            break;
-                        }
-                        case CB_CONT: {
-                            access.cont ();
-                            break;
-                        }
-                        case CB_SAMPLE: {
-                            access.sample ();
-
-                            sample[0] = (byte)(access.addr);
-                            sample[1] = (byte)(access.addr >>  8);
-                            sample[2] = (byte)(access.addr >>  16);
-                            sample[3] = (byte)(access.data);
-                            sample[4] = (byte)(access.data >>  8);
-                            sample[5] = (byte)(access.lreg);
-                            sample[6] = (byte)(access.lreg >>  8);
-                            sample[7] = (byte)(access.sreg);
-                            sample[8] = (byte)(access.sreg >>  8);
-                            sample[9] = (byte)(access.running);
-
-                            ostream.write (sample, 0, 10);
-                            break;
-                        }
-                        case CB_SETSR: {
-                            int sr = read24 (istream);
-                            access.setsr (sr);
-                            break;
-                        }
-                        case CB_RDMEM: {
-                            int addr = read24 (istream);
-                            int rc = access.rdmem (addr);
-                            sample[0] = (byte)(rc);
-                            sample[1] = (byte)(rc >>  8);
-                            sample[2] = (byte)(rc >> 16);
-                            sample[3] = (byte)(rc >> 24);
-                            ostream.write (sample, 0, 4);
-                            break;
-                        }
-                        case CB_WRMEM: {
-                            int addr = read24 (istream);
-                            int data = read16 (istream);
-                            int rc = access.wrmem (addr, data);
-                            sample[0] = (byte)(rc);
-                            sample[1] = (byte)(rc >>  8);
-                            sample[2] = (byte)(rc >> 16);
-                            sample[3] = (byte)(rc >> 24);
-                            ostream.write (sample, 0, 4);
-                            break;
-                        }
-                        case CB_RESET: {
-                            access.reset ();
-                            break;
-                        }
-                        case CB_CHKHLT: {
-                            boolean ok = access.chkhlt ();
-                            ostream.write ((byte) (ok ? 1 : 0));
-                            break;
-                        }
-                        default: {
-                            throw new Exception ("bad command byte received " + cmdbyte);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace ();
-            }
-            try {
-                socket.close ();
-            } catch (Exception e) { }
-        }
-    }
-
-    // read string from client
-    // - two-byte little endian bytecount
-    // - byte string
-    public static String readString (InputStream istream)
-            throws Exception
-    {
-        int len = read16 (istream);
-        byte[] bytes = new byte[len];
-        for (int i = 0; i < len;) {
-            int rc = istream.read (bytes, i, len - i);
-            if (rc <= 0) throw new EOFException ("EOF reading network");
-            i += rc;
-        }
-        return new String (bytes);
-    }
-
-    // read 16-bit integer from client
-    // - little endian
-    public static int read16 (InputStream istream)
-            throws Exception
-    {
-        int value = istream.read ();
-        value |= istream.read () << 8;
-        if (value < 0) throw new EOFException ("EOF reading network");
-        return value;
-    }
-
-    // read 24-bit integer from client
-    // - little endian
-    public static int read24 (InputStream istream)
-            throws Exception
-    {
-        int value = istream.read ();
-        value |= istream.read () <<  8;
-        value |= istream.read () << 16;
-        if (value < 0) throw new EOFException ("EOF reading network");
-        return value;
-    }
-
-    //////////////
-    //  CLIENT  //
-    //////////////
-
-    // access the processor via TCP connection
-    public static class TCPAccess extends IAccess {
-        public InputStream istream;
-        public OutputStream ostream;
-
-        public byte[] samplebytes = new byte[25];
-
-        public TCPAccess (Socket socket)
-            throws Exception
-        {
-            istream = socket.getInputStream ();
-            ostream = socket.getOutputStream ();
-        }
-
-        @Override
-        public void step ()
-        {
-            try {
-                ostream.write (CB_STEP);
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-        }
-
-        @Override
-        public void cont ()
-        {
-            try {
-                ostream.write (CB_CONT);
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-        }
-
-        @Override
-        public void halt ()
-        {
-            try {
-                ostream.write (CB_HALT);
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-        }
-
-        @Override
-        public void reset ()
-        {
-            try {
-                ostream.write (CB_RESET);
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-        }
-
-        @Override
-        public boolean chkhlt ()
-        {
-            int rc = 0;
-            try {
-                ostream.write (CB_CHKHLT);
-                rc = istream.read ();
-                if (rc < 0) throw new EOFException ("eof reading network");
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-            return rc > 0;
-        }
-
-        @Override
-        public void sample ()
-        {
-            try {
-                ostream.write (CB_SAMPLE);
-                for (int i = 0; i < 9;) {
-                    int rc = istream.read (samplebytes, i, 10 - i);
-                    if (rc <= 0) throw new EOFException ("eof reading network");
-                    i += rc;
-                }
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-
-            addr = ((samplebytes[2] & 0xFF) << 16) | ((samplebytes[1] & 0xFF) << 8) | (samplebytes[0] & 0xFF);
-            data =                                   ((samplebytes[4] & 0xFF) << 8) | (samplebytes[3] & 0xFF);
-            lreg =                                   ((samplebytes[6] & 0xFF) << 8) | (samplebytes[5] & 0xFF);
-            sreg =                                   ((samplebytes[8] & 0xFF) << 8) | (samplebytes[7] & 0xFF);
-            running = samplebytes[9];
-        }
-
-        @Override
-        public void setsr (int sr)
-        {
-            samplebytes[0] = CB_SETSR;
-            samplebytes[1] = (byte) sr;
-            samplebytes[2] = (byte) (sr >> 8);
-            samplebytes[3] = (byte) (sr >> 16);
-            try {
-                ostream.write (samplebytes, 0, 4);
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-        }
-
-        @Override
-        public int rdmem (int addr)
-        {
-            samplebytes[0] = CB_RDMEM;
-            samplebytes[1] = (byte) addr;
-            samplebytes[2] = (byte) (addr >> 8);
-            samplebytes[3] = (byte) (addr >> 16);
-            try {
-                ostream.write (samplebytes, 0, 4);
-                for (int i = 0; i < 4;) {
-                    int rc = istream.read (samplebytes, i, 4 - i);
-                    if (rc <= 0) throw new EOFException ("eof reading network");
-                    i += rc;
-                }
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-            return ((samplebytes[3] & 0xFF) << 24) | ((samplebytes[2] & 0xFF) << 16) | ((samplebytes[1] & 0xFF) << 8) | (samplebytes[0] & 0xFF);
-        }
-
-        @Override
-        public int wrmem (int addr, int data)
-        {
-            samplebytes[0] = CB_WRMEM;
-            samplebytes[1] = (byte) addr;
-            samplebytes[2] = (byte) (addr >> 8);
-            samplebytes[3] = (byte) (addr >> 16);
-            samplebytes[4] = (byte) data;
-            samplebytes[5] = (byte) (data >> 8);
-            try {
-                ostream.write (samplebytes, 0, 6);
-                for (int i = 0; i < 4;) {
-                    int rc = istream.read (samplebytes, i, 4 - i);
-                    if (rc <= 0) throw new EOFException ("eof reading network");
-                    i += rc;
-                }
-            } catch (Exception e) {
-                e.printStackTrace ();
-                System.exit (1);
-            }
-            return ((samplebytes[3] & 0xFF) << 24) | ((samplebytes[2] & 0xFF) << 16) | ((samplebytes[1] & 0xFF) << 8) | (samplebytes[0] & 0xFF);
-        }
-    }
-
-    /////////////////////
-    //  DIRECT ACCESS  //
-    /////////////////////
-
-    // access the zynq fpga page via mmap()
-    public static class DirectAccess extends IAccess {
-
-        public DirectAccess ()
-        {
-            GUIZynqPage.open ();
-        }
-
-        @Override
-        public void step ()
-        {
-            GUIZynqPage.step ();
-        }
-
-        @Override
-        public void cont ()
-        {
-            GUIZynqPage.cont ();
-        }
-
-        @Override
-        public void halt ()
-        {
-            GUIZynqPage.halt ();
-        }
-
-        @Override
-        public void reset ()
-        {
-            GUIZynqPage.reset ();
-        }
-
-        @Override
-        public boolean chkhlt ()
-        {
-            for (int i = 0; GUIZynqPage.running () > 0; i ++) {
-                if (i > 100000) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        @Override
-        public void sample ()
-        {
-            addr = GUIZynqPage.addr ();
-            data = GUIZynqPage.data ();
-            lreg = GUIZynqPage.getlr ();
-            sreg = GUIZynqPage.getsr ();
-            running = GUIZynqPage.running ();
-        }
-
-        @Override
-        public void setsr (int sr)
-        {
-            GUIZynqPage.setsr (sr);
-        }
-
-        @Override
-        public int rdmem (int addr)
-        {
-            return GUIZynqPage.rdmem (addr);
-        }
-
-        @Override
-        public int wrmem (int addr, int data)
-        {
-            return GUIZynqPage.wrmem (addr, data);
-        }
-    }
-
-    // convert virtual address to physical address
-    public static int vatopa (int va, int mode)
-    {
-        if ((va < 0) || (va > 0177777)) return -1;
-        int mmr0 = access.rdmem (0777572);
-        if (mmr0 < 0) return -2;
-        if ((mmr0 & 1) == 0) {
-            if (va >= 0160000) va |= 0760000;
-            return va;
-        }
-        if (mode < 0) {
-            int psw = access.rdmem (0777776);
-            if (psw < 0) return -3;
-            mode = psw >> 14;
-        }
-        int regs = 0;
-        switch (mode) {
-            case 0: regs = 0772300; break;
-            case 3: regs = 0777600; break;
-            default: return -4;
-        }
-        int page = va >> 13;
-        int pdr = access.rdmem (regs + 2 * page);
-        if (pdr < 0) return -5;
-        if ((pdr & 2) == 0) return -6;
-        int blok = (va  >> 6) & 0177;
-        int len  = (pdr >> 8) & 0177;
-        if ((pdr & 8) != 0) {
-            if (blok < len) return -7;
-        } else {
-            if (blok > len) return -8;
-        }
-        int par = access.rdmem (regs + 040 + 2 * page);
-        if (par < 0) return -9;
-        return (va & 017777) + ((par & 07777) << 6);
-    }
-
-    public static String[] vatopaerr = {
-        "va out of range",
-        "unable to read mmr0",
-        "unable to read psw",
-        "invalid processor mode",
-        "unable to read pdr",
-        "page marked no-access",
-        "below length of expand-down page",
-        "above length of expand-up page",
-        "unable to read par" };
 
     ////////////////////
     //  GUI ELEMENTS  //
     ////////////////////
-
-    public static long lastcc = -1;
-
-    public static LED gpioiakled;
-    public static LED gpiowrled;
-    public static LED gpiordled;
-    public static LED gpiodfled;
-    public static LED gpioioled;
-    public static LED gpiojmpled;
-    public static LED gpiodenled;
-    public static LED gpioirqled;
-    public static LED gpioqenled;
-    public static LED gpioiosled;
-    public static LED gpioresled;
-    public static LED gpioclkled;
-    public static LED[] mbleds = new LED[13];
 
     public static JLabel[] addrlbls = new JLabel[18];
     public static LED[]    addrleds = new LED[18];
@@ -670,46 +128,50 @@ public class GUI extends JPanel {
             @Override
             public void actionPerformed (ActionEvent ae)
             {
-                // read values from zynq fpga (either directly or via tcp)
-                access.sample ();
+                // read values from zynq fpga
+                int sample_addr = GUIZynqPage.addr ();
+                int sample_data = GUIZynqPage.data ();
+                int sample_lreg = GUIZynqPage.getlr ();
+                int sample_sreg = GUIZynqPage.getsr ();
+                int sample_running = GUIZynqPage.running ();
 
                 // run light always says what is happening
-                runled.setOn (access.running > 0);
+                runled.setOn (sample_running > 0);
 
                 // light register lights also always reflect the fpga register
-                writelregleds (access.lreg);
+                writelregleds (sample_lreg);
 
                 // same with switch register - in case z11ctrl or similar flips them
                 // the upper 2 switches are only kept here (no way for z11ctrl etc to flip them)
-                write16switches (access.sreg & 0177777);
+                write16switches (sample_sreg & 0177777);
 
                 // update grayed buttons based on running state
                 //  running = +1 : processor is running
                 //             0 : processor halted but is resumable
                 //            -1 : processor halted, reset required
-                if (lastrunning != access.running) {
-                    ldadbutton.setEnabled  (access.running <= 0);
-                    exambutton.setEnabled  (access.running <= 0);
-                    depbutton.setEnabled   (access.running <= 0);
-                    haltbutton.setEnabled  (access.running  > 0);
-                    stepbutton.setEnabled  (access.running == 0);
-                    contbutton.setEnabled  (access.running == 0);
-                    startbutton.setEnabled (access.running <= 0);
+                if (lastrunning != sample_running) {
+                    ldadbutton.setEnabled  (sample_running <= 0);
+                    exambutton.setEnabled  (sample_running <= 0);
+                    depbutton.setEnabled   (sample_running <= 0);
+                    haltbutton.setEnabled  (sample_running  > 0);
+                    stepbutton.setEnabled  (sample_running == 0);
+                    contbutton.setEnabled  (sample_running == 0);
+                    startbutton.setEnabled (sample_running <= 0);
                     resetbutton.setEnabled (true);
                     bootbutton.setEnabled  (true);
                 }
 
                 // if processor currently running, update lights from what fpga last captured from unibus
-                if (access.running > 0) {
-                    writeaddrleds (access.addr);
-                    writedataleds (access.data);
+                if (sample_running > 0) {
+                    writeaddrleds (sample_addr);
+                    writedataleds (sample_data);
                     berrled.setOn (false);
                 }
 
                 // if processor just halted, display PC,PS
                 else if (lastrunning > 0) {
-                    int pc = access.rdmem (0777707);
-                    int ps = access.rdmem (0777776);
+                    int pc = GUIZynqPage.rdmem (0777707);
+                    int ps = GUIZynqPage.rdmem (0777776);
                     String text = "";
                     if (pc >= 0) {
                         text += String.format ("stopped at PC %06o", pc);
@@ -739,15 +201,14 @@ public class GUI extends JPanel {
                     messagelabel.setText (text);
                 }
 
-                if (lastrunning != access.running) {
-                    lastrunning = access.running;
+                if (lastrunning != sample_running) {
+                    lastrunning = sample_running;
                     updateaddrlabel ();
                 }
             }
         };
 
     public static int lastrunning = 12345;
-    public static Timer runupdatimer;
 
     // build the display
     public GUI ()
@@ -1060,7 +521,7 @@ public class GUI extends JPanel {
         public void actionPerformed (ActionEvent ae)
         {
             setOn (! ison);
-            access.setsr (read18switches () & 0177777);
+            GUIZynqPage.setsr (read18switches () & 0177777);
         }
     }
 
@@ -1079,7 +540,7 @@ public class GUI extends JPanel {
         {
             berrled.setOn (false);
             messagelabel.setText ("stepping processor");
-            access.step ();                     // tell processor to step single instruction
+            GUIZynqPage.step ();                     // tell processor to step single instruction
             checkforhalt ();                    // make sure it halted
             lastrunning = 12345;                // force updisplay to refresh everything
             updisplay.actionPerformed (null);   // update display
@@ -1098,7 +559,7 @@ public class GUI extends JPanel {
         {
             berrled.setOn (false);
             messagelabel.setText ("halting processor");
-            access.halt ();                     // tell processor to stop executing instructions
+            GUIZynqPage.halt ();                     // tell processor to stop executing instructions
             checkforhalt ();                    // make sure it halted
             updisplay.actionPerformed (null);   // update display
         }
@@ -1116,7 +577,7 @@ public class GUI extends JPanel {
         {
             berrled.setOn (false);
             messagelabel.setText ("resuming processor");
-            access.cont ();
+            GUIZynqPage.cont ();
             messagelabel.setText ("processor resumed");
             updisplay.actionPerformed (null);
         }
@@ -1134,7 +595,7 @@ public class GUI extends JPanel {
         {
             berrled.setOn (false);
             messagelabel.setText ("resetting processor");
-            access.reset ();
+            GUIZynqPage.reset ();
             checkforhalt ();
             messagelabel.setText ("processor reset complete");
             updisplay.actionPerformed (null);
@@ -1210,16 +671,16 @@ public class GUI extends JPanel {
         {
             berrled.setOn (false);
             messagelabel.setText ("resetting processor");
-            access.reset ();
+            GUIZynqPage.reset ();
             if (checkforhalt ()) {
                 messagelabel.setText ("writing PC and PS");
-                if (access.wrmem (0777707, loadedaddress) < 0) {
+                if (GUIZynqPage.wrmem (0777707, loadedaddress) < 0) {
                     messagelabel.setText ("writing PC failed");
-                } else if (access.wrmem (0777776, 0340) < 0) {
+                } else if (GUIZynqPage.wrmem (0777776, 0340) < 0) {
                     messagelabel.setText ("writing PS failed");
                 } else {
                     messagelabel.setText (String.format ("starting at %06o", loadedaddress));
-                    access.cont  ();
+                    GUIZynqPage.cont  ();
                 }
             }
             updisplay.actionPerformed (null);
@@ -1229,9 +690,13 @@ public class GUI extends JPanel {
     // halt was requested, wait here for processor to actually halt
     public static boolean checkforhalt ()
     {
-        boolean ok = access.chkhlt ();
-        if (! ok) messagelabel.setText ("processor failed to halt");
-        return ok;
+        for (int i = 0; GUIZynqPage.running () > 0; i ++) {
+            if (i > 100000) {
+                messagelabel.setText ("processor failed to halt");
+                return false;
+            }
+        }
+        return true;
     }
 
     ///////////////////////////
@@ -1291,7 +756,7 @@ public class GUI extends JPanel {
     // update VIRT/PHYS tag on address lights label
     public static void updateaddrlabel ()
     {
-        if (loadedaddrvirt & (access.running <= 0)) {
+        if (loadedaddrvirt & (GUIZynqPage.running () <= 0)) {
             addrlbls[15].setText ("");
             addrlbls[14].setText ("V");
             addrlbls[13].setText ("I");
@@ -1328,7 +793,7 @@ public class GUI extends JPanel {
         @Override  // ExDepButton
         public int rwmem (int pa)
         {
-            return access.rdmem (pa);
+            return GUIZynqPage.rdmem (pa);
         }
     }
 
@@ -1349,7 +814,7 @@ public class GUI extends JPanel {
         public int rwmem (int pa)
         {
             int data = read18switches () & 0177777;
-            return access.wrmem (pa, data);
+            return GUIZynqPage.wrmem (pa, data);
         }
     }
 
@@ -1417,6 +882,54 @@ public class GUI extends JPanel {
             autoincrement = rc >= 0;
         }
     }
+
+    // convert virtual address to physical address
+    public static int vatopa (int va, int mode)
+    {
+        if ((va < 0) || (va > 0177777)) return -1;
+        int mmr0 = GUIZynqPage.rdmem (0777572);
+        if (mmr0 < 0) return -2;
+        if ((mmr0 & 1) == 0) {
+            if (va >= 0160000) va |= 0760000;
+            return va;
+        }
+        if (mode < 0) {
+            int psw = GUIZynqPage.rdmem (0777776);
+            if (psw < 0) return -3;
+            mode = psw >> 14;
+        }
+        int regs = 0;
+        switch (mode) {
+            case 0: regs = 0772300; break;
+            case 3: regs = 0777600; break;
+            default: return -4;
+        }
+        int page = va >> 13;
+        int pdr = GUIZynqPage.rdmem (regs + 2 * page);
+        if (pdr < 0) return -5;
+        if ((pdr & 2) == 0) return -6;
+        int blok = (va  >> 6) & 0177;
+        int len  = (pdr >> 8) & 0177;
+        if ((pdr & 8) != 0) {
+            if (blok < len) return -7;
+        } else {
+            if (blok > len) return -8;
+        }
+        int par = GUIZynqPage.rdmem (regs + 040 + 2 * page);
+        if (par < 0) return -9;
+        return (va & 017777) + ((par & 07777) << 6);
+    }
+
+    public static String[] vatopaerr = {
+        "va out of range",
+        "unable to read mmr0",
+        "unable to read psw",
+        "invalid processor mode",
+        "unable to read pdr",
+        "page marked no-access",
+        "below length of expand-down page",
+        "above length of expand-up page",
+        "unable to read par" };
 
     public static String[] rwmemerr = {
         "bus timed out",
