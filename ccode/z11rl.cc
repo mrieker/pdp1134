@@ -33,10 +33,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/time.h>
 #include <tcl.h>
 #include <unistd.h>
 
+#include "futex.h"
+#include "shmrl.h"
 #include "tclmain.h"
 #include "z11defs.h"
 #include "z11util.h"
@@ -71,7 +74,7 @@
 
 #define RFLD(n,m) ((ZRD(rlat[n]) & m) / (m & - m))
 
-static bool ros[4], vcs[4];
+static bool vcs[4];
 static int debug;
 static int fds[4];
 static uint16_t latestpositions[4];
@@ -89,13 +92,38 @@ static TclFunDef const fundefs[] = {
     { NULL, NULL, NULL }
 };
 
-#define LOCKIT if (pthread_mutex_lock (&lock) != 0) ABORT ()
-#define UNLKIT if (pthread_mutex_unlock (&lock) != 0) ABORT ()
+#define LOCKIT mutexlock()
+#define UNLKIT mutexunlk()
 
 static bool volatile exiting;
-static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static int mypid;
+static ShmRL *shmrl;
 static uint32_t volatile *rlat;
 static Z11Page *z11p;
+
+static void mutexlock ()
+{
+    int newfutex = mypid;
+    int tmpfutex = 0;
+    while (true) {
+        if (atomic_compare_exchange (&shmrl->rlfutex, &tmpfutex, newfutex)) break;
+        if ((kill (tmpfutex, 0) < 0) && (errno == ESRCH)) {
+            fprintf (stderr, "z11rl: locker %d dead\n", tmpfutex);
+        } else {
+            int rc = futex (&shmrl->rlfutex, FUTEX_WAIT, tmpfutex, NULL, NULL, 0);
+            if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
+            tmpfutex = 0;
+        }
+    }
+}
+
+static void mutexunlk ()
+{
+    int newfutex = 0;
+    int tmpfutex = mypid;
+    if (! atomic_compare_exchange (&shmrl->rlfutex, &tmpfutex, newfutex)) ABORT ();
+    if (futex (&shmrl->rlfutex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+}
 
 static int loaddisk (bool readwrite, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const *filenm);
@@ -106,9 +134,32 @@ static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint3
 int main (int argc, char **argv)
 {
     memset (fds, -1, sizeof fds);
+    mypid = getpid ();
 
+    // create shared memory page
+    shm_unlink (SHMRL_NAME);
+    int shmfd = shm_open (SHMRL_NAME, O_RDWR | O_CREAT, 0666);
+    if (shmfd < 0) {
+        fprintf (stderr, "error creating %s: %m\n", SHMRL_NAME);
+        return 1;
+    }
+    if (ftruncate (shmfd, sizeof *shmrl) < 0) ABORT ();
+    shmrl = (ShmRL *) mmap (NULL, sizeof *shmrl, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+    if (shmrl == MAP_FAILED) {
+        fprintf (stderr, "error mmapping %s: %m\n", SHMRL_NAME);
+        return 1;
+    }
+
+    // initialize shared memory
+    memset (shmrl, 0, sizeof *shmrl);
+
+    // put our pid in there in case we die when something is waiting for us to do something
+    shmrl->svrpid = getpid ();
+
+    // parse command line
     bool killit = false;
     bool loadit = false;
+    bool notcl  = false;
     int tclargs = argc;
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
@@ -136,29 +187,37 @@ int main (int argc, char **argv)
         if ((strcasecmp (argv[i], "-loadro") == 0) || (strcasecmp (argv[i], "-loadrw") == 0)) {
             if ((i + 2 >= argc) || (argv[i+1][0] == '-') || (argv[i+2][0] == '-')) {
                 fprintf (stderr, "missing disknumber and/or filename for -loadro/rw\n");
+                UNLKIT;
                 return 1;
             }
             char *p;
             int diskno = strtol (argv[i+1], &p, 0);
             if ((*p != 0) || (diskno < 0) || (diskno > 3)) {
                 fprintf (stderr, "disknumber %s must be integer in range 0..3\n", argv[i+1]);
+                UNLKIT;
                 return 1;
             }
-            fds[diskno] = i;
-            ros[diskno] = strcasecmp (argv[i], "-loadro") == 0;
+            shmrl->drives[diskno].readonly = strcasecmp (argv[i], "-loadro") == 0;
+            strncpy (shmrl->drives[diskno].filename, argv[i+2], sizeof shmrl->drives[diskno].filename);
+            shmrl->drives[diskno].filename[sizeof shmrl->drives[diskno].filename-1] = 0;
             loadit = true;
             i += 2;
             continue;
         }
+        if (strcasecmp (argv[i], "-notcl") == 0) {
+            notcl = true;
+            continue;
+        }
         if (argv[i][0] == '-') {
             fprintf (stderr, "unknown option %s\n", argv[i]);
+            UNLKIT;
             return 1;
         }
         tclargs = i;
         break;
     }
 
-    z11p  = new Z11Page ();
+    z11p = new Z11Page ();
     rlat = z11p->findev ("RL", NULL, NULL, true, killit);
     ZWR(rlat[5], RL5_ENAB);     // enable board to process io instructions
 
@@ -166,13 +225,14 @@ int main (int argc, char **argv)
     char const *dbgenv = getenv ("z11rl_debug");
     if (dbgenv != NULL) debug = atoi (dbgenv);
 
-    // if -load option, load files then just run io calls
-    if (loadit) {
+    // if -load option (or -notcl), load files then just run io calls
+    if (loadit || notcl) {
         for (int diskno = 0; diskno <= 3; diskno ++) {
-            int i = fds[diskno];
-            if (i >= 0) {
+            if (shmrl->drives[diskno].filename[0] != 0) {
                 fds[diskno] = -1;
-                if (! loadfile (NULL, ! ros[diskno], diskno, argv[i+2])) return 1;
+                if (! loadfile (NULL, ! shmrl->drives[diskno].readonly, diskno, shmrl->drives[diskno].filename)) {
+                    return 1;
+                }
             }
         }
         rlthread (NULL);
@@ -257,7 +317,7 @@ static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const
     LOCKIT;
     close (fds[diskno]);
     fds[diskno] = fd;
-    ros[diskno] = ! readwrite;
+    shmrl->drives[diskno].readonly = ! readwrite;
     vcs[diskno] = true;
     latestpositions[diskno] = 0;
     UNLKIT;
@@ -299,6 +359,37 @@ void *rlthread (void *dummy)
 
         LOCKIT;
 
+        // check for load/unload commands in shared memory waiting to be processed
+        switch (shmrl->command) {
+
+            // something requesting file be loaded
+            case SHMRLCMD_LOAD+0 ... SHMRLCMD_LOAD+3: {
+                int driveno = shmrl->command - SHMRLCMD_LOAD;
+                ShmRLDrive *dr = &shmrl->drives[driveno];
+                UNLKIT;
+                if (loadfile (NULL, ! dr->readonly, driveno, dr->filename)) {
+                    shmrl->lderrno = 0;
+                } else {
+                    shmrl->lderrno = errno;
+                }
+                LOCKIT;
+                shmrl->command = SHMRLCMD_DONE;
+                break;
+            }
+
+            // something requesting file be unloaded
+            case SHMRLCMD_UNLD+0 ... SHMRLCMD_UNLD+3: {
+                int driveno = shmrl->command - SHMRLCMD_UNLD;
+                ShmRLDrive *dr = &shmrl->drives[driveno];
+                dr->filename[0] = 0;
+                close (fds[driveno]);
+                fds[driveno] = -1;
+                shmrl->command = SHMRLCMD_DONE;
+                break;
+            }
+        }
+
+        // see if command from pdp waiting to be processed
         struct timespec nowts;
         if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
         uint64_t nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
@@ -397,7 +488,7 @@ void *rlthread (void *dummy)
                         vcs[drivesel] = false;
                     }
                     rlmp = 0x008DU;                     // 0 0 wl 0 -- 0 wge vc 0 -- 1 hs 0 ho -- 1 0 0 0
-                    if (ros[drivesel]) rlmp |= 0x2000U; // write locked
+                    if (shmrl->drives[drivesel].readonly) rlmp |= 0x2000U; // write locked
                     if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
                     rlmp |= latestpositions[drivesel] & 0x0040U; // head select
                     if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk

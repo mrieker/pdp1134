@@ -38,6 +38,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import javax.imageio.ImageIO;
 import javax.swing.BoxLayout;
@@ -46,8 +47,10 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
@@ -136,6 +139,8 @@ public class GUI extends JPanel {
     public static DevCkBox kwckbox;
     public static DevCkBox kyckbox;
     public static DevCkBox rlckbox;
+
+    public static RLDrive[] rldrives = new RLDrive[4];
 
     // update display with processor state - runs continuously
     // if processor is running, display current processor state
@@ -234,6 +239,8 @@ public class GUI extends JPanel {
                 dlckbox.update ();
                 kwckbox.update ();
                 kyckbox.update ();
+
+                for (int i = 0; i < 4; i ++) rldrives[i].update ();
             }
         };
 
@@ -450,6 +457,11 @@ public class GUI extends JPanel {
         ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
         ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
         ////ckboxrow.add (rlckbox = new DevCkBox ("rl_enable"));
+
+        add (rldrives[0] = new RLDrive (0));
+        add (rldrives[1] = new RLDrive (1));
+        add (rldrives[2] = new RLDrive (2));
+        add (rldrives[3] = new RLDrive (3));
     }
 
     public static JLabel centeredLabel (String label)
@@ -1164,6 +1176,148 @@ public class GUI extends JPanel {
             if (isenab != en) {
                 isenab = en;
                 GUIZynqPage.pinset (enabpinindex, isenab ? 1 : 0);
+            }
+        }
+    }
+
+    /////////////////
+    //  RL DRIVES  //
+    /////////////////
+
+    public static File rlchooserdirectory;
+
+    public static class RLButton extends JButton {
+        public boolean ison;
+        public Color offcolor;
+        public Color oncolor;
+
+        public RLButton (String label, Color oncolor, Color offcolor)
+        {
+            super (label);
+            this.offcolor = offcolor;
+            this.oncolor  = oncolor;
+            //Dimension d = new Dimension (80, 80);
+            //setPreferredSize (d);
+            setBackground (offcolor);
+        }
+
+        public void setOn (boolean on)
+        {
+            if (ison != on) {
+                ison = on;
+                setBackground (ison ? oncolor : offcolor);
+            }
+        }
+    }
+
+    public static class RLDrive extends JPanel {
+        public int drive;
+        public JLabel rlmessage;
+        public long blockmsgupdates;
+        public RLButton loadbutton;
+        public RLButton readylight;
+        public RLButton faultlight;
+        public RLButton wprtswitch;
+
+        public final static int RLDISKSIZE = 512*2*40*256;  // bytes in disk file
+
+        public RLDrive (int d)
+        {
+            drive = d;
+
+            setLayout (new BoxLayout (this, BoxLayout.Y_AXIS));
+
+            // make a row for the 4 buttons
+            JPanel buttonrow = new JPanel ();
+            buttonrow.setLayout (new BoxLayout (buttonrow, BoxLayout.X_AXIS));
+            add (buttonrow);
+
+            buttonrow.add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
+            buttonrow.add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
+            buttonrow.add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
+            buttonrow.add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
+            buttonrow.add (new JLabel ("   "));
+            buttonrow.add (rlmessage  = new JLabel (""));
+
+            Dimension md = new Dimension (600, 50);
+            rlmessage.setMaximumSize (md);
+            rlmessage.setMinimumSize (md);
+            rlmessage.setPreferredSize (md);
+            rlmessage.setSize (md);
+
+            // do something when LOAD button is clicked
+            loadbutton.addActionListener (new ActionListener () {
+                public void actionPerformed (ActionEvent ae)
+                {
+                    if ((GUIZynqPage.rlstat (drive) & GUIZynqPage.RLSTAT_LOAD) == 0) {
+
+                        // display chooser box to select file to load
+                        JFileChooser chooser = new JFileChooser ();
+                        chooser.setDialogTitle ("Loading RL drive " + drive);
+                        if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
+                        int rc = chooser.showOpenDialog (RLDrive.this);
+                        if (rc == JFileChooser.APPROVE_OPTION) {
+
+                            // file selected, pass to z11rl via shared memory
+                            File   ff = chooser.getSelectedFile ();
+                            rlchooserdirectory = ff.getParentFile ();
+                            long size = ff.length ();
+                            if ((size == RLDISKSIZE) || (JOptionPane.showConfirmDialog (RLDrive.this,
+                                    ff.getName () + " size " + size + " is not " + RLDISKSIZE + "\nAre you sure you want to load it?",
+                                    "Loading Drive", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
+                                String fn = ff.getAbsolutePath ();
+                                String er = GUIZynqPage.rlload (drive, wprtswitch.ison, fn);
+                                if (er != null) {
+                                    rlmessage.setText ("error loading: " + er);
+                                    blockmsgupdates = System.currentTimeMillis () + 5000;
+                                    loadbutton.setOn (false);
+                                } else {
+                                    rlmessage.setText (fn);
+                                    loadbutton.setOn (true);
+                                }
+                            }
+                        }
+                    } else {
+
+                        // unload whatever is in there
+                        if (JOptionPane.showConfirmDialog (RLDrive.this,
+                                "Are you sure you want to unload drive " + drive + "?",
+                                "Unloading Drive",
+                                JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+                            GUIZynqPage.rlload (drive, wprtswitch.ison, null);
+                            rlmessage.setText ("");
+                            loadbutton.setOn (false);
+                        }
+                    }
+                }
+            });
+
+            // do something when WRPRT button is clicked
+            // allow changes only when unloaded
+            wprtswitch.addActionListener (new ActionListener () {
+                public void actionPerformed (ActionEvent ae)
+                {
+                    if ((GUIZynqPage.rlstat (drive) & GUIZynqPage.RLSTAT_LOAD) == 0) {
+                        GUIZynqPage.rlload (drive, ! wprtswitch.ison, null);
+                    } else {
+                        rlmessage.setText ("write protect change allowed only when unloaded");
+                        blockmsgupdates = System.currentTimeMillis () + 5000;
+                    }
+                }
+            });
+        }
+
+        // update buttons and text to match fpga & shared memory
+        public void update ()
+        {
+            int stat = GUIZynqPage.rlstat (drive);
+            loadbutton.setOn ((stat & GUIZynqPage.RLSTAT_LOAD)  != 0);
+            wprtswitch.setOn ((stat & GUIZynqPage.RLSTAT_WRPRT) != 0);
+            readylight.setOn ((stat & GUIZynqPage.RLSTAT_READY) != 0);
+            faultlight.setOn ((stat & GUIZynqPage.RLSTAT_FAULT) != 0);
+            if ((blockmsgupdates == 0) || (System.currentTimeMillis () > blockmsgupdates)) {
+                rlmessage.setText (GUIZynqPage.rlfile (drive));
+                blockmsgupdates = 0;
             }
         }
     }

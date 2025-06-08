@@ -34,4 +34,13 @@ public class GUIZynqPage {
     public native static int pinfind (String name);
     public native static int pinget (int index);
     public native static boolean pinset (int index, int value);
+
+    public final static int RLSTAT_LOAD  = 1;
+    public final static int RLSTAT_WRPRT = 2;
+    public final static int RLSTAT_READY = 4;
+    public final static int RLSTAT_FAULT = 8;
+
+    public native static String rlload (int drive, boolean readonly, String filename);
+    public native static int    rlstat (int drive);
+    public native static String rlfile (int drive);
 }

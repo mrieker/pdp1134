@@ -6,5 +6,6 @@ dir=`dirname $0`
 unm=`uname -m`
 $dir/loadmod.sh
 export CLASSPATH=$0.jar
+export GUI_Z11RL=$dir/z11rl
 export LD_LIBRARY_PATH=$dir
 exec java -Dccode=$dir -Dunamem=$unm GUI "$@"
