@@ -22,8 +22,10 @@
 
 #include "GUIZynqPage.h"
 
+#include <string.h>
 #include <unistd.h>
 
+#include "pintable.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -31,7 +33,7 @@
 
 #define FIELD(x,m) ((x & m) / (m & - m))
 
-static Z11Page *z11page;
+static int maxpinidx;
 static uint32_t volatile *pdpat;
 static uint32_t volatile *kyat;
 
@@ -194,4 +196,56 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_wrmem
   (JNIEnv *env, jclass klass, jint addr, jint data)
 {
     return z11page->dmawrite (addr, data) ? data : -1;
+}
+
+/*
+ * Class:     GUIZynqPage
+ * Method:    pinfind
+ * Signature: (Ljava/lang/String;)I
+ */
+JNIEXPORT jint JNICALL Java_GUIZynqPage_pinfind
+  (JNIEnv *env, jclass klass, jstring namestr)
+{
+    char const *nameutf = EXCKR (env->GetStringUTFChars (namestr, NULL));
+    int index;
+    for (index = 0; pindefs[index].name[0] != 0; index ++) {
+        if (strcasecmp (pindefs[index].name, nameutf) == 0) goto gotit;
+    }
+    index = -1;
+gotit:;
+    if (maxpinidx < index) maxpinidx = index;
+    env->ReleaseStringUTFChars (namestr, nameutf);
+    return index;
+}
+
+/*
+ * Class:     GUIZynqPage
+ * Method:    pinget
+ * Signature: (I)I
+ */
+JNIEXPORT jint JNICALL Java_GUIZynqPage_pinget
+  (JNIEnv *env, jclass klass, jint index)
+{
+    if ((index < 0) || (index > maxpinidx)) ABORT ();
+    PinDef const *pte = pindefs + index;
+    uint32_t volatile *ptr = pindev (pte->dev) + pte->reg;
+    return (*ptr & pte->mask) / (pte->mask & - pte->mask);
+}
+
+/*
+ * Class:     GUIZynqPage
+ * Method:    pinset
+ * Signature: (II)Z
+ */
+JNIEXPORT jboolean JNICALL Java_GUIZynqPage_pinset
+  (JNIEnv *env, jclass klass, jint index, jint value)
+{
+    if ((index < 0) || (index > maxpinidx)) ABORT ();
+    PinDef const *pte = pindefs + index;
+    if (! pte->writ) return false;
+    uint32_t volatile *ptr = pindev (pte->dev) + pte->reg;
+    uint32_t lobit = pte->mask & - pte->mask;
+    uint32_t val = ((uint32_t) value * lobit) & pte->mask;
+    *ptr = (*ptr & ~ pte->mask) | val;
+    return true;
 }

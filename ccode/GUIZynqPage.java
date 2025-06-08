@@ -30,4 +30,8 @@ public class GUIZynqPage {
 
     public native static int rdmem (int addr);
     public native static int wrmem (int addr, int data);
+
+    public native static int pinfind (String name);
+    public native static int pinget (int index);
+    public native static boolean pinset (int index, int value);
 }

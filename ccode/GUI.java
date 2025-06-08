@@ -41,16 +41,21 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import javax.imageio.ImageIO;
 import javax.swing.BoxLayout;
+import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 
 public class GUI extends JPanel {
 
@@ -125,6 +130,11 @@ public class GUI extends JPanel {
     public static BootButton  bootbutton;
 
     public static JLabel messagelabel;
+
+    public static DevCkBox dlckbox;
+    public static DevCkBox kwckbox;
+    public static DevCkBox kyckbox;
+    public static DevCkBox rlckbox;
 
     // update display with processor state - runs continuously
     // if processor is running, display current processor state
@@ -211,10 +221,28 @@ public class GUI extends JPanel {
                     lastrunning = sample_running;
                     updateaddrlabel ();
                 }
+
+                int fm = GUIZynqPage.pinget (fpgamodepin);
+                if (fpgamode != fm) {
+                    fpgamode = fm;
+                    fpgamoderadiobuttons[0].update ();
+                    fpgamoderadiobuttons[1].update ();
+                    fpgamoderadiobuttons[2].update ();
+                }
+                dlckbox.update ();
+                kwckbox.update ();
+                kyckbox.update ();
             }
         };
 
     public static int lastrunning = 12345;
+
+    public static int findpin (String name)
+    {
+        int p = GUIZynqPage.pinfind (name);
+        if (p < 0) throw new RuntimeException ("pin " + name + " not found");
+        return p;
+    }
 
     // build the display
     public GUI ()
@@ -403,6 +431,22 @@ public class GUI extends JPanel {
         add (messagebox);
         messagebox.add (messagelabel = new JLabel ());
         messagelabel.setText (" ");
+
+        ButtonGroup fmbg = new ButtonGroup ();
+        fmbg.add (new FPGAModeRadioButton ("OFF",  0));
+        fmbg.add (new FPGAModeRadioButton ("SIM",  1));
+        fmbg.add (new FPGAModeRadioButton ("REAL    ", 2));
+
+        JPanel ckboxrow = new JPanel ();
+        ckboxrow.setLayout (new BoxLayout (ckboxrow, BoxLayout.X_AXIS));
+        add (ckboxrow);
+        ckboxrow.add (fpgamoderadiobuttons[0]);
+        ckboxrow.add (fpgamoderadiobuttons[1]);
+        ckboxrow.add (fpgamoderadiobuttons[2]);
+        ckboxrow.add (dlckbox = new DevCkBox ("DL-11    ", "dl_enable"));
+        ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
+        ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
+        ////ckboxrow.add (rlckbox = new DevCkBox ("rl_enable"));
     }
 
     public static JLabel centeredLabel (String label)
@@ -481,6 +525,7 @@ public class GUI extends JPanel {
         public LED ()
         {
             this (Color.RED);
+            setRolloverEnabled (false);
         }
 
         public LED (Color lo)
@@ -518,6 +563,7 @@ public class GUI extends JPanel {
     public static class Switch extends LED implements ActionListener {
         public Switch ()
         {
+            setRolloverEnabled (true);
             addActionListener (this);
         }
 
@@ -979,6 +1025,74 @@ public class GUI extends JPanel {
         public void mouseReleased(MouseEvent e)
         {
             setIcon (buttonout);
+        }
+    }
+
+    ////////////////////////////////
+    //  SIMULATED DEVICE CONTROL  //
+    ////////////////////////////////
+
+    // set fpga operating mode
+    //  OFF  - everything disconnected from unibus, simulated devices held in reset
+    //  SIM  - everything disconnected from unibus, simulated devices can be enabled, processor simulator enabled
+    //  REAL - enabled devices connected to unibus, processor simulator held in reset
+    public static FPGAModeRadioButton[] fpgamoderadiobuttons = new FPGAModeRadioButton[3];
+    public static int fpgamode = -1;
+    public static int fpgamodepin = findpin ("fpgamode");
+
+    public static class FPGAModeRadioButton extends JRadioButton implements ChangeListener {
+        public int value;
+
+        public FPGAModeRadioButton (String label, int value)
+        {
+            super (label);
+            this.value = value;
+            fpgamoderadiobuttons[value] = this;
+            addChangeListener (this);
+        }
+
+        public void update ()
+        {
+            setSelected (fpgamode == value);
+        }
+
+        @Override
+        public void stateChanged (ChangeEvent e)
+        {
+            if (isSelected ()) {
+                GUIZynqPage.pinset (fpgamodepin, value);
+            }
+        }
+    }
+
+    // device enable checkbox
+    // - plugs/unplugs simulated circuit board from unibus
+    public static class DevCkBox extends JCheckBox implements ChangeListener {
+        public boolean isenab;
+        public int enabpinindex;
+
+        public DevCkBox (String label, String enabpin)
+        {
+            super (label);
+            enabpinindex = findpin (enabpin);
+            setSelected (false);
+            addChangeListener (this);
+        }
+
+        public void update ()
+        {
+            boolean sbenab = GUIZynqPage.pinget (enabpinindex) != 0;
+            if (isenab != sbenab) {
+                isenab = sbenab;
+                setSelected (isenab);
+            }
+        }
+
+        @Override
+        public void stateChanged (ChangeEvent e)
+        {
+            isenab = isSelected ();
+            GUIZynqPage.pinset (enabpinindex, isenab ? 1 : 0);
         }
     }
 }

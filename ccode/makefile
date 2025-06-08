@@ -20,6 +20,7 @@ default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(
 lib.$(MACH).a: \
 		cmd_pin.$(MACH).o \
 		disassem.$(MACH).o \
+		pintable.$(MACH).o \
 		readprompt.$(MACH).o \
 		strprintf.$(MACH).o \
 		tclmain.$(MACH).o \
