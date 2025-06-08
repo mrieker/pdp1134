@@ -131,6 +131,7 @@ public class GUI extends JPanel {
 
     public static JLabel messagelabel;
 
+    public static MemCkBox bmckbox;
     public static DevCkBox dlckbox;
     public static DevCkBox kwckbox;
     public static DevCkBox kyckbox;
@@ -229,6 +230,7 @@ public class GUI extends JPanel {
                     fpgamoderadiobuttons[1].update ();
                     fpgamoderadiobuttons[2].update ();
                 }
+                bmckbox.update ();
                 dlckbox.update ();
                 kwckbox.update ();
                 kyckbox.update ();
@@ -443,6 +445,7 @@ public class GUI extends JPanel {
         ckboxrow.add (fpgamoderadiobuttons[0]);
         ckboxrow.add (fpgamoderadiobuttons[1]);
         ckboxrow.add (fpgamoderadiobuttons[2]);
+        ckboxrow.add (bmckbox = new MemCkBox ("Mem/124KW    "));
         ckboxrow.add (dlckbox = new DevCkBox ("DL-11    ", "dl_enable"));
         ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
         ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
@@ -1065,6 +1068,73 @@ public class GUI extends JPanel {
         }
     }
 
+    // memory enable checkbox
+    // - manipulates bigmem.v enable bits
+    public static class MemCkBox extends JCheckBox implements ChangeListener {
+        public boolean isenab;
+        public int enablopinindex, enabhipinindex;
+
+        public MemCkBox (String label)
+        {
+            super (label);
+            enablopinindex = findpin ("bm_enablo");
+            enabhipinindex = findpin ("bm_enabhi");
+            addChangeListener (this);
+        }
+
+        // called repeatedly by updisplay() to make sure checkbox matches fpga enables
+        // it should not modify the enable bits
+        public void update ()
+        {
+            // see what fpga is showing for enables
+            boolean sbenab = (GUIZynqPage.pinget (enabhipinindex) != 0) || (GUIZynqPage.pinget (enablopinindex) != 0);
+
+            // if different that what checkbox shows, update checkbox
+            // triggers a call to stateChanged(), so update isenab first
+            if (isenab != sbenab) {
+                isenab = sbenab;
+                setSelected (isenab);
+            }
+        }
+
+        // called when the user clicks the checkbox to enable/disable fpga memory
+        // also called when different checkbox detected from fpga memory (because setSelected() was called)
+        // we want to change the enable bits only when user changed checkbox, not when we get incoming change
+        // if disabling, all enable bits are cleared
+        // if enabling,
+        //   if real mode, fills in for missing memory
+        //           else, all enables are turned on
+        @Override   // ChangeListener
+        public void stateChanged (ChangeEvent e)
+        {
+            boolean en = isSelected ();
+            if (isenab != en) {
+                isenab = en;
+                long mask = 0;                                          // assume disabling everything
+                if (isenab) {
+                    mask = (1L << 62) - 1;                              // assume enabling everything
+                    if (fpgamode == 2) {                                // sim or off, enable everyting
+                        GUIZynqPage.pinset (enablopinindex, 0);         // real, turn off all fpga memory
+                        GUIZynqPage.pinset (enabhipinindex, 0);
+                        for (int page = 0; page < 62; page ++) {        // loop through all possible 4KB pages
+                            int rc = GUIZynqPage.rdmem (page << 12);    // see if first word of page readable
+                            if (rc != -1) mask &= ~ (1L << page);       // if timed out, we need that page
+                        }
+                        if (mask == 0) {
+                            messagelabel.setText ("processor has 124KW memory, no fpga memory enabled");
+                            isenab = false;
+                            setSelected (false);
+                            return;
+                        }
+                    }
+                }
+                messagelabel.setText (String.format ("fpga memory enable mask %016X", mask));
+                GUIZynqPage.pinset (enablopinindex, (int) mask);
+                GUIZynqPage.pinset (enabhipinindex, (int) (mask >> 32));
+            }
+        }
+    }
+
     // device enable checkbox
     // - plugs/unplugs simulated circuit board from unibus
     public static class DevCkBox extends JCheckBox implements ChangeListener {
@@ -1075,7 +1145,6 @@ public class GUI extends JPanel {
         {
             super (label);
             enabpinindex = findpin (enabpin);
-            setSelected (false);
             addChangeListener (this);
         }
 
@@ -1091,8 +1160,11 @@ public class GUI extends JPanel {
         @Override
         public void stateChanged (ChangeEvent e)
         {
-            isenab = isSelected ();
-            GUIZynqPage.pinset (enabpinindex, isenab ? 1 : 0);
+            boolean en = isSelected ();
+            if (isenab != en) {
+                isenab = en;
+                GUIZynqPage.pinset (enabpinindex, isenab ? 1 : 0);
+            }
         }
     }
 }
