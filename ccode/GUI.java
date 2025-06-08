@@ -36,8 +36,10 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import javax.imageio.ImageIO;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -62,6 +64,8 @@ public class GUI extends JPanel {
     public final static ImageIcon ledon  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc52.png"));
     public final static ImageIcon ledoff = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc52.png"));
 
+    public static BufferedImage redeyeim;
+
     public static void main (String[] args)
             throws Exception
     {
@@ -69,6 +73,8 @@ public class GUI extends JPanel {
             System.err.println ("unknown argument/option " + args[0]);
             System.exit (1);
         }
+
+        redeyeim = ImageIO.read (GUI.class.getResourceAsStream ("redeyeclip36.png"));
 
         // open access to Zynq board
         GUIZynqPage.open ();
@@ -470,26 +476,24 @@ public class GUI extends JPanel {
         public boolean ison;
         public Color loc;
 
-        private int dotxl, dotyt, dotw, doth;
+        private int dotxl, dotyt;
 
         public LED ()
         {
             this (Color.RED);
         }
 
-        public LED (Color ledon)
+        public LED (Color lo)
         {
-            loc = ledon;
+            loc = lo;
             setMaximumSize (leddim);
             setMinimumSize (leddim);
             setPreferredSize (leddim);
             setSize (leddim);
             setIcon (ledoff);
 
-            dotw  = (int) leddim.getWidth  () * 2 / 3;
-            doth  = (int) leddim.getHeight () * 2 / 3;
-            dotxl = (int) leddim.getWidth  () / 6 + 2;
-            dotyt = (int) leddim.getHeight () / 6;
+            dotxl = (int) (leddim.getWidth  () - redeyeim.getWidth  ()) / 2 + 1;
+            dotyt = (int) (leddim.getHeight () - redeyeim.getHeight ()) / 2 - 1;
         }
 
         public void setOn (boolean on)
@@ -497,6 +501,7 @@ public class GUI extends JPanel {
             if (ison != on) {
                 ison = on;
                 setIcon (ison ? ledon : ledoff);
+                ////repaint ();
             }
         }
 
@@ -505,8 +510,7 @@ public class GUI extends JPanel {
         {
             super.paint (g);
             if (ison) {
-                g.setColor (loc);
-                g.fillArc (dotxl, dotyt, dotw, doth, 0, 360);
+                g.drawImage (redeyeim, dotxl, dotyt, null);
             }
         }
     }
