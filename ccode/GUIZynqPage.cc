@@ -264,10 +264,12 @@ JNIEXPORT jboolean JNICALL Java_GUIZynqPage_pinset
 //  RL ACCESS  //
 /////////////////
 
-#define RLSTAT_LOAD 1
-#define RLSTAT_WRPROT 2
-#define RLSTAT_READY 4
-#define RLSTAT_FAULT 8
+#define RLSTAT_LOAD   00000001
+#define RLSTAT_WRPROT 00000002
+#define RLSTAT_READY  00000004
+#define RLSTAT_FAULT  00000010
+#define RLSTAT_FNSEQ  00007760
+#define RLSTAT_CYLNO  07770000
 
 static char const *rlfileutfstrings[4];
 static int rlshmfd = -1;
@@ -286,7 +288,7 @@ static void rlunlk ();
  * Signature: (IZLjava/lang/String;)Ljava/lang/String;
  *
  *  1) unload any existing file
- *  2) set readonly bit for the drive
+ *  2) set/clear readonly bit for the drive
  *  3) if filename given, load in drive
  */
 JNIEXPORT jstring JNICALL Java_GUIZynqPage_rlload
@@ -296,7 +298,8 @@ JNIEXPORT jstring JNICALL Java_GUIZynqPage_rlload
     int rc = rlwaitidle ();
     if (rc >= 0) rc = rlunload (drive);
     if (rc >= 0) {
-        rlshm->drives[drive].readonly = readonly;
+        ShmRLDrive *dr = &rlshm->drives[drive];
+        dr->readonly = readonly;
         if (filename == NULL) {
             rlunlk ();
             return NULL;
@@ -304,7 +307,8 @@ JNIEXPORT jstring JNICALL Java_GUIZynqPage_rlload
         rlshm->cmdpid  = getpid ();
         rlshm->command = SHMRLCMD_LOAD + drive;
         char const *filenameutf = EXCKR (env->GetStringUTFChars (filename, NULL));
-        strncpy (rlshm->drives[drive].filename, filenameutf, sizeof rlshm->drives[drive].filename);
+        strncpy (dr->filename, filenameutf, sizeof dr->filename);
+        if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
         env->ReleaseStringUTFChars (filename, filenameutf);
         rc = rlwaitdone ();
         if (rc >= 0) {
@@ -331,11 +335,14 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_rlstat
     int statbits = rllock ();
     if (statbits >= 0) {
         statbits = 0;
-        if (rlshm->drives[drive].filename[0] != 0) statbits |= RLSTAT_LOAD; // something loaded
-        if (rlshm->drives[drive].readonly) statbits |= RLSTAT_WRPROT;       // write protected
+        ShmRLDrive *dr = &rlshm->drives[drive];
+        if (dr->filename[0] != 0) statbits |= RLSTAT_LOAD;  // something loaded
+        if (dr->readonly) statbits |= RLSTAT_WRPROT;        // write protected
         uint32_t bits = rlat[4] >> drive;
-        if (bits &  1) statbits |= RLSTAT_READY;                            // ready (not seeking etc)
-        if (bits & 16) statbits |= RLSTAT_FAULT;                            // fault (drive error)
+        if (bits &  1) statbits |= RLSTAT_READY;            // ready (not seeking etc)
+        if (bits & 16) statbits |= RLSTAT_FAULT;            // fault (drive error)
+        statbits |= dr->fnseq * (RLSTAT_FNSEQ & - RLSTAT_FNSEQ);
+        statbits |= (dr->lastposn / 128) * (RLSTAT_CYLNO & - RLSTAT_CYLNO);
         rlunlk ();
     }
 
@@ -458,11 +465,11 @@ tryit:;
                 return rc;
             }
 
-            // does not exist, fork 'z11rl -notcl' command to create it
+            // does not exist, fork z11rl command to create it
             int pid = fork ();
             if (pid == 0) {
                 char const *z11rl = getenv ("GUI_Z11RL");
-                char const *args[] = { z11rl, "-notcl", NULL };
+                char const *args[] = { z11rl, NULL };
                 execve (z11rl, (char *const *) args, NULL);
                 fprintf (stderr, "error spawning %s: %m\n", z11rl);
                 exit (1);

@@ -27,18 +27,20 @@
 
 #define SHMRL_NAME "/shm_zturn11_rl"
 
-#define SHMRLCMD_IDLE 0
-#define SHMRLCMD_LOAD 1
-#define SHMRLCMD_UNLD 5
-#define SHMRLCMD_DONE 9
+#define SHMRLCMD_IDLE 0     // not doing anything
+#define SHMRLCMD_LOAD 1     // load drive with filename,readonly
+#define SHMRLCMD_UNLD 5     // unload drive
+#define SHMRLCMD_DONE 9     // done loading/unloading
 
 struct ShmRLDrive {
-    bool readonly;
-    char filename[1000];
+    uint16_t lastposn;      // last cyl/head/sec
+    bool readonly;          // write protected
+    uint8_t fnseq;          // incremented each change in filename
+    char filename[1000];    // "" for unloaded, else filename loaded
 };
 
 struct ShmRL {
-    int rlfutex;
+    int rlfutex;        // pid of what has it locked
     int svrpid;         // z11rl process id
     int cmdpid;         // what is sending command in some command
     int command;        // command to be processed by z11rl

@@ -77,7 +77,6 @@
 static bool vcs[4];
 static int debug;
 static int fds[4];
-static uint16_t latestpositions[4];
 static uint64_t seekdoneats[4];
 
 // internal TCL commands
@@ -159,24 +158,24 @@ int main (int argc, char **argv)
     // parse command line
     bool killit = false;
     bool loadit = false;
-    bool notcl  = false;
+    bool tclena = false;
     int tclargs = argc;
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
             puts ("     Access RL11 controller and drives");
             puts ("");
-            puts ("  ./z11rl [-killit] [-loadro/-loadrw <driveno> <file>]... | [<tclscriptfile> [<scriptargs>...]]");
+            puts ("  ./z11rl [-killit] [-loadro/-loadrw <driveno> <file>]... | [-tcl [<tclscriptfile> [<scriptargs>...]]]");
             puts ("     -killit : kill other process accessing RL11 controller");
             puts ("     -loadro/rw : load the given file in the given drive");
+            puts ("     -tcl : run tcl script after doing any -loadro/rws");
             puts ("     <tclscriptfile> : execute script then exit");
             puts ("                else : read and process commands from stdin");
             puts ("");
             puts ("     Use -loadro/-loadrw to statically load files in drives.");
-            puts ("     Any <tclscriptfile> given is ignored.");
             puts ("");
-            puts ("     If no -loadro/rw options given, will use TCL commands to dynamically load");
-            puts ("     and unload drives.  If no <tclscriptfile> given, will read from stdin.");
+            puts ("     If -tcl option given, will use TCL commands to dynamically load and");
+            puts ("     unload drives.  If no <tclscriptfile> given, will read from stdin.");
             puts ("");
             return 0;
         }
@@ -204,8 +203,8 @@ int main (int argc, char **argv)
             i += 2;
             continue;
         }
-        if (strcasecmp (argv[i], "-notcl") == 0) {
-            notcl = true;
+        if (strcasecmp (argv[i], "-tcl") == 0) {
+            tclena = true;
             continue;
         }
         if (argv[i][0] == '-') {
@@ -225,8 +224,8 @@ int main (int argc, char **argv)
     char const *dbgenv = getenv ("z11rl_debug");
     if (dbgenv != NULL) debug = atoi (dbgenv);
 
-    // if -load option (or -notcl), load files then just run io calls
-    if (loadit || notcl) {
+    // do any initial loads
+    if (loadit) {
         for (int diskno = 0; diskno <= 3; diskno ++) {
             if (shmrl->drives[diskno].filename[0] != 0) {
                 fds[diskno] = -1;
@@ -235,11 +234,15 @@ int main (int argc, char **argv)
                 }
             }
         }
+    }
+
+    // if no -tcl, run io directly until killed
+    if (! tclena) {
         rlthread (NULL);
         return 0;
     }
 
-    // spawn thread to do io
+    // -tcl, spawn thread to do io
     pthread_t threadid;
     int rc = pthread_create (&threadid, NULL, rlthread, NULL);
     if (rc != 0) ABORT ();
@@ -317,9 +320,9 @@ static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const
     LOCKIT;
     close (fds[diskno]);
     fds[diskno] = fd;
-    shmrl->drives[diskno].readonly = ! readwrite;
     vcs[diskno] = true;
-    latestpositions[diskno] = 0;
+    shmrl->drives[diskno].lastposn = 0;
+    shmrl->drives[diskno].readonly = ! readwrite;
     UNLKIT;
     return true;
 }
@@ -371,6 +374,7 @@ void *rlthread (void *dummy)
                     shmrl->lderrno = 0;
                 } else {
                     shmrl->lderrno = errno;
+                    if (shmrl->lderrno == 0) shmrl->lderrno = -1;
                 }
                 LOCKIT;
                 shmrl->command = SHMRLCMD_DONE;
@@ -382,6 +386,7 @@ void *rlthread (void *dummy)
                 int driveno = shmrl->command - SHMRLCMD_UNLD;
                 ShmRLDrive *dr = &shmrl->drives[driveno];
                 dr->filename[0] = 0;
+                if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
                 close (fds[driveno]);
                 fds[driveno] = -1;
                 shmrl->command = SHMRLCMD_DONE;
@@ -411,6 +416,7 @@ void *rlthread (void *dummy)
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];
             ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
+            ShmRLDrive *shmdr = &shmrl->drives[drivesel];
 
             uint32_t seekdelay = (seekdoneats[drivesel] > nowus) ? seekdoneats[drivesel] - nowus : 0;
             uint32_t rotndelay = ((rlda & 63) + SECPERTRK - SECUNDERHEAD) % SECPERTRK;
@@ -434,8 +440,8 @@ void *rlthread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl:   writecheck wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
-                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
+                    if (shmdr->lastposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", shmdr->lastposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -488,9 +494,9 @@ void *rlthread (void *dummy)
                         vcs[drivesel] = false;
                     }
                     rlmp = 0x008DU;                     // 0 0 wl 0 -- 0 wge vc 0 -- 1 hs 0 ho -- 1 0 0 0
-                    if (shmrl->drives[drivesel].readonly) rlmp |= 0x2000U; // write locked
+                    if (shmdr->readonly) rlmp |= 0x2000U; // write locked
                     if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
-                    rlmp |= latestpositions[drivesel] & 0x0040U; // head select
+                    rlmp |= shmdr->lastposn & 0x0040U;  // head select
                     if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk
                     if (seekdelay > 0) rlmp |= 0x0004U; // seeking
                     else if (fd >= 0)  rlmp |= 0x0005U; // 'lock on'
@@ -503,14 +509,14 @@ void *rlthread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl:   seek da=%06o\n", rlda);
 
-                    int32_t newcyl = latestpositions[drivesel] >> 7;
+                    int32_t newcyl = shmdr->lastposn >> 7;
                     if (rlda & 4) newcyl += rlda >> 7;
                              else newcyl -= rlda >> 7;
                     if (debug > 1) fprintf (stderr, "z11rl:       newcyl=%d\n", newcyl);
                     if (newcyl < 0) newcyl = 0;
                     if (newcyl > NCYLS - 1) newcyl = NCYLS - 1;
 
-                    latestpositions[drivesel] = (newcyl << 7) | ((rlda << 2) & 0x40);
+                    shmdr->lastposn = (newcyl << 7) | ((rlda << 2) & 0x40);
 
                     seekdoneats[drivesel] = nowus + (rlda >> 7) * USPERCYL + SETTLEUS;
                     break;
@@ -521,7 +527,7 @@ void *rlthread (void *dummy)
                     if (debug > 0) fprintf (stderr, "z11rl:   readheader\n");
                     usleep (seekdelay);
                     nowus += seekdelay;
-                    rlmp   = latestpositions[drivesel] | SECUNDERHEAD;
+                    rlmp   = shmdr->lastposn | SECUNDERHEAD;
                     rlmp2  = 0;
                     rlmp3  = 0;
                     goto rhddone;
@@ -533,8 +539,8 @@ void *rlthread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl:   writedata wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
-                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
+                    if (shmdr->lastposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", shmdr->lastposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -587,8 +593,8 @@ void *rlthread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl:   readdata wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
 
-                    if (latestpositions[drivesel] != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", latestpositions[drivesel], rlda);
+                    if (shmdr->lastposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", shmdr->lastposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;

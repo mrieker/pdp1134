@@ -602,12 +602,12 @@ public class GUI extends JPanel {
             super ("STEP");
         }
 
-        @Override  // ActionListener
-        public void actionPerformed (ActionEvent ae)
+        @Override  // MemButton
+        public void buttonClicked ()
         {
             berrled.setOn (false);
             messagelabel.setText ("stepping processor");
-            GUIZynqPage.step ();                     // tell processor to step single instruction
+            GUIZynqPage.step ();                // tell processor to step single instruction
             checkforhalt ();                    // make sure it halted
             lastrunning = 12345;                // force updisplay to refresh everything
             updisplay.actionPerformed (null);   // update display
@@ -622,7 +622,7 @@ public class GUI extends JPanel {
         }
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
             berrled.setOn (false);
             messagelabel.setText ("halting processor");
@@ -640,7 +640,7 @@ public class GUI extends JPanel {
         }
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
             berrled.setOn (false);
             messagelabel.setText ("resuming processor");
@@ -658,7 +658,7 @@ public class GUI extends JPanel {
         }
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
             berrled.setOn (false);
             messagelabel.setText ("resetting processor");
@@ -679,9 +679,9 @@ public class GUI extends JPanel {
         }
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
-            resetbutton.actionPerformed (ae);
+            resetbutton.buttonClicked ();
 
             messagelabel.setText ("booting...");
             int switches = read18switches ();
@@ -734,7 +734,7 @@ public class GUI extends JPanel {
         }
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
             berrled.setOn (false);
             messagelabel.setText ("resetting processor");
@@ -783,7 +783,7 @@ public class GUI extends JPanel {
         }
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
             messagelabel.setText ("");
             depbutton.autoincrement = false;
@@ -898,7 +898,7 @@ public class GUI extends JPanel {
         public abstract int rwmem (int pa);
 
         @Override  // MemButton
-        public void actionPerformed (ActionEvent ae)
+        public void buttonClicked ()
         {
             messagelabel.setText ("");
 
@@ -1003,6 +1003,8 @@ public class GUI extends JPanel {
         "parity error" };
 
     public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
+        private boolean isenabled;
+
         public MemButton (String lbl)
         {
             super (lbl);
@@ -1013,6 +1015,7 @@ public class GUI extends JPanel {
             setMinimumSize (buttondim);
             setPreferredSize (buttondim);
             setSize (buttondim);
+            setBackground (Color.BLACK);
             setForeground (Color.WHITE);
             setIcon (buttonout);
             addMouseListener (this);
@@ -1020,8 +1023,27 @@ public class GUI extends JPanel {
             setHorizontalTextPosition (SwingConstants.CENTER);
         }
 
+        public abstract void buttonClicked ();
+
+        @Override
+        public void setEnabled (boolean enable)
+        {
+            super.setEnabled (enable);
+            isenabled = enable;
+            if (enable) {
+                setForeground (Color.WHITE);
+                setIcon (buttonout);
+            } else {
+                setForeground (Color.DARK_GRAY);
+                setIcon (null);
+            }
+        }
+
         @Override  // ActionListener
-        public abstract void actionPerformed (ActionEvent ae);
+        public void actionPerformed (ActionEvent ae)
+        {
+            if (isenabled) buttonClicked ();
+        }
 
         @Override   // MouseListener
         public void mouseClicked(MouseEvent e) { }
@@ -1035,13 +1057,13 @@ public class GUI extends JPanel {
         @Override   // MouseListener
         public void mousePressed(MouseEvent e)
         {
-            setIcon (buttonin);
+            if (isenabled) setIcon (buttonin);
         }
 
         @Override   // MouseListener
         public void mouseReleased(MouseEvent e)
         {
-            setIcon (buttonout);
+            if (isenabled) setIcon (buttonout);
         }
     }
 
@@ -1235,6 +1257,9 @@ public class GUI extends JPanel {
 
     public static class RLDrive extends JPanel {
         public int drive;
+        public int lastcylno;
+        public int lastfnseq;
+        public JLabel cylnolbl;
         public JLabel rlmessage;
         public long blockmsgupdates;
         public RLButton loadbutton;
@@ -1247,6 +1272,8 @@ public class GUI extends JPanel {
         public RLDrive (int d)
         {
             drive = d;
+            lastcylno = -1;
+            lastfnseq = -1;
 
             setLayout (new BoxLayout (this, BoxLayout.Y_AXIS));
 
@@ -1255,12 +1282,16 @@ public class GUI extends JPanel {
             buttonrow.setLayout (new BoxLayout (buttonrow, BoxLayout.X_AXIS));
             add (buttonrow);
 
+            buttonrow.add (cylnolbl   = new JLabel ("       "));
             buttonrow.add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
             buttonrow.add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
             buttonrow.add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
             buttonrow.add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
             buttonrow.add (new JLabel ("   "));
             buttonrow.add (rlmessage  = new JLabel (""));
+
+            Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
+            cylnolbl.setFont (lf);
 
             Dimension md = new Dimension (600, 50);
             rlmessage.setMaximumSize (md);
@@ -1338,9 +1369,16 @@ public class GUI extends JPanel {
             wprtswitch.setOn ((stat & GUIZynqPage.RLSTAT_WRPRT) != 0);
             readylight.setOn ((stat & GUIZynqPage.RLSTAT_READY) != 0);
             faultlight.setOn ((stat & GUIZynqPage.RLSTAT_FAULT) != 0);
-            if ((blockmsgupdates == 0) || (System.currentTimeMillis () > blockmsgupdates)) {
+            int thiscylno = ((stat & GUIZynqPage.RLSTAT_LOAD) == 0) ? -1 : (stat & GUIZynqPage.RLSTAT_CYLNO) / (GUIZynqPage.RLSTAT_CYLNO & - GUIZynqPage.RLSTAT_CYLNO);
+            if (lastcylno != thiscylno) {
+                lastcylno = thiscylno;
+                cylnolbl.setText ((lastcylno < 0) ? "       " : String.format ("  %03d  ", lastcylno));
+            }
+            int thisfnseq = stat & GUIZynqPage.RLSTAT_FNSEQ;
+            if ((lastfnseq != thisfnseq) && ((blockmsgupdates == 0) || (System.currentTimeMillis () > blockmsgupdates))) {
                 rlmessage.setText (GUIZynqPage.rlfile (drive));
                 blockmsgupdates = 0;
+                lastfnseq = thisfnseq;
             }
         }
     }
