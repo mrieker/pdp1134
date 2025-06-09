@@ -67,8 +67,8 @@ public class GUI extends JPanel {
     public final static int UPDMS = 3;
 
     public final static Dimension buttondim = new Dimension (116, 116);
-    public final static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc117.png"));
-    public final static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc117.png"));
+    public final static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
+    public final static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc116.png"));
 
     public final static Dimension leddim = new Dimension (58, 58);
     public final static ImageIcon ledon  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc58.png"));
@@ -319,12 +319,12 @@ public class GUI extends JPanel {
 
         // row 1 - address bits
         for (int i = 3; -- i >= 0;) {
-            bits1715.add (addrleds[15+i] = new LED (Color.MAGENTA));
-            bits1412.add (addrleds[12+i] = new LED (Color.RED));
-            bits1109.add (addrleds[ 9+i] = new LED (Color.MAGENTA));
-            bits0806.add (addrleds[ 6+i] = new LED (Color.RED));
-            bits0503.add (addrleds[ 3+i] = new LED (Color.MAGENTA));
-            bits0200.add (addrleds[ 0+i] = new LED (Color.RED));
+            bits1715.add (addrleds[15+i] = new LED ());
+            bits1412.add (addrleds[12+i] = new LED ());
+            bits1109.add (addrleds[ 9+i] = new LED ());
+            bits0806.add (addrleds[ 6+i] = new LED ());
+            bits0503.add (addrleds[ 3+i] = new LED ());
+            bits0200.add (addrleds[ 0+i] = new LED ());
         }
 
         // row 2 - data label
@@ -348,15 +348,15 @@ public class GUI extends JPanel {
         bits0200.add (centeredLabel ("A"));
 
         // row 3 - data bits
-        bits1715.add (runled = new LED (Color.MAGENTA));
+        bits1715.add (runled = new LED ());
         bits1715.add (centeredLabel (""));
-        bits1715.add (dataleds[15] = new LED (Color.MAGENTA));
+        bits1715.add (dataleds[15] = new LED ());
         for (int i = 3; -- i >= 0;) {
-            bits1412.add (dataleds[12+i] = new LED (Color.RED));
-            bits1109.add (dataleds[ 9+i] = new LED (Color.MAGENTA));
-            bits0806.add (dataleds[ 6+i] = new LED (Color.RED));
-            bits0503.add (dataleds[ 3+i] = new LED (Color.MAGENTA));
-            bits0200.add (dataleds[ 0+i] = new LED (Color.RED));
+            bits1412.add (dataleds[12+i] = new LED ());
+            bits1109.add (dataleds[ 9+i] = new LED ());
+            bits0806.add (dataleds[ 6+i] = new LED ());
+            bits0503.add (dataleds[ 3+i] = new LED ());
+            bits0200.add (dataleds[ 0+i] = new LED ());
         }
 
         // row 4 - 777570 lights label
@@ -380,15 +380,15 @@ public class GUI extends JPanel {
         bits0200.add (centeredLabel ("S"));
 
         // row 5 - 777570 lights
-        bits1715.add (berrled = new FlashingLED (Color.MAGENTA));
+        bits1715.add (berrled = new FlashingLED ());
         bits1715.add (centeredLabel (""));
-        bits1715.add (lregleds[15] = new LED (Color.MAGENTA));
+        bits1715.add (lregleds[15] = new LED ());
         for (int i = 3; -- i >= 0;) {
-            bits1412.add (lregleds[12+i] = new LED (Color.RED));
-            bits1109.add (lregleds[ 9+i] = new LED (Color.MAGENTA));
-            bits0806.add (lregleds[ 6+i] = new LED (Color.RED));
-            bits0503.add (lregleds[ 3+i] = new LED (Color.MAGENTA));
-            bits0200.add (lregleds[ 0+i] = new LED (Color.RED));
+            bits1412.add (lregleds[12+i] = new LED ());
+            bits1109.add (lregleds[ 9+i] = new LED ());
+            bits0806.add (lregleds[ 6+i] = new LED ());
+            bits0503.add (lregleds[ 3+i] = new LED ());
+            bits0200.add (lregleds[ 0+i] = new LED ());
         }
 
         // row 6 - switches label
@@ -413,17 +413,18 @@ public class GUI extends JPanel {
 
         // row 7 - switch register
         for (int i = 3; -- i >= 0;) {
-            bits1715.add (switches[15+i] = new Switch (Color.MAGENTA));
-            bits1412.add (switches[12+i] = new Switch (Color.RED));
-            bits1109.add (switches[ 9+i] = new Switch (Color.MAGENTA));
-            bits0806.add (switches[ 6+i] = new Switch (Color.RED));
-            bits0503.add (switches[ 3+i] = new Switch (Color.MAGENTA));
-            bits0200.add (switches[ 0+i] = new Switch (Color.RED));
+            bits1715.add (switches[15+i] = new Switch ());
+            bits1412.add (switches[12+i] = new Switch ());
+            bits1109.add (switches[ 9+i] = new Switch ());
+            bits0806.add (switches[ 6+i] = new Switch ());
+            bits0503.add (switches[ 3+i] = new Switch ());
+            bits0200.add (switches[ 0+i] = new Switch ());
         }
 
         // buttons along the bottom
         JPanel buttonbox1 = new JPanel ();
         buttonbox1.setLayout (new BoxLayout (buttonbox1, BoxLayout.X_AXIS));
+        buttonbox1.setBackground (Color.BLACK);
         add (buttonbox1);
 
         buttonbox1.add (ldadbutton  = new LdAdButton  ());
@@ -519,11 +520,6 @@ public class GUI extends JPanel {
     public static class FlashingLED extends LED implements ActionListener {
         public Timer blinker;
 
-        public FlashingLED (Color bg)
-        {
-            super (bg);
-        }
-
         @Override   // LED
         public void setOn (boolean on)
         {
@@ -550,17 +546,16 @@ public class GUI extends JPanel {
 
         public int dotxl, dotyt;
 
-        public LED (Color bg)
+        public LED ()
         {
-            setBackground (bg);
             setBorder (null);
-            setRolloverEnabled (false);
-
+            setContentAreaFilled (false);
+            setIcon (ledoff);
             setMaximumSize (leddim);
             setMinimumSize (leddim);
             setPreferredSize (leddim);
+            setRolloverEnabled (false);
             setSize (leddim);
-            setIcon (ledoff);
 
             dotxl = (int) (leddim.getWidth  () - redeyeim.getWidth  ()) / 2 + 1;
             dotyt = (int) (leddim.getHeight () - redeyeim.getHeight ()) / 2 - 1;
@@ -585,9 +580,8 @@ public class GUI extends JPanel {
     }
 
     public static class Switch extends LED implements ActionListener {
-        public Switch (Color bg)
+        public Switch ()
         {
-            super (bg);
             setRolloverEnabled (true);
             addActionListener (this);
         }
@@ -1018,17 +1012,19 @@ public class GUI extends JPanel {
             super (lbl);
 
             addActionListener (this);
+            addMouseListener (this);
 
+            setBackground (Color.BLACK);
+            setBorder (null);
+            setContentAreaFilled (false);
+            setForeground (Color.WHITE);
+            setHorizontalTextPosition (SwingConstants.CENTER);
+            setIcon (buttonout);
             setMaximumSize (buttondim);
             setMinimumSize (buttondim);
             setPreferredSize (buttondim);
             setSize (buttondim);
-            setBackground (Color.BLACK);
-            setForeground (Color.WHITE);
-            setIcon (buttonout);
-            addMouseListener (this);
             setVerticalTextPosition (SwingConstants.CENTER);
-            setHorizontalTextPosition (SwingConstants.CENTER);
         }
 
         public abstract void buttonClicked ();
