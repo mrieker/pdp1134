@@ -155,7 +155,8 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_getlr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_getsr
   (JNIEnv *env, jclass klass)
 {
-    return kyat[1] & 0xFFFF;
+    return ((kyat[1] & KY_SWITCHES) / (KY_SWITCHES & - KY_SWITCHES)) |
+        (((kyat[2] & KY2_SR1716) / (KY2_SR1716 & - KY2_SR1716)) << 16);
 }
 
 /*
@@ -178,7 +179,9 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_running
 JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
   (JNIEnv *env, jclass klass, jint data)
 {
-    kyat[1] = (kyat[1] & 0xFFFF0000) | (data & 0xFFFF);
+    data &= 0777777;
+    kyat[1] = (kyat[1] & ~ KY_SWITCHES) | (data & 0177777) * (KY_SWITCHES & - KY_SWITCHES);
+    kyat[2] = (kyat[2] & ~ KY2_SR1716)  | (data >> 16) * (KY2_SR1716 & - KY2_SR1716);
 }
 
 /*

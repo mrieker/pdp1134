@@ -111,10 +111,6 @@ public class GUI extends JPanel {
                 mainframe.setLocationRelativeTo (null);
                 mainframe.setVisible (true);
 
-                // get initial switch register contents from 777570
-                int srint = GUIZynqPage.rdmem (0777570);
-                write16switches (srint);
-
                 // loop timer to update display from fpga & buttons/switches
                 Timer runupdatimer = new Timer (UPDMS, updisplay);
                 runupdatimer.start ();
@@ -174,12 +170,11 @@ public class GUI extends JPanel {
                 // run light always says what is happening
                 runled.setOn (sample_running > 0);
 
-                // light register lights also always reflect the fpga register
+                // light register lights also always reflect the fpga 777570 register
                 writelregleds (sample_lreg);
 
-                // same with switch register - in case z11ctrl or similar flips them
-                // the upper 2 switches are only kept here (no way for z11ctrl etc to flip them)
-                write16switches (sample_sreg & 0177777);
+                // same with switch register - in case z11ctrl or similar flipped them
+                write18switches (sample_sreg);
 
                 // update grayed buttons based on running state
                 //  running = +1 : processor is running
@@ -422,12 +417,12 @@ public class GUI extends JPanel {
 
         // row 7 - switch register
         for (int i = 3; -- i >= 0;) {
-            bits1715.add (switches[15+i] = new Switch ());
-            bits1412.add (switches[12+i] = new Switch ());
-            bits1109.add (switches[ 9+i] = new Switch ());
-            bits0806.add (switches[ 6+i] = new Switch ());
-            bits0503.add (switches[ 3+i] = new Switch ());
-            bits0200.add (switches[ 0+i] = new Switch ());
+            bits1715.add (switches[15+i] = new Switch (15+i));
+            bits1412.add (switches[12+i] = new Switch (12+i));
+            bits1109.add (switches[ 9+i] = new Switch ( 9+i));
+            bits0806.add (switches[ 6+i] = new Switch ( 6+i));
+            bits0503.add (switches[ 3+i] = new Switch ( 3+i));
+            bits0200.add (switches[ 0+i] = new Switch ( 0+i));
         }
 
         // buttons along the bottom
@@ -514,22 +509,10 @@ public class GUI extends JPanel {
         }
     }
 
-    // read 18-bit value from SR (switch register) leds
-    public static int read18switches ()
+    // write 18-bit value to SR (switch register) leds
+    public static void write18switches (int sr)
     {
-        int sr = 0;
         for (int i = 0; i < 18; i ++) {
-            Switch sw = switches[i];
-            if (sw.ison) sr |= 1 << i;
-        }
-        return sr;
-    }
-
-    // write 16-bit value to SR (switch register) leds
-    // leave the upper 2 switches alone
-    public static void write16switches (int sr)
-    {
-        for (int i = 0; i < 16; i ++) {
             Switch sw = switches[i];
             sw.setOn ((sr & (1 << i)) != 0);
         }
@@ -622,8 +605,11 @@ public class GUI extends JPanel {
     }
 
     public static class Switch extends LED implements ActionListener {
-        public Switch ()
+        public int mask;
+
+        public Switch (int n)
         {
+            mask = 1 << n;
             setRolloverEnabled (true);
             addActionListener (this);
         }
@@ -632,7 +618,12 @@ public class GUI extends JPanel {
         public void actionPerformed (ActionEvent ae)
         {
             setOn (! ison);
-            GUIZynqPage.setsr (read18switches () & 0177777);
+
+            // switch flipped, update FPGA 777570 switch register
+            // FPGA also has storage for bits 16 & 17
+            int sr = GUIZynqPage.getsr ();
+            sr = ison ? (sr | mask) : (sr & ~ mask);
+            GUIZynqPage.setsr (sr);
         }
     }
 
@@ -726,7 +717,7 @@ public class GUI extends JPanel {
         public void buttonClicked ()
         {
             messagelabel.setText ("booting...");
-            int switches = read18switches ();
+            int switches = GUIZynqPage.getsr ();
             Thread t = new Thread () {
                 @Override
                 public void run ()
@@ -835,7 +826,7 @@ public class GUI extends JPanel {
             messagelabel.setText ("");
             depbutton.autoincrement = false;
             exambutton.autoincrement = false;
-            loadedaddress = read18switches () & 0777777;
+            loadedaddress = GUIZynqPage.getsr () & 0777777;
             if ((loadedaddress < 0777700) || (loadedaddress > 0777717)) {
                 loadedaddress &= 0777776;
             }
@@ -919,7 +910,7 @@ public class GUI extends JPanel {
         @Override  // ExDepButton
         public int rwmem (int pa)
         {
-            int data = read18switches () & 0177777;
+            int data = GUIZynqPage.getsr () & 0177777;
             return GUIZynqPage.wrmem (pa, data);
         }
     }

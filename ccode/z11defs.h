@@ -151,10 +151,14 @@
 #define BM5_CTLENAB   0x00000010U
 #define BM5_CTLADDR   0x0000000FU
 
+#define KY_LIGHTS     0xFFFF0000U   // 777570 light register
+#define KY_SWITCHES   0x0000FFFFU   // 777570 switch register
+
 #define KY2_ENABLE    0x80000000U   // enable 777570 switches & lights registers
 #define KY2_HALTREQ   0x40000000U   // request processor to halt
 #define KY2_HALTED    0x20000000U   // processor has halted
 #define KY2_STEPREQ   0x10000000U   // single-step processor
+#define KY2_SR1716    0x00C00000U   // GUI SR<17:16> bits
 #define KY2_HALTSTATE 0x00380000U
 #define KY2_HLTRQOUTH 0x00040000U   // ky11.v is requesting processor to halt
 #define KY2_HALTINS   0x00020000U   // processor has HALT instr in its IR
