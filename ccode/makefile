@@ -37,10 +37,10 @@ lib.$(MACH).a: \
 %.$(MACH).o: %.cc *.h
 	$(GPP) -c -o $@ $<
 
-GUI.jar: GUI.java GUIZynqPage.h purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png
+GUI.jar: GUI.java GUIZynqPage.h purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png rl02pan.png procpan.png
 	rm -f GUI.class GUI\$$*.class GUI.jar
 	CLASSPATH=. javac GUI.java
-	jar cf GUI.jar GUI*.class purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png
+	jar cf GUI.jar GUI*.class purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png rl02pan.png procpan.png
 	rm -f GUI.class GUI\$$*.class
 
 libGUIZynqPage.$(MACH).so: GUIZynqPage.cc GUIZynqPage.h $(LIBS)

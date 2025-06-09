@@ -26,12 +26,14 @@
 // apt install default-jdk
 // ln -s /usr/lib/jvm/java-11-openjdk-armhf /opt/jdk
 
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.Image;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
@@ -41,6 +43,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import javax.imageio.ImageIO;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
@@ -73,6 +76,12 @@ public class GUI extends JPanel {
     public final static Dimension leddim = new Dimension (58, 58);
     public final static ImageIcon ledon  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc58.png"));
     public final static ImageIcon ledoff = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc58.png"));
+
+    public final static Dimension procpandim = new Dimension (1044, 60);
+    public final static Image     procpanimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("procpan.png")).getImage ();
+
+    public final static Dimension rl02pandim = new Dimension (1044, 50);
+    public final static Image     rl02panimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("rl02pan.png")).getImage ();
 
     public static BufferedImage redeyeim;
     public static JFrame mainframe;
@@ -290,12 +299,12 @@ public class GUI extends JPanel {
         ledbox.add (bits0503);
         ledbox.add (bits0200);
 
-        bits1715.setLayout (new GridLayout (9, 3));
-        bits1412.setLayout (new GridLayout (9, 3));
-        bits1109.setLayout (new GridLayout (9, 3));
-        bits0806.setLayout (new GridLayout (9, 3));
-        bits0503.setLayout (new GridLayout (9, 3));
-        bits0200.setLayout (new GridLayout (9, 3));
+        bits1715.setLayout (new GridLayout (8, 3));
+        bits1412.setLayout (new GridLayout (8, 3));
+        bits1109.setLayout (new GridLayout (8, 3));
+        bits0806.setLayout (new GridLayout (8, 3));
+        bits0503.setLayout (new GridLayout (8, 3));
+        bits0200.setLayout (new GridLayout (8, 3));
 
         // row 0 - address label
         bits1715.add (addrlbls[17] = centeredLabel (""));
@@ -309,12 +318,12 @@ public class GUI extends JPanel {
         bits1109.add (addrlbls[ 9] = centeredLabel (""));
         bits0806.add (addrlbls[ 8] = centeredLabel (""));
         bits0806.add (addrlbls[ 7] = centeredLabel (""));
-        bits0806.add (addrlbls[ 6] = centeredLabel ("A"));
-        bits0503.add (addrlbls[ 5] = centeredLabel ("D"));
-        bits0503.add (addrlbls[ 4] = centeredLabel ("D"));
-        bits0503.add (addrlbls[ 3] = centeredLabel ("R"));
-        bits0200.add (addrlbls[ 2] = centeredLabel ("E"));
-        bits0200.add (addrlbls[ 1] = centeredLabel ("S"));
+        bits0806.add (addrlbls[ 6] = centeredLabel (""));
+        bits0503.add (addrlbls[ 5] = centeredLabel (""));
+        bits0503.add (addrlbls[ 4] = centeredLabel ("A"));
+        bits0503.add (addrlbls[ 3] = centeredLabel ("D"));
+        bits0200.add (addrlbls[ 2] = centeredLabel ("D"));
+        bits0200.add (addrlbls[ 1] = centeredLabel ("R"));
         bits0200.add (addrlbls[ 0] = centeredLabel ("S"));
 
         // row 1 - address bits
@@ -360,7 +369,7 @@ public class GUI extends JPanel {
         }
 
         // row 4 - 777570 lights label
-        bits1715.add (centeredLabel ("BER"));
+        bits1715.add (centeredLabel ("BERR"));
         bits1715.add (centeredLabel (""));
         bits1715.add (centeredLabel (""));
         bits1412.add (centeredLabel (""));
@@ -437,27 +446,8 @@ public class GUI extends JPanel {
         buttonbox1.add (resetbutton = new ResetButton ());
         buttonbox1.add (bootbutton  = new BootButton  ());
 
-        JPanel messagebox = new JPanel ();
-        add (messagebox);
-        messagebox.add (messagelabel = new JLabel ());
-        messagelabel.setText (" ");
-
-        ButtonGroup fmbg = new ButtonGroup ();
-        fmbg.add (new FPGAModeRadioButton ("OFF",  0));
-        fmbg.add (new FPGAModeRadioButton ("SIM",  1));
-        fmbg.add (new FPGAModeRadioButton ("REAL    ", 2));
-
-        JPanel ckboxrow = new JPanel ();
-        ckboxrow.setLayout (new BoxLayout (ckboxrow, BoxLayout.X_AXIS));
-        add (ckboxrow);
-        ckboxrow.add (fpgamoderadiobuttons[0]);
-        ckboxrow.add (fpgamoderadiobuttons[1]);
-        ckboxrow.add (fpgamoderadiobuttons[2]);
-        ckboxrow.add (bmckbox = new MemCkBox ("Mem/124KW    "));
-        ckboxrow.add (dlckbox = new DevCkBox ("DL-11    ", "dl_enable"));
-        ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
-        ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
-        ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11"));
+        ProcPanel procpanel = new ProcPanel ();
+        add (procpanel);
 
         add (rldrives[0] = new RLDrive (0));
         add (rldrives[1] = new RLDrive (1));
@@ -470,6 +460,58 @@ public class GUI extends JPanel {
         JLabel jl = new JLabel (label);
         jl.setHorizontalAlignment (JLabel.CENTER);
         return jl;
+    }
+
+    // panel what contains the messagelabel line and the fpgamode & device enable checkboxes
+    public static class ProcPanel extends JPanel {
+        public ProcPanel ()
+        {
+            setLayout (new BoxLayout (this, BoxLayout.Y_AXIS));
+            setMaximumSize (procpandim);
+            setMinimumSize (procpandim);
+            setPreferredSize (procpandim);
+            setSize (procpandim);
+
+            Dimension fd = new Dimension (3, 3);
+            add (new Box.Filler (fd, fd, fd));
+
+            JPanel messagebox = new JPanel ();
+            messagebox.setLayout (new BorderLayout ());
+            Dimension mbd = new Dimension (1000, 22);
+            messagebox.setMaximumSize (mbd);
+            messagebox.setMinimumSize (mbd);
+            messagebox.setPreferredSize (mbd);
+            add (messagebox);
+
+            messagelabel = centeredLabel (" ");
+            messagebox.add (messagelabel, BorderLayout.CENTER);
+
+            add (new Box.Filler (fd, fd, fd));
+
+            ButtonGroup fmbg = new ButtonGroup ();
+            fmbg.add (new FPGAModeRadioButton ("OFF",  0));
+            fmbg.add (new FPGAModeRadioButton ("SIM",  1));
+            fmbg.add (new FPGAModeRadioButton ("REAL    ", 2));
+
+            JPanel ckboxrow = new JPanel ();
+            ckboxrow.setLayout (new BoxLayout (ckboxrow, BoxLayout.X_AXIS));
+            add (ckboxrow);
+            ckboxrow.add (fpgamoderadiobuttons[0]);
+            ckboxrow.add (fpgamoderadiobuttons[1]);
+            ckboxrow.add (fpgamoderadiobuttons[2]);
+            ckboxrow.add (bmckbox = new MemCkBox ("Mem/124KW    "));
+            ckboxrow.add (dlckbox = new DevCkBox ("DL-11    ", "dl_enable"));
+            ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
+            ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
+            ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11"));
+        }
+
+        @Override
+        protected void paintComponent (Graphics g)
+        {
+            super.paintComponent (g);
+            g.drawImage (procpanimg, 0, 0, null);
+        }
     }
 
     // read 18-bit value from SR (switch register) leds
@@ -683,24 +725,27 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void buttonClicked ()
         {
-            resetbutton.buttonClicked ();
-
             messagelabel.setText ("booting...");
             int switches = read18switches ();
             Thread t = new Thread () {
                 @Override
                 public void run ()
                 {
+                    // make sure no previous boot process is running
                     Process oldbp = bootprocess;
                     bootprocess = null;
                     if (oldbp != null) {
                         oldbp.destroyForcibly ();
                     }
                     try {
+
+                        // start running guiboot.sh script
                         String ccode = System.getProperty ("ccode");
                         ProcessBuilder pb = new ProcessBuilder (ccode + "/guiboot.sh", Integer.toString (switches));
                         pb.redirectErrorStream (true);  // "2>&1"
                         bootprocess = pb.start ();
+
+                        // forward its stdout & stderr to the message box
                         BufferedReader br = new BufferedReader (new InputStreamReader (bootprocess.getInputStream ()));
                         for (String line; (line = br.readLine ()) != null;) {
                             System.out.println ("BootButton: " + line);
@@ -825,24 +870,16 @@ public class GUI extends JPanel {
     // update VIRT/PHYS tag on address lights label
     public static void updateaddrlabel ()
     {
-        if (loadedaddrvirt & (GUIZynqPage.running () <= 0)) {
-            addrlbls[15].setText ("");
-            addrlbls[14].setText ("V");
-            addrlbls[13].setText ("I");
-            addrlbls[12].setText ("R");
-            addrlbls[11].setText ("T");
-            addrlbls[10].setText ("U");
-            addrlbls[ 9].setText ("A");
-            addrlbls[ 8].setText ("L");
+        if (loadedaddrvirt && (GUIZynqPage.running () <= 0)) {
+            addrlbls[9].setText ("V");
+            addrlbls[8].setText ("I");
+            addrlbls[7].setText ("R");
+            addrlbls[6].setText ("T");
         } else {
-            addrlbls[15].setText ("P");
-            addrlbls[14].setText ("H");
-            addrlbls[13].setText ("Y");
-            addrlbls[12].setText ("S");
-            addrlbls[11].setText ("I");
-            addrlbls[10].setText ("C");
-            addrlbls[ 9].setText ("A");
-            addrlbls[ 8].setText ("L");
+            addrlbls[9].setText ("P");
+            addrlbls[8].setText ("H");
+            addrlbls[7].setText ("Y");
+            addrlbls[6].setText ("S");
         }
     }
 
@@ -1187,9 +1224,7 @@ public class GUI extends JPanel {
         {
             super.stateChanged (e);
 
-            for (int i = 0; i < 4; i ++) {
-                if (! isenab) GUIZynqPage.rlload (i, false, null);
-                RLDrive rldrive = rldrives[i];
+            for (RLDrive rldrive : rldrives) {
                 rldrive.setVisible (isenab);
             }
             mainframe.pack ();
@@ -1280,20 +1315,19 @@ public class GUI extends JPanel {
             lastcylno = -1;
             lastfnseq = -1;
 
-            setLayout (new BoxLayout (this, BoxLayout.Y_AXIS));
+            setLayout (new BoxLayout (this, BoxLayout.X_AXIS));
+            setMaximumSize (rl02pandim);
+            setMinimumSize (rl02pandim);
+            setPreferredSize (rl02pandim);
+            setSize (rl02pandim);
 
-            // make a row for the 4 buttons
-            JPanel buttonrow = new JPanel ();
-            buttonrow.setLayout (new BoxLayout (buttonrow, BoxLayout.X_AXIS));
-            add (buttonrow);
-
-            buttonrow.add (cylnolbl   = new JLabel ("       "));
-            buttonrow.add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
-            buttonrow.add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
-            buttonrow.add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
-            buttonrow.add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
-            buttonrow.add (new JLabel ("   "));
-            buttonrow.add (rlmessage  = new JLabel (""));
+            add (cylnolbl   = new JLabel ("       "));
+            add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
+            add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
+            add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
+            add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
+            add (new JLabel ("   "));
+            add (rlmessage  = new JLabel (""));
 
             Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
             cylnolbl.setFont (lf);
@@ -1396,6 +1430,13 @@ public class GUI extends JPanel {
                 blockmsgupdates = 0;
                 lastfnseq = thisfnseq;
             }
+        }
+
+        @Override
+        protected void paintComponent (Graphics g)
+        {
+            super.paintComponent (g);
+            g.drawImage (rl02panimg, 0, 0, null);
         }
     }
 }
