@@ -1030,7 +1030,8 @@ public class GUI extends JPanel {
 
     public static String[] rwmemerr = {
         "bus timed out",
-        "parity error" };
+        "parity error",
+        "fpga turned off" };
 
     public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
         private boolean isenabled;

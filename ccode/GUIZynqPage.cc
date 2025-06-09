@@ -192,6 +192,9 @@ JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
   (JNIEnv *env, jclass klass, jint addr)
 {
+    uint32_t fpgamode = (pdpat[Z_RA] & a_fpgamode) / (a_fpgamode & - a_fpgamode);
+    if ((fpgamode != FM_SIM) && (fpgamode != FM_REAL)) return -3;
+
     uint16_t data;
     uint32_t rc = z11page->dmaread (addr, &data);
     if (rc & KY3_DMATIMO) return -1;
@@ -208,6 +211,9 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
 JNIEXPORT jint JNICALL Java_GUIZynqPage_wrmem
   (JNIEnv *env, jclass klass, jint addr, jint data)
 {
+    uint32_t fpgamode = (pdpat[Z_RA] & a_fpgamode) / (a_fpgamode & - a_fpgamode);
+    if ((fpgamode != FM_SIM) && (fpgamode != FM_REAL)) return -3;
+
     return z11page->dmawrite (addr, data) ? data : -1;
 }
 
