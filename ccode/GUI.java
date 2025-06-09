@@ -73,6 +73,7 @@ public class GUI extends JPanel {
     public final static ImageIcon ledoff = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc52.png"));
 
     public static BufferedImage redeyeim;
+    public static JFrame mainframe;
 
     public static void main (String[] args)
             throws Exception
@@ -88,16 +89,16 @@ public class GUI extends JPanel {
         GUIZynqPage.open ();
 
         // create window and show it
-        JFrame jframe = new JFrame ("PDP-11/34A");
-        jframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
-        jframe.setContentPane (new GUI ());
+        mainframe = new JFrame ("PDP-11/34A");
+        mainframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
+        mainframe.setContentPane (new GUI ());
         SwingUtilities.invokeLater (new Runnable () {
             @Override
             public void run ()
             {
-                jframe.pack ();
-                jframe.setLocationRelativeTo (null);
-                jframe.setVisible (true);
+                mainframe.pack ();
+                mainframe.setLocationRelativeTo (null);
+                mainframe.setVisible (true);
 
                 // get initial switch register contents from 777570
                 int srint = GUIZynqPage.rdmem (0777570);
@@ -239,6 +240,7 @@ public class GUI extends JPanel {
                 dlckbox.update ();
                 kwckbox.update ();
                 kyckbox.update ();
+                rlckbox.update ();
 
                 for (int i = 0; i < 4; i ++) rldrives[i].update ();
             }
@@ -456,7 +458,7 @@ public class GUI extends JPanel {
         ckboxrow.add (dlckbox = new DevCkBox ("DL-11    ", "dl_enable"));
         ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
         ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
-        ////ckboxrow.add (rlckbox = new DevCkBox ("rl_enable"));
+        ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11"));
 
         add (rldrives[0] = new RLDrive (0));
         add (rldrives[1] = new RLDrive (1));
@@ -1144,6 +1146,27 @@ public class GUI extends JPanel {
                 GUIZynqPage.pinset (enablopinindex, (int) mask);
                 GUIZynqPage.pinset (enabhipinindex, (int) (mask >> 32));
             }
+        }
+    }
+
+    public static class RLDevCkBox extends DevCkBox {
+
+        public RLDevCkBox (String label)
+        {
+            super (label, "rl_enable");
+        }
+
+        @Override   // DevCkBox
+        public void stateChanged (ChangeEvent e)
+        {
+            super.stateChanged (e);
+
+            for (int i = 0; i < 4; i ++) {
+                if (! isenab) GUIZynqPage.rlload (i, false, null);
+                RLDrive rldrive = rldrives[i];
+                rldrive.setVisible (isenab);
+            }
+            mainframe.pack ();
         }
     }
 

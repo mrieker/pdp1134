@@ -18,36 +18,21 @@
 //
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
-#ifndef _PINTABLE_H
-#define _PINTABLE_H
+#ifndef _FUTEX_H
+#define _FUTEX_H
 
-#include <stdint.h>
+#include <linux/futex.h>
+#include <syscall.h>
 
-struct PinDef {
-    char name[16];
-    int dev;
-    int reg;
-    uint32_t mask;
-    int lobit;
-    bool writ;
-};
+static bool atomic_compare_exchange (int *ptr, int *oldptr, int newval)
+{
+    return __atomic_compare_exchange_n (ptr, oldptr, newval, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
 
-#define DEV_11 0
-#define DEV_BM 1
-#define DEV_KY 2
-#define DEV_DL 3
-#define DEV_KW 4
-#define DEV_RL 5
-#define DEV_MAX 6
-
-#define DEVIDS "11","BM","KY","DL","KW","RL"
-
-#include "z11util.h"
-
-extern PinDef const pindefs[];
-
-extern Z11Page *z11page;
-
-uint32_t volatile *pindev (int dev);
+static inline int futex (int *uaddr, int futex_op, int val,
+             const struct timespec *timeout, int *uaddr2, int val3)
+{
+    return syscall (SYS_futex, uaddr, futex_op, val, timeout, uaddr2, val3);
+}
 
 #endif

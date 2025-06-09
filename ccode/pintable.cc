@@ -161,6 +161,8 @@ PinDef const pindefs[] = {
     { "kw_enable",       DEV_KW, 1,    0x80000000,        0, true  },
     { "kw_fiftyhz",      DEV_KW, 1,    0x00000004,        0, true  },
 
+    { "rl_enable",       DEV_RL, 5,    0x80000000,        0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 
