@@ -78,7 +78,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B59200D : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B59200E : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -317,14 +317,17 @@ module ky11 (
             // if timeout, release everything and leave dmatimo set
             4: begin
                 if (del_ssyn_in_h) begin
-                    dmadelay   <= 0;
-                    dmastate   <= 5;
+                    dmadelay    <= 0;
+                    dmastate    <= 5;
                 end else if (dmadelay != 1000) begin
-                    dmadelay   <= dmadelay + 1;
+                    dmadelay    <= dmadelay + 1;
                 end else begin
-                    bbsy_out_h <= 0;
-                    dmastate   <= 0;
-                    msyn_out_h <= 0;
+                    a_out_h     <= 0;
+                    bbsy_out_h  <= 0;
+                    c_out_h     <= 0;
+                    dma_d_out_h <= 0;
+                    dmastate    <= 0;
+                    msyn_out_h  <= 0;
                 end
             end
 
