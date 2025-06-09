@@ -151,6 +151,8 @@ public class GUI extends JPanel {
             @Override
             public void actionPerformed (ActionEvent ae)
             {
+                updatetimemillis = System.currentTimeMillis ();
+
                 // read values from zynq fpga
                 int sample_addr = GUIZynqPage.addr ();
                 int sample_data = GUIZynqPage.data ();
@@ -247,6 +249,7 @@ public class GUI extends JPanel {
         };
 
     public static int lastrunning = 12345;
+    public static long updatetimemillis;
 
     public static int findpin (String name)
     {
@@ -1262,6 +1265,7 @@ public class GUI extends JPanel {
         public JLabel cylnolbl;
         public JLabel rlmessage;
         public long blockmsgupdates;
+        public long winkoutready;
         public RLButton loadbutton;
         public RLButton readylight;
         public RLButton faultlight;
@@ -1365,17 +1369,28 @@ public class GUI extends JPanel {
         public void update ()
         {
             int stat = GUIZynqPage.rlstat (drive);
-            loadbutton.setOn ((stat & GUIZynqPage.RLSTAT_LOAD)  != 0);
-            wprtswitch.setOn ((stat & GUIZynqPage.RLSTAT_WRPRT) != 0);
-            readylight.setOn ((stat & GUIZynqPage.RLSTAT_READY) != 0);
-            faultlight.setOn ((stat & GUIZynqPage.RLSTAT_FAULT) != 0);
+
+            // update cylinder number if it changed, blanks if drive not loaded
+            // also wink out the drive ready light
             int thiscylno = ((stat & GUIZynqPage.RLSTAT_LOAD) == 0) ? -1 : (stat & GUIZynqPage.RLSTAT_CYLNO) / (GUIZynqPage.RLSTAT_CYLNO & - GUIZynqPage.RLSTAT_CYLNO);
             if (lastcylno != thiscylno) {
                 lastcylno = thiscylno;
                 cylnolbl.setText ((lastcylno < 0) ? "       " : String.format ("  %03d  ", lastcylno));
+                stat &= ~ GUIZynqPage.RLSTAT_READY;
             }
+
+            // stretch the not-ready status out so it blinks when there is a seek
+            if ((stat & GUIZynqPage.RLSTAT_READY) == 0) winkoutready = updatetimemillis + 50;
+
+            // update load, ready, fault, write protect lights
+            loadbutton.setOn ((stat & GUIZynqPage.RLSTAT_LOAD)  != 0);
+            readylight.setOn (updatetimemillis >= winkoutready);
+            faultlight.setOn ((stat & GUIZynqPage.RLSTAT_FAULT) != 0);
+            wprtswitch.setOn ((stat & GUIZynqPage.RLSTAT_WRPRT) != 0);
+
+            // update loaded filename if there was a change and if no error message is being displayed
             int thisfnseq = stat & GUIZynqPage.RLSTAT_FNSEQ;
-            if ((lastfnseq != thisfnseq) && ((blockmsgupdates == 0) || (System.currentTimeMillis () > blockmsgupdates))) {
+            if ((lastfnseq != thisfnseq) && ((blockmsgupdates == 0) || (updatetimemillis > blockmsgupdates))) {
                 rlmessage.setText (GUIZynqPage.rlfile (drive));
                 blockmsgupdates = 0;
                 lastfnseq = thisfnseq;
