@@ -27,16 +27,27 @@
 
 #define SHMRL_NAME "/shm_zturn11_rl"
 
+#define RLSTAT_LOAD   00000001
+#define RLSTAT_WRPROT 00000002
+#define RLSTAT_READY  00000004
+#define RLSTAT_FAULT  00000010
+#define RLSTAT_FNSEQ  00007760
+#define RLSTAT_CYLNO  07770000
+
 #define SHMRLCMD_IDLE 0     // not doing anything
 #define SHMRLCMD_LOAD 1     // load drive with filename,readonly
 #define SHMRLCMD_UNLD 5     // unload drive
 #define SHMRLCMD_DONE 9     // done loading/unloading
 
+#define SHMRL_FNSIZE 1000   // make sure it all fits on one page
+
 struct ShmRLDrive {
     uint16_t lastposn;      // last cyl/head/sec
     bool readonly;          // write protected
+    bool ready;             // drive ready
+    bool fault;             // drive fault
     uint8_t fnseq;          // incremented each change in filename
-    char filename[1000];    // "" for unloaded, else filename loaded
+    char filename[SHMRL_FNSIZE];  // "" for unloaded, else filename loaded
 };
 
 struct ShmRL {
@@ -47,5 +58,8 @@ struct ShmRL {
     int lderrno;        // errno for load commands (0 if success)
     ShmRLDrive drives[4];
 };
+
+int shmrl_load (int drive, bool readonly, char const *filename);
+int shmrl_stat (int drive, char *buff, int size);
 
 #endif

@@ -11,8 +11,7 @@ proc rt11initreal {} {
     hardreset                           ;# reset processor
     pin set bm_enablo 0 bm_enabhi 0     ;# disable FPGA memory
     pin set kw_enable 1 ky_enable 1     ;# enable FPGA line clock, switches & lights
-    exec ./z11rl -killit -loadrw 0 rt11.rl02 &
-    exec ./z11dl -killit -nokb -cps 960 > /dev/tty &
+    rlload 0 rt11.rl02
 }
 
 # uses simmer.cc (x86_64) or sim1134.v (zynq) simulator
@@ -23,7 +22,7 @@ proc rt11initsim {} {
     pin set bm_enablo 0xFFFFFFFF        ;# enable FPGA memory (000000..377777)
     pin set bm_enabhi 0x3FFFFFFF        ;# ... (400000..757777)
     pin set kw_enable 1 ky_enable 1     ;# enable FPGA line clock, switches & lights
-    exec ./z11rl -killit -loadrw 0 rt11.rl02 &
+    rlload 0 rt11.rl02
     exec ./z11dl -killit -nokb -cps 960 > /dev/tty &
 }
 

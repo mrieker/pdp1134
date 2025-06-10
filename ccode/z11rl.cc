@@ -19,10 +19,12 @@
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
 // Performs RL01/RL02 disk I/O for the PDP-11 Zynq I/O board
+// Runs as a background daemon when a file is loaded in a drive
+// ...either with z11ctrl rlload command or GUI screen
+
+//  ./z11rl [-reset]
 
 // page references rl01/rl02 user guide sep 81
-
-//  ./z11rl [-killit] [-loadro/-loadrw <driveno> <file>]... [<tclscriptfile>]
 
 #include <errno.h>
 #include <fcntl.h>
@@ -40,7 +42,6 @@
 
 #include "futex.h"
 #include "shmrl.h"
-#include "tclmain.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -79,18 +80,6 @@ static int debug;
 static int fds[4];
 static uint64_t seekdoneats[4];
 
-// internal TCL commands
-static Tcl_ObjCmdProc cmd_rkloadro;
-static Tcl_ObjCmdProc cmd_rkloadrw;
-static Tcl_ObjCmdProc cmd_rkunload;
-
-static TclFunDef const fundefs[] = {
-    { cmd_rkloadro, "rkloadro", "<disknumber> <filename> - load file read-only" },
-    { cmd_rkloadrw, "rkloadrw", "<disknumber> <filename> - load file read/write" },
-    { cmd_rkunload, "rkunload", "<disknumber> - unload disk" },
-    { NULL, NULL, NULL }
-};
-
 #define LOCKIT mutexlock()
 #define UNLKIT mutexunlk()
 
@@ -124,9 +113,8 @@ static void mutexunlk ()
     if (futex (&shmrl->rlfutex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
 }
 
-static int loaddisk (bool readwrite, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
-static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const *filenm);
-static void *rlthread (void *dummy);
+static bool loadfile (bool readwrite, int diskno, char const *filenm);
+static void rlthread ();
 static char *lockfile (int fd, int how);
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func);
 
@@ -135,184 +123,81 @@ int main (int argc, char **argv)
     memset (fds, -1, sizeof fds);
     mypid = getpid ();
 
-    // create shared memory page
-    shm_unlink (SHMRL_NAME);
+    bool resetit = (argc > 1) && (strcasecmp (argv[1], "-reset") == 0);
+
+    // access fpga register set for the RL-11 controller
+    // lock it so we are only process accessing it
+    z11p = new Z11Page ();
+    rlat = z11p->findev ("RL", NULL, NULL, true, false);
+
+    // open shared memory, create if not there
     int shmfd = shm_open (SHMRL_NAME, O_RDWR | O_CREAT, 0666);
     if (shmfd < 0) {
-        fprintf (stderr, "error creating %s: %m\n", SHMRL_NAME);
+        fprintf (stderr, "z11rl: error creating %s: %m\n", SHMRL_NAME);
         return 1;
     }
-    if (ftruncate (shmfd, sizeof *shmrl) < 0) ABORT ();
+    if (ftruncate (shmfd, sizeof *shmrl) < 0) {
+        fprintf (stderr, "z11rl: error extending %s: %m\n", SHMRL_NAME);
+        return 1;
+    }
     shmrl = (ShmRL *) mmap (NULL, sizeof *shmrl, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
     if (shmrl == MAP_FAILED) {
-        fprintf (stderr, "error mmapping %s: %m\n", SHMRL_NAME);
+        fprintf (stderr, "z11rl: error mmapping %s: %m\n", SHMRL_NAME);
         return 1;
     }
-
-    // initialize shared memory
-    memset (shmrl, 0, sizeof *shmrl);
+    if (resetit) memset (shmrl, 0, sizeof *shmrl);
 
     // put our pid in there in case we die when something is waiting for us to do something
-    shmrl->svrpid = getpid ();
-
-    // parse command line
-    bool killit = false;
-    bool loadit = false;
-    bool tclena = false;
-    int tclargs = argc;
-    for (int i = 0; ++ i < argc;) {
-        if (strcmp (argv[i], "-?") == 0) {
-            puts ("");
-            puts ("     Access RL11 controller and drives");
-            puts ("");
-            puts ("  ./z11rl [-killit] [-loadro/-loadrw <driveno> <file>]... | [-tcl [<tclscriptfile> [<scriptargs>...]]]");
-            puts ("     -killit : kill other process accessing RL11 controller");
-            puts ("     -loadro/rw : load the given file in the given drive");
-            puts ("     -tcl : run tcl script after doing any -loadro/rws");
-            puts ("     <tclscriptfile> : execute script then exit");
-            puts ("                else : read and process commands from stdin");
-            puts ("");
-            puts ("     Use -loadro/-loadrw to statically load files in drives.");
-            puts ("");
-            puts ("     If -tcl option given, will use TCL commands to dynamically load and");
-            puts ("     unload drives.  If no <tclscriptfile> given, will read from stdin.");
-            puts ("");
+    // exit if there is another one of us already running
+    LOCKIT;
+    int oldpid = shmrl->svrpid;
+    if ((oldpid != 0) && (oldpid != mypid)) {
+        if (kill (oldpid, 0) >= 0) {
+            UNLKIT;
+            fprintf (stderr, "z11rl: duplicate z11rl process %d\n", oldpid);
             return 0;
         }
-        if (strcasecmp (argv[i], "-killit") == 0) {
-            killit = true;
-            continue;
-        }
-        if ((strcasecmp (argv[i], "-loadro") == 0) || (strcasecmp (argv[i], "-loadrw") == 0)) {
-            if ((i + 2 >= argc) || (argv[i+1][0] == '-') || (argv[i+2][0] == '-')) {
-                fprintf (stderr, "missing disknumber and/or filename for -loadro/rw\n");
-                UNLKIT;
-                return 1;
-            }
-            char *p;
-            int diskno = strtol (argv[i+1], &p, 0);
-            if ((*p != 0) || (diskno < 0) || (diskno > 3)) {
-                fprintf (stderr, "disknumber %s must be integer in range 0..3\n", argv[i+1]);
-                UNLKIT;
-                return 1;
-            }
-            shmrl->drives[diskno].readonly = strcasecmp (argv[i], "-loadro") == 0;
-            strncpy (shmrl->drives[diskno].filename, argv[i+2], sizeof shmrl->drives[diskno].filename);
-            shmrl->drives[diskno].filename[sizeof shmrl->drives[diskno].filename-1] = 0;
-            loadit = true;
-            i += 2;
-            continue;
-        }
-        if (strcasecmp (argv[i], "-tcl") == 0) {
-            tclena = true;
-            continue;
-        }
-        if (argv[i][0] == '-') {
-            fprintf (stderr, "unknown option %s\n", argv[i]);
-            UNLKIT;
-            return 1;
-        }
-        tclargs = i;
-        break;
+        if (errno != ESRCH) ABORT ();
     }
+    fprintf (stderr, "z11rl: new z11rl process %d\n", mypid);
+    shmrl->svrpid = mypid;
+    UNLKIT;
 
-    z11p = new Z11Page ();
-    rlat = z11p->findev ("RL", NULL, NULL, true, killit);
-    ZWR(rlat[5], RL5_ENAB);     // enable board to process io instructions
+    // enable board to process io instructions
+    ZWR(rlat[5], RL5_ENAB);
 
     debug = 0;
     char const *dbgenv = getenv ("z11rl_debug");
     if (dbgenv != NULL) debug = atoi (dbgenv);
 
-    // do any initial loads
-    if (loadit) {
-        for (int diskno = 0; diskno <= 3; diskno ++) {
-            if (shmrl->drives[diskno].filename[0] != 0) {
-                fds[diskno] = -1;
-                if (! loadfile (NULL, ! shmrl->drives[diskno].readonly, diskno, shmrl->drives[diskno].filename)) {
-                    return 1;
-                }
-            }
-        }
-    }
-
-    // if no -tcl, run io directly until killed
-    if (! tclena) {
-        rlthread (NULL);
-        return 0;
-    }
-
-    // -tcl, spawn thread to do io
-    pthread_t threadid;
-    int rc = pthread_create (&threadid, NULL, rlthread, NULL);
-    if (rc != 0) ABORT ();
-
-    // run scripting
-    rc = tclmain (fundefs, argv[0], "z11rl", NULL, NULL, argc - tclargs, argv + tclargs, true);
-
-    exiting = true;
-    pthread_join (threadid, NULL);
-
-    return rc;
+    rlthread ();
+    return 0;
 }
 
-// rkloadro <disknumber> <filename>
-static int cmd_rkloadro (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    return loaddisk (false, interp, objc, objv);
-}
-
-// rkloadrw <disknumber> <filename>
-static int cmd_rkloadrw (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    return loaddisk (true, interp, objc, objv);
-}
-
-static int loaddisk (bool readwrite, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if ((objc == 2) && (strcasecmp (Tcl_GetString (objv[1]), "help") == 0)) {
-        puts ("");
-        puts ("  rkloadro <disknumber> <filenane>");
-        puts ("  rkloadrw <disknumber> <filenane>");
-        return TCL_OK;
-    }
-
-    if (objc == 3) {
-        int diskno;
-        int rc = Tcl_GetIntFromObj (interp, objv[1], &diskno);
-        if (rc != TCL_OK) return rc;
-        if ((diskno < 0) || (diskno > 3)) {
-            Tcl_SetResultF (interp, "disknumber %d not in range 0..3", diskno);
-            return TCL_ERROR;
-        }
-        char const *filenm = Tcl_GetString (objv[2]);
-
-        return loadfile (interp, readwrite, diskno, filenm) ? TCL_OK : TCL_ERROR;
-    }
-
-    Tcl_SetResultF (interp, "rkloadro/rkloadrw <disknumber> <filename>");
-    return TCL_ERROR;
-}
-
-static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const *filenm)
+// load file in a drive
+//  input:
+//   readwrite = write-enable drive
+//   diskno = disk number 0..3
+//   filenm = filename
+//  output:
+//   returns false: error loading
+//            true: loaded
+static bool loadfile (bool readwrite, int diskno, char const *filenm)
 {
     int fd = open (filenm, readwrite ? O_RDWR | O_CREAT : O_RDONLY, 0666);
     if (fd < 0) {
-        if (interp == NULL) fprintf (stderr, "error opening %s: %m\n", filenm);
-        else Tcl_SetResultF (interp, "%m");
+        fprintf (stderr, "z11rl: error opening %s: %m\n", filenm);
         return false;
     }
     char *lockerr = lockfile (fd, readwrite ? F_WRLCK : F_RDLCK);
     if (lockerr != NULL) {
-        if (interp == NULL) fprintf (stderr, "error locking %s: %m\n", filenm);
-        else Tcl_SetResultF (interp, "%s", lockerr);
+        fprintf (stderr, "z11rl: error locking %s: %m\n", filenm);
         close (fd);
         free (lockerr);
         return false;
     }
     if (readwrite && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) {
-        if (interp == NULL) fprintf (stderr, "error extending %s: %m\n", filenm);
-        else Tcl_SetResultF (interp, "%m");
+        fprintf (stderr, "z11rl: error extending %s: %m\n", filenm);
         close (fd);
         return false;
     }
@@ -327,37 +212,14 @@ static bool loadfile (Tcl_Interp *interp, bool readwrite, int diskno, char const
     return true;
 }
 
-// rkunload <disknumber>
-static int cmd_rkunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        int diskno;
-        int rc = Tcl_GetIntFromObj (interp, objv[1], &diskno);
-        if (rc != TCL_OK) return rc;
-        if ((diskno < 0) || (diskno > 3)) {
-            Tcl_SetResultF (interp, "disknumber %d not in range 0..3", diskno);
-            return TCL_ERROR;
-        }
-        fprintf (stderr, "z11rl: drive %d unloaded\n", diskno);
-        LOCKIT;
-        close (fds[diskno]);
-        fds[diskno] = -1;
-        UNLKIT;
-        return TCL_OK;
-    }
-
-    Tcl_SetResultF (interp, "rkunload <disknumber>");
-    return TCL_ERROR;
-}
-
 #define SECUNDERHEAD (nowus / USPERSEC % SECPERTRK)
 
-// thread what does the disk file I/O
-void *rlthread (void *dummy)
+// do the disk file I/O
+static void rlthread ()
 {
     if (debug > 1) fprintf (stderr, "z11rl: thread started\r\n");
 
-    while (! exiting) {
+    while (true) {
         usleep (1000);
 
         LOCKIT;
@@ -370,7 +232,7 @@ void *rlthread (void *dummy)
                 int driveno = shmrl->command - SHMRLCMD_LOAD;
                 ShmRLDrive *dr = &shmrl->drives[driveno];
                 UNLKIT;
-                if (loadfile (NULL, ! dr->readonly, driveno, dr->filename)) {
+                if (loadfile (! dr->readonly, driveno, dr->filename)) {
                     shmrl->lderrno = 0;
                 } else {
                     shmrl->lderrno = errno;
@@ -417,6 +279,7 @@ void *rlthread (void *dummy)
             int fd = fds[drivesel];
             ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
             ShmRLDrive *shmdr = &shmrl->drives[drivesel];
+            shmdr->ready = false;
 
             uint32_t seekdelay = (seekdoneats[drivesel] > nowus) ? seekdoneats[drivesel] - nowus : 0;
             uint32_t rotndelay = ((rlda & 63) + SECPERTRK - SECUNDERHEAD) % SECPERTRK;
@@ -655,7 +518,7 @@ void *rlthread (void *dummy)
             rlcs |= 8U << 10;                       // non-existant memory
             goto alldone;
         mperr:;
-            rlcs |= 9u << 10;                       // memory parity error
+            rlcs |= 9U << 10;                       // memory parity error
         alldone:;
             rlmp3 = rlmp2 = rlmp;
         rhddone:;
@@ -668,6 +531,7 @@ void *rlthread (void *dummy)
             nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
             uint16_t drdy = ((fd >= 0) && (seekdoneats[drivesel] <= nowus)) ? RL4_DRDY0 : 0;
             ZWR(rlat[4], (ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel)) | (drdy << drivesel));
+            shmdr->ready = drdy != 0;
 
             // update RLMPs, RLDA, then RLBA and RLCS
             ZWR(rlat[3], ((uint32_t) rlmp3 << 16) | rlmp2);
@@ -680,14 +544,14 @@ void *rlthread (void *dummy)
         // always update drive readies in case a seek just completed
         uint32_t drdy = 0;
         for (int i = 4; -- i >= 0;) {
-            drdy += drdy + ((fds[i] >= 0) && (seekdoneats[i] <= nowus));
+            uint32_t ready = (fds[i] >= 0) && (seekdoneats[i] <= nowus);
+            shmrl->drives[i].ready = ready;
+            drdy += drdy + ready;
         }
         ZWR(rlat[4], (ZRD(rlat[4]) & ~ RL4_DRDY) | drdy * RL4_DRDY0);
 
         UNLKIT;
     }
-
-    return NULL;
 }
 
 // try to lock the given file

@@ -24,7 +24,7 @@
 #include <linux/futex.h>
 #include <syscall.h>
 
-static bool atomic_compare_exchange (int *ptr, int *oldptr, int newval)
+static inline bool atomic_compare_exchange (int *ptr, int *oldptr, int newval)
 {
     return __atomic_compare_exchange_n (ptr, oldptr, newval, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }

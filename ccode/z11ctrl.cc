@@ -37,6 +37,7 @@
 #include "cmd_pin.h"
 #include "disassem.h"
 #include "readprompt.h"
+#include "shmrl.h"
 #include "tclmain.h"
 #include "z11util.h"
 
@@ -44,12 +45,18 @@
 static Tcl_ObjCmdProc cmd_disasop;
 static Tcl_ObjCmdProc cmd_gettod;
 static Tcl_ObjCmdProc cmd_readchar;
+static Tcl_ObjCmdProc cmd_rlload;
+static Tcl_ObjCmdProc cmd_rlstat;
+static Tcl_ObjCmdProc cmd_rlunload;
 
 static TclFunDef const fundefs[] = {
     { cmd_disasop,  "disasop",  "disassemble instruction" },
     { cmd_gettod,   "gettod",   "get current time in us precision" },
     { CMD_PIN },
     { cmd_readchar, "readchar", "read character with timeout" },
+    { cmd_rlload,   "rlload",   "load file in RL drive" },
+    { cmd_rlstat,   "rlstat",   "get RL drive status" },
+    { cmd_rlunload, "rlunload", "unload file from RL drive" },
     { NULL, NULL, NULL }
 };
 
@@ -305,5 +312,157 @@ static int cmd_readchar (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
     }
 
     Tcl_SetResult (interp, (char *) "bad number of arguments", TCL_STATIC);
+    return TCL_ERROR;
+}
+
+static int cmd_rlload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            puts ("  rlload [-readonly] <drive> <filename>");
+            puts ("");
+            return TCL_OK;
+        }
+    }
+    bool readonly = false;
+    char const *filename = NULL;
+    int drive = -1;
+    for (int i = 0; ++ i < objc;) {
+        char const *stri = Tcl_GetString (objv[i]);
+        if (strcasecmp (stri, "-readonly") == 0) {
+            readonly = true;
+            continue;
+        }
+        if (stri[0] == '-') {
+            Tcl_SetResultF (interp, "unknown option %s", stri);
+            return TCL_ERROR;
+        }
+        if (drive < 0) {
+            int rc = Tcl_GetIntFromObj (interp, objv[i], &drive);
+            if (rc != TCL_OK) return rc;
+            if ((drive < 0) || (drive > 3)) {
+                Tcl_SetResultF (interp, "drive number %d out of range 0..3", drive);
+                return TCL_ERROR;
+            }
+            continue;
+        }
+        if (filename != NULL) {
+            Tcl_SetResultF (interp, "unknown argument %s", stri);
+            return TCL_ERROR;
+        }
+        filename = stri;
+    }
+    if (filename == NULL) {
+        Tcl_SetResultF (interp, "missing drive and/or filename");
+        return TCL_ERROR;
+    }
+    int rc = shmrl_load (drive, readonly, filename);
+    if (rc < 0) {
+        Tcl_SetResultF (interp, "%s", strerror (- rc));
+        return TCL_ERROR;
+    }
+    return TCL_OK;
+}
+
+static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            puts ("  rlstat <drive> [cylinder] [fault] [file] [readonly] [ready]");
+            puts ("");
+            return TCL_OK;
+        }
+    }
+    if (objc > 1) {
+        int drive = -1;
+        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
+        if (rc != TCL_OK) return rc;
+        if ((drive < 0) || (drive > 3)) {
+            Tcl_SetResultF (interp, "drive number %d out of range 0..3", drive);
+            return TCL_ERROR;
+        }
+
+        char fnbuf[SHMRL_FNSIZE];
+        rc = shmrl_stat (drive, fnbuf, sizeof fnbuf);
+        if (rc < 0) {
+            Tcl_SetResultF (interp, "%s", strerror (- rc));
+            return TCL_ERROR;
+        }
+
+        int nvals = 0;
+        Tcl_Obj *vals[objc];
+        for (int i = 1; ++ i < objc;) {
+            char const *stri = Tcl_GetString (objv[i]);
+            if (strcasecmp (stri, "cylinder") == 0) {
+                int val = (rc & RLSTAT_CYLNO) / (RLSTAT_CYLNO & - RLSTAT_CYLNO);
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if (strcasecmp (stri, "fault") == 0) {
+                int val = (rc & RLSTAT_FAULT) / RLSTAT_FAULT;
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if (strcasecmp (stri, "file") == 0) {
+                vals[nvals++] = Tcl_NewStringObj (fnbuf, -1);
+                continue;
+            }
+            if (strcasecmp (stri, "readonly") == 0) {
+                int val = (rc & RLSTAT_WRPROT) / RLSTAT_WRPROT;
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if (strcasecmp (stri, "ready") == 0) {
+                int val = (rc & RLSTAT_READY) / RLSTAT_READY;
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            Tcl_SetResultF (interp, "unknown keyword %s", stri);
+            return TCL_ERROR;
+        }
+        if (nvals > 0) {
+            if (nvals < 2) {
+                Tcl_SetObjResult (interp, vals[0]);
+            } else {
+                Tcl_SetObjResult (interp, Tcl_NewListObj (nvals, vals));
+            }
+        }
+        return TCL_OK;
+    }
+    Tcl_SetResultF (interp, "bad number args");
+    return TCL_ERROR;
+}
+
+static int cmd_rlunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            puts ("  rlunload <drive>");
+            puts ("");
+            return TCL_OK;
+        }
+
+        int drive = -1;
+        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
+        if (rc != TCL_OK) return rc;
+        if ((drive < 0) || (drive > 3)) {
+            Tcl_SetResultF (interp, "drive number %d out of range 0..3", drive);
+            return TCL_ERROR;
+        }
+
+        rc = shmrl_load (drive, false, NULL);
+        if (rc < 0) {
+            Tcl_SetResultF (interp, "%s", strerror (- rc));
+            return TCL_ERROR;
+        }
+        return TCL_OK;
+    }
+    Tcl_SetResultF (interp, "bad number args");
     return TCL_ERROR;
 }

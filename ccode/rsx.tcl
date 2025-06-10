@@ -11,13 +11,11 @@ pin set ky_enable 1                 ;# plug 777570 light/switch register board i
 
 set home [getenv HOME /tmp]
 set rsx $home/rsx11.rl02
-##puts "rsx.tcl: loading disks"
-##exec -ignorestderr ./z11rl -killit \
-##  -loadrw 0 $rsx/rsx11m4.1_sys_34.rl02 \
-##  -loadrw 1 $rsx/rsx11m4.1_user.rl02   \
-##  -loadrw 2 $rsx/rsx11m4.1_hlpdcl.rl02 \
-##  -loadrw 3 $rsx/rsx11m4.1_excprv.rl02 &
-##after 3000
+puts "rsx.tcl: loading disks"
+rlload 0 $rsx/rsx11m4.1_sys_34.rl02
+rlload 1 $rsx/rsx11m4.1_user.rl02
+rlload 2 $rsx/rsx11m4.1_hlpdcl.rl02
+rlload 3 $rsx/rsx11m4.1_excprv.rl02
 
 loadlst $rsx/dl.lst                 ;# load bootstrap in memory
 flickstart 010000                   ;# start it going

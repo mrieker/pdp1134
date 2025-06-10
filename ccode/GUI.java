@@ -67,7 +67,7 @@ import javax.swing.event.ChangeListener;
 
 public class GUI extends JPanel {
 
-    public final static int UPDMS = 3;
+    public final static int UPDMS = 3;  // updisplay() typically takes 1mS
 
     public final static Dimension buttondim = new Dimension (116, 116);
     public final static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
