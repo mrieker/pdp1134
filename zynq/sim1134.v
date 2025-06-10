@@ -24,8 +24,9 @@ module sim1134 (
     input CLOCK,
     input RESET,
 
-    output[15:00] pcout, psout,
+    output[15:00] r0out, pcout, psout,
     output[5:0] stout,
+    output waiting,
 
     input bus_ac_lo_in_l,
     input bus_bbsy_in_l,
@@ -143,6 +144,8 @@ module sim1134 (
     endfunction
     wire[3:0] cspgprx = gprx (psw[15:14], 6);    // access current mode stack pointer
 
+    assign waiting = state == S_EXWAIT;
+    assign r0out = gprs[0];
     assign pcout = gprs[7];
     assign psout = psw;
     assign stout = state;

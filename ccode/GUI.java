@@ -34,6 +34,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Image;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
@@ -85,6 +86,7 @@ public class GUI extends JPanel {
 
     public static BufferedImage redeyeim;
     public static JFrame mainframe;
+    public static Toolkit toolkit;
 
     public static void main (String[] args)
             throws Exception
@@ -110,6 +112,7 @@ public class GUI extends JPanel {
                 mainframe.pack ();
                 mainframe.setLocationRelativeTo (null);
                 mainframe.setVisible (true);
+                toolkit = mainframe.getToolkit ();
 
                 // loop timer to update display from fpga & buttons/switches
                 Timer runupdatimer = new Timer (UPDMS, updisplay);
@@ -189,7 +192,7 @@ public class GUI extends JPanel {
                     contbutton.setEnabled  (sample_running == 0);
                     startbutton.setEnabled (sample_running <= 0);
                     resetbutton.setEnabled (true);
-                    bootbutton.setEnabled  (sample_running == 0);
+                    bootbutton.setEnabled  (sample_running <= 0);
                 }
 
                 // if processor currently running, update lights from what fpga last captured from unibus
@@ -250,7 +253,8 @@ public class GUI extends JPanel {
                 kyckbox.update ();
                 rlckbox.update ();
 
-                for (int i = 0; i < 4; i ++) rldrives[i].update ();
+                // flush updates to screen
+                toolkit.sync ();
             }
         };
 
@@ -1206,11 +1210,22 @@ public class GUI extends JPanel {
         }
     }
 
+    // RL-11 controller enable checkbox
     public static class RLDevCkBox extends DevCkBox {
 
         public RLDevCkBox (String label)
         {
             super (label, "rl_enable");
+        }
+
+        public void update ()
+        {
+            super.update ();
+            if (isenab) {
+                for (RLDrive rldrive : rldrives) {
+                    rldrive.update ();
+                }
+            }
         }
 
         @Override   // DevCkBox

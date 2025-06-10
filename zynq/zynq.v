@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131401B;
+    localparam VERSION = 32'h3131401C;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -353,6 +353,8 @@ module Zynq (
     wire[7:4] sim_bg_out_h;
     wire sim_npg_out_h;
     wire sim_hltgr_out_h;
+    wire[15:00] sim_r0out;
+    wire sim_waiting;
 
     wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
 
@@ -363,6 +365,8 @@ module Zynq (
         .pcout (regctlj[15:00]),
         .psout (regctlj[31:16]),
         .stout (regctlk_0500),
+        .r0out (sim_r0out),
+        .waiting (sim_waiting),
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -496,6 +500,8 @@ module Zynq (
         if (~ RESET_N) begin
             regctlk_2306   <= 0;
             regctll[21:06] <= 0;
+        end else if (sim_waiting) begin
+            regctll[21:06] <= sim_r0out;
         end else if (dev_syn_ssyn_h) begin
             regctlk_2306   <= dev_a_h;
             regctll[21:06] <= dev_d_h;

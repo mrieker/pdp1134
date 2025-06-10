@@ -8,6 +8,7 @@ puts [format "rsx.tcl: fpgamode=%u bm_enable=%08X.%08X" [pin fpgamode] [pin bm_e
 pin set dl_enable 1                 ;# plug console tty board in
 pin set kw_fiftyhz 1 kw_enable 1    ;# plug line clock board in
 pin set ky_enable 1                 ;# plug 777570 light/switch register board in
+pin set rl_enable 1                 ;# plug RL-11 controller board in
 
 set home [getenv HOME /tmp]
 set rsx $home/rsx11.rl02

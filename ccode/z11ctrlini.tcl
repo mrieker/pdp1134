@@ -11,9 +11,9 @@ proc helpini {} {
     puts "       dumpmem lo hi - dump memory from lo to hi address"
     puts "        enabmem size - enable given size of memory"
     puts "           flickcont - continue processing"
+    puts "           flickhalt - halt processing"
     puts "  flickstart pc \[ps\] - reset processor and start at given address"
     puts "           flickstep - step processor one instruction then print PC"
-    puts "                       can be used as an halt if processor running"
     puts "      getenv var def - get envar 'var', default to 'def'"
     puts "           hardreset - hard reset processor to halted state"
     puts "             loadbin - load binary tape file, return start address"
@@ -192,6 +192,17 @@ proc enabmem {{size 0760000}} {
 # continue processing
 proc flickcont {} {
     pin set ky_haltreq 0
+}
+
+# halt processor
+proc flickhalt {} {
+    pin set ky_haltreq 1
+    for {set i 0} {! [pin ky_halted]} {incr i} {
+        if {$i > 1000} {
+            error "flickhalt: processor did not halt"
+        }
+    }
+    return [rdword 0777707]
 }
 
 # start processor at given address
