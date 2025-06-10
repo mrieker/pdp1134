@@ -22,6 +22,7 @@ proc helpini {} {
     puts "             octal x - convert integer x to 6-digit octal string"
     puts "         rdbyte addr - read byte at given physical address"
     puts "         rdword addr - read word at given physical address"
+    puts "     rdwordtimo addr - read word at given physical address"
     puts "             realmem - determine size of real memory"
     puts "           steptrace - single step with disassembly"
     puts "       steptraceloop - single step with disassembly - looped"
@@ -388,27 +389,40 @@ proc rdbyte {addr} {
 
 # read a word from unibus via dma (ky11.v)
 proc rdword {addr} {
+    set data [rdwordtimo $addr]
+    if {$data == -1} {
+        error [format "rdword %06o timed out" $addr]
+    }
+    if {$data == -2} {
+        error [format "rdword %06o parity error" $addr]
+    }
+    return $data
+}
+
+# read a word from unibus via dma (ky11.v)
+# return -1 if timeout, -2 if parity error
+proc rdwordtimo {addr} {
     if {($addr < 0) || ($addr > 0777777)} {
-        error [format "rdword: bad address %o" $addr]
+        error [format "rdwordtimo: bad address %o" $addr]
     }
     if {($addr & 1) && (($addr < 0777700) || ($addr > 0777717))} {
-        error [format "rdword: odd address %06o" $addr]
+        error [format "rdwordtimo: odd address %06o" $addr]
     }
     lockdma
     pin set ky_dmaaddr $addr ky_dmactrl 0 ky_dmastate 1
     for {set i 0} {[set dmastate [pin ky_dmastate]] != 0} {incr i} {
         if {$i > 1000} {
             unlkdma
-            error "rdword: dmastate stuck at $dmastate"
+            error "rdwordtimo: dmastate stuck at $dmastate"
         }
     }
     if {[pin ky_dmatimo]} {
         unlkdma
-        error [format "rdword %06o timed out" $addr]
+        return -1
     }
     if {[pin ky_dmaperr]} {
         unlkdma
-        error [format "rdword %06o parity error" $addr]
+        return -2
     }
     set data [pin ky_dmadata]
     unlkdma

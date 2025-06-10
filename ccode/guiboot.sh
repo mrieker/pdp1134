@@ -4,5 +4,5 @@
 #
 #   $1 = 18-bit switch register value (in decimal)
 #
-cd `dirname $0`
-exec ./z11ctrl rsx.tcl
+export Z11DIR=`dirname $0`
+exec $Z11DIR/z11ctrl $Z11DIR/guiboot.tcl "$@"

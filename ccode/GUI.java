@@ -1407,7 +1407,7 @@ public class GUI extends JPanel {
             }
 
             // stretch the not-ready status out so it blinks when there is a seek
-            if ((stat & GUIZynqPage.RLSTAT_READY) == 0) winkoutready = updatetimemillis + 50;
+            if ((stat & GUIZynqPage.RLSTAT_READY) == 0) winkoutready = updatetimemillis + 20;
 
             // update load, ready, fault, write protect lights
             loadbutton.setOn ((stat & GUIZynqPage.RLSTAT_LOAD)  != 0);
