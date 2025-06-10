@@ -49,26 +49,59 @@ static void rlunlk ();
 int shmrl_load (int drive, bool readonly, char const *filename)
 {
     if ((drive < 0) || (drive > 3)) ABORT ();
+
+    // insert cwd in front of filename and squeeze out /../ and /./
+    char *fnbuf = NULL;
+    int fnlen = 0;
+    if (filename != NULL) {
+        fnbuf = realpath (filename, NULL);
+        if (fnbuf == NULL) {
+            int rc = - errno;
+            fprintf (stderr, "shmrl_load: failed to expand %s: %m\n", filename);
+            return rc;
+        }
+        fnlen = strlen (fnbuf);
+        if (fnlen >= SHMRL_FNSIZE) {
+            free (fnbuf);
+            fprintf (stderr, "shmrl_load: filename too long %s\n", fnbuf);
+            return -ERANGE;
+        }
+    }
+
+    // lock shared page and wait for it to be idle
     int rc = rlwaitidle ();
+
+    // make sure any previous file is unloaded
     if (rc >= 0) rc = rlunload (drive);
     if (rc >= 0) {
+
+        // mark entry readonly status
         ShmRLDrive *dr = &rlshm->drives[drive];
         dr->readonly = readonly;
-        if (filename == NULL) {
+        if (fnbuf == NULL) {
+
+            // if no filename, we're done
             rlunlk ();
         } else {
+
+            // send a load command for this drive
             rlshm->cmdpid  = getpid ();
             rlshm->command = SHMRLCMD_LOAD + drive;
-            strncpy (dr->filename, filename, sizeof dr->filename);
+            memcpy (dr->filename, fnbuf, ++ fnlen);
             if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
+
+            // unlock, wait for done, then re-lock
             rc = rlwaitdone ();
             if (rc >= 0) {
+
+                // completed, get load status and say page is idle
                 rc = rlshm->lderrno;
                 rlshm->command = SHMRLCMD_IDLE;
                 rlunlk ();
             }
         }
     }
+    if (fnbuf != NULL) free (fnbuf);
     return rc;
 }
 

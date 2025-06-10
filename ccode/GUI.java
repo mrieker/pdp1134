@@ -65,6 +65,7 @@ import javax.swing.border.BevelBorder;
 import javax.swing.border.Border;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class GUI extends JPanel {
 
@@ -1355,6 +1356,9 @@ public class GUI extends JPanel {
 
                         // display chooser box to select file to load
                         JFileChooser chooser = new JFileChooser ();
+                        chooser.setFileFilter (
+                            new FileNameExtensionFilter (
+                                "RL02 disk image", "rl02"));
                         chooser.setDialogTitle ("Loading RL drive " + drive);
                         if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
                         int rc = chooser.showOpenDialog (RLDrive.this);
@@ -1434,7 +1438,7 @@ public class GUI extends JPanel {
 
             // update loaded filename if there was a change and if no error message is being displayed
             int thisfnseq = stat & GUIZynqPage.RLSTAT_FNSEQ;
-            if ((lastfnseq != thisfnseq) && ((blockmsgupdates == 0) || (updatetimemillis > blockmsgupdates))) {
+            if (((blockmsgupdates == 0) && (lastfnseq != thisfnseq)) || (updatetimemillis > blockmsgupdates)) {
                 rlmessage.setText (GUIZynqPage.rlfile (drive));
                 blockmsgupdates = 0;
                 lastfnseq = thisfnseq;
