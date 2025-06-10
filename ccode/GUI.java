@@ -189,7 +189,7 @@ public class GUI extends JPanel {
                     contbutton.setEnabled  (sample_running == 0);
                     startbutton.setEnabled (sample_running <= 0);
                     resetbutton.setEnabled (true);
-                    bootbutton.setEnabled  (true);
+                    bootbutton.setEnabled  (sample_running == 0);
                 }
 
                 // if processor currently running, update lights from what fpga last captured from unibus
@@ -302,24 +302,24 @@ public class GUI extends JPanel {
         bits0200.setLayout (new GridLayout (8, 3));
 
         // row 0 - address label
-        bits1715.add (addrlbls[17] = centeredLabel (""));
-        bits1715.add (addrlbls[16] = centeredLabel (""));
-        bits1715.add (addrlbls[15] = centeredLabel (""));
-        bits1412.add (addrlbls[14] = centeredLabel (""));
-        bits1412.add (addrlbls[13] = centeredLabel (""));
-        bits1412.add (addrlbls[12] = centeredLabel (""));
-        bits1109.add (addrlbls[11] = centeredLabel (""));
-        bits1109.add (addrlbls[10] = centeredLabel (""));
-        bits1109.add (addrlbls[ 9] = centeredLabel (""));
-        bits0806.add (addrlbls[ 8] = centeredLabel (""));
-        bits0806.add (addrlbls[ 7] = centeredLabel (""));
-        bits0806.add (addrlbls[ 6] = centeredLabel (""));
-        bits0503.add (addrlbls[ 5] = centeredLabel (""));
-        bits0503.add (addrlbls[ 4] = centeredLabel ("A"));
-        bits0503.add (addrlbls[ 3] = centeredLabel ("D"));
-        bits0200.add (addrlbls[ 2] = centeredLabel ("D"));
-        bits0200.add (addrlbls[ 1] = centeredLabel ("R"));
-        bits0200.add (addrlbls[ 0] = centeredLabel ("S"));
+        bits1715.add (addrlbls[17] = lightsLabel (""));
+        bits1715.add (addrlbls[16] = lightsLabel (""));
+        bits1715.add (addrlbls[15] = lightsLabel (""));
+        bits1412.add (addrlbls[14] = lightsLabel (""));
+        bits1412.add (addrlbls[13] = lightsLabel (""));
+        bits1412.add (addrlbls[12] = lightsLabel (""));
+        bits1109.add (addrlbls[11] = lightsLabel (""));
+        bits1109.add (addrlbls[10] = lightsLabel (""));
+        bits1109.add (addrlbls[ 9] = lightsLabel (""));
+        bits0806.add (addrlbls[ 8] = lightsLabel (""));
+        bits0806.add (addrlbls[ 7] = lightsLabel (""));
+        bits0806.add (addrlbls[ 6] = lightsLabel (""));
+        bits0503.add (addrlbls[ 5] = lightsLabel (""));
+        bits0503.add (addrlbls[ 4] = lightsLabel ("A"));
+        bits0503.add (addrlbls[ 3] = lightsLabel ("D"));
+        bits0200.add (addrlbls[ 2] = lightsLabel ("D"));
+        bits0200.add (addrlbls[ 1] = lightsLabel ("R"));
+        bits0200.add (addrlbls[ 0] = lightsLabel ("S"));
 
         // row 1 - address bits
         for (int i = 3; -- i >= 0;) {
@@ -332,28 +332,28 @@ public class GUI extends JPanel {
         }
 
         // row 2 - data label
-        bits1715.add (centeredLabel ("RUN"));
-        bits1715.add (centeredLabel (""));
-        bits1715.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0503.add (centeredLabel (""));
-        bits0503.add (centeredLabel ("D"));
-        bits0200.add (centeredLabel ("A"));
-        bits0200.add (centeredLabel ("T"));
-        bits0200.add (centeredLabel ("A"));
+        bits1715.add (lightsLabel ("RUN"));
+        bits1715.add (lightsLabel (""));
+        bits1715.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0503.add (lightsLabel (""));
+        bits0503.add (lightsLabel (""));
+        bits0503.add (lightsLabel ("D"));
+        bits0200.add (lightsLabel ("A"));
+        bits0200.add (lightsLabel ("T"));
+        bits0200.add (lightsLabel ("A"));
 
         // row 3 - data bits
         bits1715.add (runled = new LED ());
-        bits1715.add (centeredLabel (""));
+        bits1715.add (lightsLabel (""));
         bits1715.add (dataleds[15] = new LED ());
         for (int i = 3; -- i >= 0;) {
             bits1412.add (dataleds[12+i] = new LED ());
@@ -364,28 +364,28 @@ public class GUI extends JPanel {
         }
 
         // row 4 - 777570 lights label
-        bits1715.add (centeredLabel ("BERR"));
-        bits1715.add (centeredLabel (""));
-        bits1715.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0503.add (centeredLabel ("L"));
-        bits0503.add (centeredLabel ("I"));
-        bits0503.add (centeredLabel ("G"));
-        bits0200.add (centeredLabel ("H"));
-        bits0200.add (centeredLabel ("T"));
-        bits0200.add (centeredLabel ("S"));
+        bits1715.add (lightsLabel ("BERR"));
+        bits1715.add (lightsLabel (""));
+        bits1715.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0503.add (lightsLabel ("L"));
+        bits0503.add (lightsLabel ("I"));
+        bits0503.add (lightsLabel ("G"));
+        bits0200.add (lightsLabel ("H"));
+        bits0200.add (lightsLabel ("T"));
+        bits0200.add (lightsLabel ("S"));
 
         // row 5 - 777570 lights
         bits1715.add (berrled = new FlashingLED ());
-        bits1715.add (centeredLabel (""));
+        bits1715.add (lightsLabel (""));
         bits1715.add (lregleds[15] = new LED ());
         for (int i = 3; -- i >= 0;) {
             bits1412.add (lregleds[12+i] = new LED ());
@@ -396,24 +396,24 @@ public class GUI extends JPanel {
         }
 
         // row 6 - switches label
-        bits1715.add (centeredLabel (""));
-        bits1715.add (centeredLabel (""));
-        bits1715.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1412.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits1109.add (centeredLabel (""));
-        bits0806.add (centeredLabel (""));
-        bits0806.add (centeredLabel ("S"));
-        bits0806.add (centeredLabel ("W"));
-        bits0503.add (centeredLabel ("I"));
-        bits0503.add (centeredLabel ("T"));
-        bits0503.add (centeredLabel ("C"));
-        bits0200.add (centeredLabel ("H"));
-        bits0200.add (centeredLabel ("E"));
-        bits0200.add (centeredLabel ("S"));
+        bits1715.add (lightsLabel (""));
+        bits1715.add (lightsLabel (""));
+        bits1715.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1412.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits1109.add (lightsLabel (""));
+        bits0806.add (lightsLabel (""));
+        bits0806.add (lightsLabel ("S"));
+        bits0806.add (lightsLabel ("W"));
+        bits0503.add (lightsLabel ("I"));
+        bits0503.add (lightsLabel ("T"));
+        bits0503.add (lightsLabel ("C"));
+        bits0200.add (lightsLabel ("H"));
+        bits0200.add (lightsLabel ("E"));
+        bits0200.add (lightsLabel ("S"));
 
         // row 7 - switch register
         for (int i = 3; -- i >= 0;) {
@@ -450,10 +450,11 @@ public class GUI extends JPanel {
         add (rldrives[3] = new RLDrive (3));
     }
 
-    public static JLabel centeredLabel (String label)
+    public static JLabel lightsLabel (String label)
     {
         JLabel jl = new JLabel (label);
         jl.setHorizontalAlignment (JLabel.CENTER);
+        jl.setForeground (Color.WHITE);
         return jl;
     }
 
@@ -478,7 +479,8 @@ public class GUI extends JPanel {
             messagebox.setPreferredSize (mbd);
             add (messagebox);
 
-            messagelabel = centeredLabel (" ");
+            messagelabel = new JLabel (" ");
+            messagelabel.setHorizontalAlignment (JLabel.CENTER);
             messagebox.add (messagelabel, BorderLayout.CENTER);
 
             add (new Box.Filler (fd, fd, fd));
