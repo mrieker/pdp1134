@@ -26,9 +26,10 @@ proc helpini {} {
     puts "             realmem - determine size of real memory"
     puts "           steptrace - single step with disassembly"
     puts "       steptraceloop - single step with disassembly - looped"
+    puts "             unlkdma - unlock access to dma controller"
+    puts "              vatopa - convert virtual address to physical"
     puts "    wrbyte addr data - write data byte to given physical address"
     puts "    wrword addr data - write data word to given physical address"
-    puts "             unlkdma - unlock access to dma controller"
     puts ""
 }
 
@@ -325,7 +326,11 @@ proc loadbin {binname} {
 }
 
 # load from MACRO11 listing
-proc loadlst {lstname} {
+#  input:
+#   lstname = MACRO11 listing filename
+#   wp = wr: write to memory via unibus dma transfers
+#      bmwr: write to fpga (bigmem.v) memory without using unibus
+proc loadlst {lstname {wp wr}} {
     set lstfile [open $lstname]
     while {[gets $lstfile lstline] >= 0} {
         set vaddr 0[string trim [string range $lstline 8 15]]
@@ -337,11 +342,11 @@ proc loadlst {lstname} {
                 switch [string length $digits] {
                     1 { }
                     4 {
-                        wrbyte $paddr $digits
+                        ${wp}byte $paddr $digits
                         incr vaddr 1
                     }
                     7 {
-                        wrword $paddr $digits
+                        ${wp}word $paddr $digits
                         incr vaddr 2
                     }
                     default {
@@ -488,6 +493,48 @@ proc steptraceloop {} {
     while {! [ctrlcflag] && ! [pin ky_haltins]} steptrace
 }
 
+# unlock acess to dma controller
+proc unlkdma {} {
+    set lockedby [pin ky_dmalock]
+    set mypid [pid]
+    if {$lockedby != $mypid} {error "unlkdma: not locked by mypid $mypid"}
+    pin set ky_dmalock $mypid
+}
+
+# convert virtual address to physical address
+#  input:
+#   vaddr = 16-bit virtual address
+#    mode = knl, usr, cur, prv, 0, 3
+#  output:
+#   returns physical address
+proc vatopa {vaddr {mode cur}} {
+    if {($vaddr < 0) || ($vaddr > 0177777)} {error "vatopa: vaddr [octal $vaddr] out of range"}
+    set mmr0 [rdword 0777572]
+    if {! ($mmr0 & 1)} {
+        if {$vaddr >= 0160000} {incr vaddr 0600000}
+        return $vaddr
+    }
+    switch $mode {
+        cur {set mode [expr {([rdword 0777776] >> 14) & 3}]}
+        knl {set mode 0}
+        prv {set mode [expr {([rdword 0777776] >> 12) & 3}]}
+        usr {set mode 3}
+    }
+    switch $mode {
+        0 {set pdr0 0772300}
+        3 {set pdr0 0777640}
+        default {error "vatopa: invalid mode $mode}
+    }
+    set page [expr {$vaddr >> 13}]
+    set pdr [rdword [expr {$pdr0 + 2 * $page}]]
+    if {! ($pdr & 2)} {error "vatopa: no access vaddr [octal $vaddr]"}
+    set plf [expr {($pdr >> 8) & 127}]
+    set blk [expr {($vaddr >> 6) & 127}]
+    if {($pdr & 8) ? ($blk < $plf) : ($blk > $plf)} {error "vatopa: length error vaddr [octal $vaddr]"}
+    set par [rdword [expr {$pdr0 + 040 + 2 * $page}]]
+    return [expr {(($par << 6) + ($vaddr & 017777)) & 0777777}]
+}
+
 # write a byte to unibus via dma (ky11.v)
 proc wrbyte {addr data} {
     if {($addr < 0) || ($addr > 0777777)} {
@@ -536,14 +583,6 @@ proc wrword {addr data} {
         error [format "wrword %06o timed out" $addr]
     }
     unlkdma
-}
-
-# unlock acess to dma controller
-proc unlkdma {} {
-    set lockedby [pin ky_dmalock]
-    set mypid [pid]
-    if {$lockedby != $mypid} {error "unlkdma: not locked by mypid $mypid"}
-    pin set ky_dmalock $mypid
 }
 
 return "do 'helpini' to see commands provided by z11ctrlini.tcl"
