@@ -328,22 +328,24 @@ proc loadbin {binname} {
 proc loadlst {lstname} {
     set lstfile [open $lstname]
     while {[gets $lstfile lstline] >= 0} {
-        set addr 0[string trim [string range $lstline 8 15]]
-        if {[string length $addr] == 7} {
+        set vaddr 0[string trim [string range $lstline 8 15]]
+        if {[string length $vaddr] == 7} {
             for {set i 15} {$i < 38} {incr i 8} {
+                set paddr $vaddr
+                if {$paddr >= 0160000} {incr paddr 0600000}
                 set digits 0[string trim [string range $lstline $i [expr {$i + 7}]]]
                 switch [string length $digits] {
                     1 { }
                     4 {
-                        wrbyte $addr $digits
-                        incr addr 1
+                        wrbyte $paddr $digits
+                        incr vaddr 1
                     }
                     7 {
-                        wrword $addr $digits
-                        incr addr 2
+                        wrword $paddr $digits
+                        incr vaddr 2
                     }
                     default {
-                        error "bad data $digits at addr [octal $addr]"
+                        error "bad data $digits at addr [octal $vaddr]"
                     }
                 }
             }

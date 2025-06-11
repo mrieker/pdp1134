@@ -633,6 +633,7 @@ module Zynq (
 
     // big memory
     wire bm_pb_out_h, bm_ssyn_out_h;
+    wire[17:00] bm_a_out_h;
     wire[15:00] bm_d_out_h;
 
     bigmem bminst (
@@ -652,6 +653,7 @@ module Zynq (
         .d_in_h (dev_d_h),
         .msyn_in_h (dev_del_msyn_h),
 
+        .a_out_h    (bm_a_out_h),
         .d_out_h    (bm_d_out_h),
         .pb_out_h   (bm_pb_out_h),
         .ssyn_out_h (bm_ssyn_out_h),
@@ -971,7 +973,7 @@ module Zynq (
     wire        man_ssyn_out_h  = regctla[16];
 
     // wired-or of internal device outputs
-    wire[17:00] wor_a_h     = man_a_out_h     | ~ sim_a_out_l     | ky_a_out_h;
+    wire[17:00] wor_a_h     = man_a_out_h     | bm_a_out_h        | ~ sim_a_out_l    | ky_a_out_h;
     wire        wor_ac_lo_h = man_ac_lo_out_h;
     wire        wor_bbsy_h  = man_bbsy_out_h  | irq4_bbsy_out_h   | irq5_bbsy_out_h  | irq6_bbsy_out_h | irq7_bbsy_out_h | ~ sim_bbsy_out_l | ky_bbsy_out_h;
     wire[7:4]   wor_br_h    = man_br_out_h    | irq_br_out_h;

@@ -37,6 +37,7 @@ module bigmem (
     input[15:00] d_in_h,
     input msyn_in_h,
 
+    output[17:00] a_out_h,
     output reg[15:00] d_out_h,
     output reg pb_out_h,
     output reg ssyn_out_h,
@@ -50,12 +51,12 @@ module bigmem (
 
     reg[63:00] enable;
     reg[2:0] armfunc;
-    reg[3:0] armcount, ctladdr, delayline;
+    reg[3:0] armcount, brjama, ctladdr, delayline;
     reg[17:00] armaddr;
-    reg[15:00] armdata, ctlreg;
-    reg armpehi, armpelo, ctlenab;
+    reg[15:00] armdata, ctlreg, brenab;
+    reg armpehi, armpelo, brjame, ctlenab;
 
-    assign armrdata = (armraddr == 0) ? 32'h424D2006 : // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h424D2007 :          // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable[31:00] } :     //00 rw enable unibus access for addresses 000000..377777
                       (armraddr == 2) ? { 2'b0,                 //30
                                           enable[61:32] } :     //00 rw enable unibus access for addresses 400000..757777
@@ -77,6 +78,10 @@ module bigmem (
                                           11'b0,                //05
                                           ctlenab,              //04 enable M7850-like controller
                                           ctladdr } :           //00 M7850-like control register address 772100..772136
+                      (armraddr == 6) ? { 11'b0,                //21
+                                          brjame,               //20 boot rom jam enable
+                                          brjama,               //16 boot rom jam addr bits
+                                          brenab } :            //00 boot rom addr enables
                       32'hDEADBEEF;
 
     // detect error on read data coming from block ram
@@ -93,12 +98,22 @@ module bigmem (
     wire armparhi = ~ armpehi ^ armdata[15] ^ armdata[14] ^ armdata[13] ^ armdata[12] ^ armdata[11] ^ armdata[10] ^ armdata[09] ^ armdata[08];
     wire armparlo = ~ armpelo ^ armdata[07] ^ armdata[06] ^ armdata[05] ^ armdata[04] ^ armdata[03] ^ armdata[02] ^ armdata[01] ^ armdata[00];
 
+    // jam address bus
+    // forces top address bits to the boot rom whilst processor reads power-up vector
+    // ...redirecting the processor to the boot rom xxx024/xxx026
+    assign a_out_h = brjame ? { 5'b11111, brjama, 9'b000000000 } : 0;
+
+    wire addressingmainmem = enable[a_in_h[17:12]];                                 // 000000..757777   4KB per enable bit (enable[63:62] always zeroes)
+    wire addressingbootrom = (a_in_h[17:13] == 5'b11111) & brenab[a_in_h[12:09]];   // 760000..777777  512B per enable bit
+
     always @(posedge CLOCK) begin
         if (powerup) begin
             armcount   <= 0;
             armfunc    <= 0;
             ctlenab    <= 0;
             enable     <= 0;
+            brjame     <= 0;
+            brenab     <= 0;
         end
         if (fpgaoff | ~ msyn_in_h & (delayline < 5)) begin
             delayline  <= 0;
@@ -136,10 +151,15 @@ module bigmem (
                     ctlenab <= armwdata[04];    // enable M7850-like control register
                     ctladdr <= armwdata[03:00]; // register address, 772100..772136
                 end
+                6: begin
+                    brjame  <= armwdata[20];    // jam address bus bits
+                    brjama  <= armwdata[19:16]; // what a<12:09> get jammed to (a<17:13> get jammed to 11111)
+                    brenab  <= armwdata[15:00]; // each 512-byte segment from 760000..777777 to enable
+                end
             endcase
         end
 
-        if (~ powerup) case (delayline)
+        if (~ powerup & ~ armwrite) case (delayline)
 
             // wait for something to do
             0: begin
@@ -149,7 +169,7 @@ module bigmem (
                 //            3: write word
                 //            2: write upper byte
                 //            1: write lower byte
-                if (~ armwrite & (armfunc != 0)) begin
+                if (armfunc != 0) begin
                     delayline  <= 5;
                     extmemaddr <= armaddr[17:01];
                     extmemdout[17]    <= armparhi;
@@ -161,7 +181,7 @@ module bigmem (
                 end
 
                 // something on unibus is accessing a memory location
-                else if (enable[a_in_h[17:12]] & msyn_in_h) begin
+                else if ((addressingmainmem | addressingbootrom) & msyn_in_h) begin
                     delayline  <= 1;
                     extmemaddr <= a_in_h[17:01];
                     extmemenab <= 1;
@@ -202,6 +222,11 @@ module bigmem (
                     d_out_h   <= 0;
                     delayline <= 0;
                     pb_out_h  <= 0;
+
+                    // just completed reading PS of power up vector
+                    // ...clear the boot rom address jam enable
+                    // ...so address bus will function normally
+                    if (a_in_h[01]) brjame <= 0;
                 end else if (~ c_in_h[1] & extmemenab) begin
                     // output read data to unibus
                     d_out_h[15:08] <= extmemdin[16:09];

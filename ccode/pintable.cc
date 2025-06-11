@@ -132,6 +132,9 @@ PinDef const pindefs[] = {
     { "bm_ctlreg",       DEV_BM, 5,    BM5_CTLREG,        0, false },
     { "bm_ctlenab",      DEV_BM, 5,    BM5_CTLENAB,       0, true  },
     { "bm_ctladdr",      DEV_BM, 5,    BM5_CTLADDR,       0, true  },
+    { "bm_brjame",       DEV_BM, 6,    BM6_BRJAME,        0, true  },
+    { "bm_brjama",       DEV_BM, 6,    BM6_BRJAMA,        0, true  },
+    { "bm_brenab",       DEV_BM, 6,    BM6_BRENAB,        0, true  },
 
     { "ky_switches",     DEV_KY, 1,    KY_SWITCHES,       0, true  },
     { "ky_lights",       DEV_KY, 1,    KY_LIGHTS,         0, false },

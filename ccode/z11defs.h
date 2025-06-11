@@ -150,6 +150,9 @@
 #define BM5_CTLREG    0xFFFF0000U
 #define BM5_CTLENAB   0x00000010U
 #define BM5_CTLADDR   0x0000000FU
+#define BM6_BRJAME    0x00100000U
+#define BM6_BRJAMA    0x000F0000U
+#define BM6_BRENAB    0x0000FFFFU
 
 #define KY_LIGHTS     0xFFFF0000U   // 777570 light register
 #define KY_SWITCHES   0x0000FFFFU   // 777570 switch register
