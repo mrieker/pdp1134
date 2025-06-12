@@ -114,9 +114,9 @@ static void mutexunlk ()
     if (futex (&shmrl->rlfutex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
 }
 
-static bool loadfile (bool readwrite, int diskno, char const *filenm);
 static void rlthread ();
-static char *lockfile (int fd, int how);
+static int loadfile (bool readwrite, int diskno, char const *filenm);
+static void unloadfile (int diskno);
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func);
 
 int main (int argc, char **argv)
@@ -162,6 +162,14 @@ int main (int argc, char **argv)
     }
     fprintf (stderr, "z11rl: new z11rl process %d\n", mypid);
     shmrl->svrpid = mypid;
+
+    // we don't know about any loaded files so say drives are empty
+    // ...unless there is an outstanding load request for a drive
+    for (int i = 0; i < 4; i ++) {
+        if (shmrl->command != SHMRLCMD_LOAD + i) {
+            shmrl->drives[i].filename[0] = 0;
+        }
+    }
     UNLKIT;
 
     // enable board to process io instructions
@@ -173,45 +181,6 @@ int main (int argc, char **argv)
 
     rlthread ();
     return 0;
-}
-
-// load file in a drive
-//  input:
-//   readwrite = write-enable drive
-//   diskno = disk number 0..3
-//   filenm = filename
-//  output:
-//   returns false: error loading
-//            true: loaded
-static bool loadfile (bool readwrite, int diskno, char const *filenm)
-{
-    int fd = open (filenm, readwrite ? O_RDWR | O_CREAT : O_RDONLY, 0666);
-    if (fd < 0) {
-        fprintf (stderr, "z11rl: error opening %s: %m\n", filenm);
-        return false;
-    }
-    char *lockerr = lockfile (fd, readwrite ? F_WRLCK : F_RDLCK);
-    if (lockerr != NULL) {
-        fprintf (stderr, "z11rl: error locking %s: %m\n", filenm);
-        close (fd);
-        free (lockerr);
-        return false;
-    }
-    if (readwrite && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) {
-        fprintf (stderr, "z11rl: error extending %s: %m\n", filenm);
-        close (fd);
-        return false;
-    }
-    fprintf (stderr, "z11rl: drive %d loaded with read%s file %s\n", diskno, (readwrite ? "/write" : "-only"), filenm);
-    fds[diskno] = fd;
-
-    if (strcmp (fns[diskno], filenm) != 0) {
-        strcpy (fns[diskno], filenm);
-        vcs[diskno] = true;
-        shmrl->drives[diskno].lastposn = 0;
-        shmrl->drives[diskno].readonly = ! readwrite;
-    }
-    return true;
 }
 
 // get what sector is currently under the head
@@ -235,15 +204,16 @@ static void rlthread ()
                 int driveno = shmrl->command - SHMRLCMD_LOAD;
                 ShmRLDrive *dr = &shmrl->drives[driveno];
                 UNLKIT;
-                close (fds[driveno]);
-                fds[driveno] = -1;
-                if (loadfile (! dr->readonly, driveno, dr->filename)) {
+                unloadfile (driveno);
+                int rc = loadfile (! dr->readonly, driveno, dr->filename);
+                LOCKIT;
+                if (rc >= 0) {
                     shmrl->lderrno = 0;
                 } else {
-                    shmrl->lderrno = errno;
+                    dr->filename[0] = 0;
+                    shmrl->lderrno = - rc;
                     if (shmrl->lderrno == 0) shmrl->lderrno = -1;
                 }
-                LOCKIT;
                 shmrl->command = SHMRLCMD_DONE;
                 break;
             }
@@ -255,8 +225,7 @@ static void rlthread ()
                 dr->filename[0] = 0;
                 if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
                 fns[driveno][0] = 0;
-                close (fds[driveno]);
-                fds[driveno] = -1;
+                unloadfile (driveno);
                 shmrl->command = SHMRLCMD_DONE;
                 break;
             }
@@ -559,33 +528,66 @@ static void rlthread ()
     }
 }
 
-// try to lock the given file
+// load file in a drive
 //  input:
-//   fd = file to lock
-//   how = F_WRLCK: exclusive access
-//         F_RDLCK: shared access
+//   readwrite = write-enable drive
+//   diskno = disk number 0..3
+//   filenm = filename
 //  output:
-//   returns NULL: successful
-//           else: error message
-static char *lockfile (int fd, int how)
+//   returns < 0: errno
+//          else: successful
+static int loadfile (bool readwrite, int diskno, char const *filenm)
 {
-    struct flock flockit;
+    int fd = open (filenm, readwrite ? O_RDWR | O_CREAT : O_RDONLY, 0666);
+    if (fd < 0) {
+        fd = - errno;
+        fprintf (stderr, "z11rl: error opening %s: %m\n", filenm);
+        return fd;
+    }
 
-trylk:;
+    // don't let it be put in more than one drive if either is write-enabled
+    struct flock flockit;
+lockit:;
     memset (&flockit, 0, sizeof flockit);
-    flockit.l_type   = how;
+    flockit.l_type   = readwrite ? F_WRLCK : F_RDLCK;
     flockit.l_whence = SEEK_SET;
     flockit.l_len    = 4096;
-    if (fcntl (fd, F_SETLK, &flockit) >= 0) return NULL;
-
-    char *errmsg = NULL;
-    if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_GETLK, &flockit) >= 0)) {
-        if (flockit.l_type == F_UNLCK) goto trylk;
-        if (asprintf (&errmsg, "locked by pid %d", (int) flockit.l_pid) < 0) ABORT ();
-    } else {
-        if (asprintf (&errmsg, "%m") < 0) ABORT ();
+    if (fcntl (fd, F_OFD_SETLK, &flockit) < 0) {
+        int rc = - errno;
+        if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_GETLK, &flockit) >= 0)) {
+            if (flockit.l_type == F_UNLCK) goto lockit;
+            fprintf (stderr, "z11rl: error locking %s: locked by pid %d\n", filenm, (int) flockit.l_pid);
+        } else {
+            fprintf (stderr, "z11rl: error locking %s: %m\n", filenm);
+        }
+        return rc;
     }
-    return errmsg;
+
+    // extend it to full size
+    if (readwrite && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) {
+        int rc = - errno;
+        fprintf (stderr, "z11rl: error extending %s: %m\n", filenm);
+        close (fd);
+        return rc;
+    }
+
+    // all is good
+    fprintf (stderr, "z11rl: drive %d loaded with read%s file %s\n", diskno, (readwrite ? "/write" : "-only"), filenm);
+    fds[diskno] = fd;
+    if (strcmp (fns[diskno], filenm) != 0) {
+        strcpy (fns[diskno], filenm);
+        vcs[diskno] = true;
+        shmrl->drives[diskno].lastposn = 0;
+        shmrl->drives[diskno].readonly = ! readwrite;
+    }
+    return fd;
+}
+
+// close file loaded on a disk drive
+static void unloadfile (int diskno)
+{
+    close (fds[diskno]);
+    fds[diskno] = -1;
 }
 
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func)

@@ -263,6 +263,10 @@ static void lockmutex ()
 
 static int forkserver ()
 {
+    // make sure server does not zombie
+    if (signal (SIGCHLD, SIG_IGN) == SIG_ERR) ABORT();
+
+    // create process for the server
     int pid = fork ();
 
     if (pid > 0) return pid;
@@ -272,8 +276,6 @@ static int forkserver ()
         fprintf (stderr, "rllock: error forking for z11rl: %m\n");
         return rc;
     }
-
-    for (int i = 3; i < 1024; i ++) close (i);
 
     char exebuf[1024];
     char const *z11rl = getenv ("Z11RLEXE");
@@ -292,6 +294,14 @@ static int forkserver ()
         strcpy (p, "/z11rl");
         z11rl = exebuf;
     }
+
+    // close any fds except stdin,stdout,stderr
+    for (int i = 3; i < 1024; i ++) close (i);
+
+    // detach from parent
+    setsid ();
+
+    // run the z11rl daemon program
     char const *args[] = { z11rl, NULL };
     execve (z11rl, (char *const *) args, NULL);
     fprintf (stderr, "rllock: error spawning %s: %m\n", z11rl);

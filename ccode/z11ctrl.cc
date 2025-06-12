@@ -456,7 +456,7 @@ static int cmd_rlunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
             return TCL_ERROR;
         }
 
-        rc = shmrl_load (drive, false, NULL);
+        rc = shmrl_load (drive, false, "");
         if (rc < 0) {
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;
