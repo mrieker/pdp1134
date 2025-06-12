@@ -149,7 +149,7 @@ public class GUI extends JPanel {
 
     public static MemCkBox bmckbox;
     public static DevCkBox dlckbox;
-    public static DevCkBox kwckbox;
+    public static KWCkBox  kwckbox;
     public static DevCkBox kyckbox;
     public static DevCkBox rlckbox;
 
@@ -631,10 +631,10 @@ public class GUI extends JPanel {
             ckboxrow.add (fpgamoderadiobuttons[0]);
             ckboxrow.add (fpgamoderadiobuttons[1]);
             ckboxrow.add (fpgamoderadiobuttons[2]);
-            ckboxrow.add (bmckbox = new MemCkBox ("Mem/124KW    "));
-            ckboxrow.add (dlckbox = new DevCkBox ("DL-11    ", "dl_enable"));
-            ckboxrow.add (kwckbox = new DevCkBox ("KW-11    ", "kw_enable"));
-            ckboxrow.add (kyckbox = new DevCkBox ("KY-11    ", "ky_enable"));
+            ckboxrow.add (bmckbox = new MemCkBox   ("Mem/124KW    "));
+            ckboxrow.add (dlckbox = new DevCkBox   ("DL-11    ", "dl_enable"));
+            ckboxrow.add (kwckbox = new KWCkBox    ("KW-11    "));
+            ckboxrow.add (kyckbox = new DevCkBox   ("KY-11    ", "ky_enable"));
             ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11"));
         }
 
@@ -1368,6 +1368,88 @@ public class GUI extends JPanel {
                 messagelabel.setText (String.format ("fpga memory enable mask %016X", mask));
                 GUIZynqPage.pinset (enablopinindex, (int) mask);
                 GUIZynqPage.pinset (enabhipinindex, (int) (mask >> 32));
+            }
+        }
+    }
+
+    // KW-11 line clock enable checkbox
+    public static class KWCkBox extends JCheckBox implements ChangeListener {
+        private boolean waschecked;
+        private boolean wasenabled;
+        private boolean wasfiftyhz;
+        private int enabledpinindex;
+        private int fiftyhzpinindex;
+        private String disablelabel;
+        private String fiftyhzlabel;
+        private String sixtyhzlabel;
+
+        public KWCkBox (String label)
+        {
+            super (label);
+            disablelabel = label;
+            int i = label.indexOf (' ');
+            fiftyhzlabel = label.substring (0, i) + ".50" + label.substring (i);
+            sixtyhzlabel = label.substring (0, i) + ".60" + label.substring (i);
+            enabledpinindex = findpin ("kw_enable");
+            fiftyhzpinindex = findpin ("kw_fiftyhz");
+            addChangeListener (this);
+        }
+
+        // called many times a second to make sure checkbox matches fpga
+        public void update ()
+        {
+            boolean isenabled = GUIZynqPage.pinget (enabledpinindex) != 0;
+            boolean isfiftyhz = GUIZynqPage.pinget (fiftyhzpinindex) != 0;
+
+            if (wasenabled & ! isenabled) {
+                waschecked = false;
+                setSelected (false);
+                setText (disablelabel);
+            } else if (isenabled && (! wasenabled || (wasfiftyhz != isfiftyhz))) {
+                waschecked = true;
+                setSelected (true);
+                setText (isfiftyhz ? fiftyhzlabel : sixtyhzlabel);
+            }
+
+            wasenabled = isenabled;
+            wasfiftyhz = isfiftyhz;
+        }
+
+        private boolean suppress;
+
+        // checkbox clicked
+        @Override   // ChangeListener
+        public void stateChanged (ChangeEvent e)
+        {
+            if (suppress) return;
+
+            boolean ischecked = isSelected ();
+            if (waschecked != ischecked) {
+                waschecked = ischecked;
+
+                JRadioButton butoff = new JRadioButton ("OFF");
+                JRadioButton but50  = new JRadioButton ("50Hz");
+                JRadioButton but60  = new JRadioButton ("60Hz");
+                butoff.setSelected (! wasenabled);
+                but50.setSelected  (  wasenabled &&   wasfiftyhz);
+                but60.setSelected  (  wasenabled && ! wasfiftyhz);
+                ButtonGroup group = new ButtonGroup ();
+                group.add (butoff);
+                group.add (but50);
+                group.add (but60);
+                JPanel panel = new JPanel ();
+                panel.add (butoff);
+                panel.add (but50);
+                panel.add (but60);
+                suppress = true;
+                if (JOptionPane.showConfirmDialog (this, panel,
+                        "Line Clock", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                    GUIZynqPage.pinset (enabledpinindex, butoff.isSelected () ? 0 : 1);
+                    if (but50.isSelected ()) GUIZynqPage.pinset (fiftyhzpinindex, 1);
+                    if (but60.isSelected ()) GUIZynqPage.pinset (fiftyhzpinindex, 0);
+                }
+                suppress = false;
+                waschecked = isSelected ();
             }
         }
     }
