@@ -182,9 +182,14 @@ found:;
 uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 {
     dmalock ();
-    uint32_t rc = dmareadlocked (xba, data);
-    dmaunlk ();
-    return rc;
+    try {
+        uint32_t rc = dmareadlocked (xba, data);
+        dmaunlk ();
+        return rc;
+    } catch (...) {
+        dmaunlk ();
+        throw;
+    }
 }
 
 uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
@@ -193,8 +198,7 @@ uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
     uint32_t rc;
     for (int i = 0; ((rc = ZRD(kyat[3])) & KY3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
-            fprintf (stderr, "Z11Page::dmaread: dma stuck\n");
-            ABORT ();
+            throw Z11DMAException ("Z11Page::dmaread: dma stuck");
         }
     }
     *data = (ZRD(kyat[4]) & KY4_DMADATA) / KY4_DMADATA0;
@@ -206,9 +210,14 @@ uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
 bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 {
     dmalock ();
-    bool ok = dmawritelocked (xba, data);
-    dmaunlk ();
-    return ok;
+    try {
+        bool ok = dmawritelocked (xba, data);
+        dmaunlk ();
+        return ok;
+    } catch (...) {
+        dmaunlk ();
+        throw;
+    }
 }
 
 bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
@@ -217,8 +226,7 @@ bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
         if (i > 100000) {
-            fprintf (stderr, "Z11Page::dmawrite: dma stuck\n");
-            ABORT ();
+            throw Z11DMAException ("Z11Page::dmawrite: dma stuck");
         }
     }
     return ! (ZRD(kyat[3]) & KY3_DMATIMO);
@@ -275,4 +283,14 @@ uint32_t randbits (int nbits)
     }
 
     return randval;
+}
+
+Z11DMAException::Z11DMAException (char const *msg)
+{
+    this->msg = msg;
+}
+
+char const *Z11DMAException::what () const throw()
+{
+    return msg;
 }

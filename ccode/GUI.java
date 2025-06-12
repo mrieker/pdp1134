@@ -180,21 +180,38 @@ public class GUI extends JPanel {
                 // same with switch register - in case z11ctrl or similar flipped them
                 write18switches (sample_sreg);
 
-                // update grayed buttons based on running state
+                // update grayed buttons based on running state and console enabled
                 //  running = +1 : processor is running
                 //             0 : processor halted but is resumable
                 //            -1 : processor halted, reset required
-                if (lastrunning != sample_running) {
-                    ldadbutton.setEnabled  (sample_running <= 0);
-                    exambutton.setEnabled  (sample_running <= 0);
-                    depbutton.setEnabled   (sample_running <= 0);
-                    haltbutton.setEnabled  (sample_running  > 0);
-                    stepbutton.setEnabled  (sample_running == 0);
-                    contbutton.setEnabled  (sample_running == 0);
-                    startbutton.setEnabled (sample_running <= 0);
-                    resetbutton.setEnabled (true);
-                    bootbutton.setEnabled  (sample_running <= 0);
+                //  ky11enab = true : using fpga console
+                //            false : using real PDP console
+                if ((lastrunning != sample_running) || (lastky11enab != kyckbox.isenab)) {
+
+                    // the memory access buttons require processor to be halted
+                    // they do not work with real KY-11 present cuz it blocks dma
+                    ldadbutton.setEnabled  ((sample_running <= 0) && kyckbox.isenab);
+                    exambutton.setEnabled  ((sample_running <= 0) && kyckbox.isenab);
+                    depbutton.setEnabled   ((sample_running <= 0) && kyckbox.isenab);
+
+                    // the cont & step buttons require process be halted and resumable
+                    // they do not seem to work with real KY-11 probably cuz of halt line
+                    // similar with start button except it does its own reset
+                    stepbutton.setEnabled  ((sample_running == 0) && kyckbox.isenab);
+                    contbutton.setEnabled  ((sample_running == 0) && kyckbox.isenab);
+                    startbutton.setEnabled ((sample_running <= 0) && kyckbox.isenab);
+
+                    // these buttons function regardless of console status
+                    // - reset should always work so it is always on
+                    // - halt only makes sense if processor is running
+                    //   it does not work with real KY-11 in place cuz of halt line
+                    // - boot only works if processor is halted
+                    resetbutton.setEnabled  (true);
+                    haltbutton.setEnabled  ((sample_running  > 0) && kyckbox.isenab);
+                    bootbutton.setEnabled   (sample_running <= 0);
                 }
+
+                lastky11enab = kyckbox.isenab;
 
                 // if processor currently running, update lights from what fpga last captured from unibus
                 if (sample_running > 0) {
@@ -227,10 +244,11 @@ public class GUI extends JPanel {
                         writeaddrleds (-1);
                         text += "stopped at PC unknown";
                     }
-                    writedataleds (ps);
                     if (ps >= 0) {
+                        writedataleds (ps);
                         text += String.format (", PS %06o", ps);
                     } else {
+                        writedataleds (-1);
                         text += ", PS unknown";
                     }
                     messagelabel.setText (text);
@@ -259,6 +277,7 @@ public class GUI extends JPanel {
             }
         };
 
+    public static boolean lastky11enab;
     public static int lastrunning = 12345;
     public static long updatetimemillis;
 
@@ -702,12 +721,16 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void buttonClicked ()
         {
-            berrled.setOn (false);
-            messagelabel.setText ("resetting processor");
-            GUIZynqPage.reset ();
-            checkforhalt ();
-            messagelabel.setText ("processor reset complete");
-            updisplay.actionPerformed (null);
+            if (JOptionPane.showConfirmDialog (this,
+                    "Are you sure you want to reset?",
+                    "Reset Button", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+                berrled.setOn (false);
+                messagelabel.setText ("resetting processor");
+                GUIZynqPage.reset ();
+                checkforhalt ();
+                messagelabel.setText ("processor reset complete");
+                updisplay.actionPerformed (null);
+            }
         }
     }
 
@@ -970,7 +993,12 @@ public class GUI extends JPanel {
                 // read or write memory location
                 rc = rwmem (pa);
                 if (rc < 0) {
-                    st += ", " + rwmemerr[~rc];
+                    switch (rc) {
+                        case GUIZynqPage.DMAERR_TIMO: st += ", dma timed out"; break;
+                        case GUIZynqPage.DMAERR_PARE: st += ", parity error"; break;
+                        case GUIZynqPage.DMAERR_STUK: st += ", dma blocked"; break;
+                        default: st += ", error " + rc; break;
+                    }
                 } else {
                     st += String.format (", data %06o", rc);
                 }
@@ -1034,11 +1062,6 @@ public class GUI extends JPanel {
         "below length of expand-down page",
         "above length of expand-up page",
         "unable to read par" };
-
-    public static String[] rwmemerr = {
-        "bus timed out",
-        "parity error",
-        "fpga turned off" };
 
     public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
         private boolean isenabled;
@@ -1194,7 +1217,7 @@ public class GUI extends JPanel {
                         GUIZynqPage.pinset (enabhipinindex, 0);
                         for (int page = 0; page < 62; page ++) {        // loop through all possible 4KB pages
                             int rc = GUIZynqPage.rdmem (page << 12);    // see if first word of page readable
-                            if (rc != -1) mask &= ~ (1L << page);       // if timed out, we need that page
+                            if (rc != GUIZynqPage.DMAERR_TIMO) mask &= ~ (1L << page);  // if timed out, we need that page
                         }
                         if (mask == 0) {
                             messagelabel.setText ("processor has 124KW memory, no fpga memory enabled");

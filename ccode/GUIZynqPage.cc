@@ -194,12 +194,17 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
     uint32_t fpgamode = (pdpat[Z_RA] & a_fpgamode) / (a_fpgamode & - a_fpgamode);
     if ((fpgamode != FM_SIM) && (fpgamode != FM_REAL)) return -3;
 
-    uint16_t data;
-    uint32_t rc = z11page->dmaread (addr, &data);
-    if (rc & KY3_DMATIMO) return -1;
-    if (rc & KY3_DMAPERR) return -2;
-    if (rc != 0) abort ();
-    return (uint32_t) data;
+    try {
+        uint16_t data;
+        uint32_t rc = z11page->dmaread (addr, &data);
+        if (rc & KY3_DMATIMO) return -1;
+        if (rc & KY3_DMAPERR) return -2;
+        if (rc != 0) abort ();
+        return (uint32_t) data;
+    } catch (Z11DMAException &de) {
+        fprintf (stderr, "Java_GUIZynqPage_rdmem: exception %s\n", de.what ());
+        return -3;
+    }
 }
 
 /*
@@ -213,7 +218,12 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_wrmem
     uint32_t fpgamode = (pdpat[Z_RA] & a_fpgamode) / (a_fpgamode & - a_fpgamode);
     if ((fpgamode != FM_SIM) && (fpgamode != FM_REAL)) return -3;
 
-    return z11page->dmawrite (addr, data) ? data : -1;
+    try {
+        return z11page->dmawrite (addr, data) ? data : -1;
+    } catch (Z11DMAException &de) {
+        fprintf (stderr, "Java_GUIZynqPage_wrmem: exception %s\n", de.what ());
+        return -3;
+    }
 }
 
 /*

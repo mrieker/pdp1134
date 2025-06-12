@@ -8,4 +8,10 @@ $dir/loadmod.sh
 export CLASSPATH=$0.jar
 export Z11RLEXE=$dir/z11rl
 export LD_LIBRARY_PATH=$dir
-exec java -Dccode=$dir -Dunamem=$unm GUI "$@"
+dbg=
+if [ "$1" == "-gdb" ]
+then
+    dbg='gdb --args'
+    shift
+fi
+exec $dbg java -Dccode=$dir -Dunamem=$unm GUI "$@"

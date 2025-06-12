@@ -21,6 +21,7 @@
 #ifndef _Z11UTIL_H
 #define _Z11UTIL_H
 
+#include <exception>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +41,14 @@
 #define ZRD(a) (a)
 #define ZWR(a,d) do { a = d; } while (0)
 #endif
+
+struct Z11DMAException : std::exception {
+    Z11DMAException (char const *msg);
+    virtual const char* what() const throw();
+
+private:
+    char const *msg;
+};
 
 struct Z11Page {
     Z11Page ();

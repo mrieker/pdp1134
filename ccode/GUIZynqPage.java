@@ -28,6 +28,10 @@ public class GUIZynqPage {
     public native static int running ();
     public native static void setsr (int sr);
 
+    public final static int DMAERR_TIMO = -1;   // timed out, nothing at that address
+    public final static int DMAERR_PARE = -2;   // parity error, something there but corrupt
+    public final static int DMAERR_STUK = -3;   // stuck, being blocked by real KY-11
+
     public native static int rdmem (int addr);
     public native static int wrmem (int addr, int data);
 
