@@ -274,6 +274,7 @@ public class GUI extends JPanel {
                 // remove lights & switches if KY-11 is disabled
                 if (lastky11enab != kyckbox.isenab) {
                     lastky11enab = kyckbox.isenab;
+                    updateaddrlabel ();
                     setConsoleLights (lastky11enab);
                 }
 
@@ -781,7 +782,6 @@ public class GUI extends JPanel {
             GUIZynqPage.step ();                // tell processor to step single instruction
             checkforhalt ();                    // make sure it halted
             lastrunning = 12345;                // force updisplay to refresh everything
-            updisplay.actionPerformed (null);   // update display
         }
     }
 
@@ -797,9 +797,8 @@ public class GUI extends JPanel {
         {
             berrled.setOn (false);
             messagelabel.setText ("halting processor");
-            GUIZynqPage.halt ();                     // tell processor to stop executing instructions
+            GUIZynqPage.halt ();                // tell processor to stop executing instructions
             checkforhalt ();                    // make sure it halted
-            updisplay.actionPerformed (null);   // update display
         }
     }
 
@@ -817,12 +816,13 @@ public class GUI extends JPanel {
             messagelabel.setText ("resuming processor");
             GUIZynqPage.cont ();
             messagelabel.setText ("processor resumed");
-            updisplay.actionPerformed (null);
         }
     }
 
     // - reset I/O devices and processor
-    public static class ResetButton extends MemButton {
+    public static class ResetButton extends MemButton implements ActionListener {
+        private Timer doubletimer;
+
         public ResetButton ()
         {
             super ("RESET");
@@ -831,16 +831,27 @@ public class GUI extends JPanel {
         @Override  // MemButton
         public void buttonClicked ()
         {
-            if (JOptionPane.showConfirmDialog (this,
-                    "Are you sure you want to reset?",
-                    "Reset Button", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+            if (doubletimer == null) {
+                doubletimer = new Timer (3000, this);
+                doubletimer.start ();
+                messagelabel.setText ("click RESET again so I'm sure");
+            } else {
+                doubletimer.stop ();
+                doubletimer = null;
                 berrled.setOn (false);
                 messagelabel.setText ("resetting processor");
                 GUIZynqPage.reset ();
                 checkforhalt ();
                 messagelabel.setText ("processor reset complete");
-                updisplay.actionPerformed (null);
             }
+        }
+
+        @Override  // ActionListener
+        public void actionPerformed (ActionEvent ae)
+        {
+            messagelabel.setText ("");
+            doubletimer.stop ();
+            doubletimer = null;
         }
     }
 
@@ -928,7 +939,6 @@ public class GUI extends JPanel {
                     GUIZynqPage.cont  ();
                 }
             }
-            updisplay.actionPerformed (null);
         }
     }
 
@@ -1001,7 +1011,12 @@ public class GUI extends JPanel {
     // update VIRT/PHYS tag on address lights label
     public static void updateaddrlabel ()
     {
-        if (loadedaddrvirt && (GUIZynqPage.running () <= 0)) {
+        if (! lastky11enab) {
+            addrlbls[9].setText ("");
+            addrlbls[8].setText ("");
+            addrlbls[7].setText ("");
+            addrlbls[6].setText ("");
+        } else if (loadedaddrvirt && (GUIZynqPage.running () <= 0)) {
             addrlbls[9].setText ("V");
             addrlbls[8].setText ("I");
             addrlbls[7].setText ("R");
