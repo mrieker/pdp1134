@@ -1476,16 +1476,21 @@ public class GUI extends JPanel {
             setPreferredSize (rl02pandim);
             setSize (rl02pandim);
 
+            JLabel rl02lbl;
+
             add (cylnolbl   = new JLabel ("       "));
             add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
             add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
             add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
             add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
-            add (new JLabel ("   "));
+            add (rl02lbl    = new JLabel (" RL02 "));
             add (rlmessage  = new JLabel (""));
 
             Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
             cylnolbl.setFont (lf);
+
+            Font rf = rl02lbl.getFont ();
+            rl02lbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
 
             Dimension md = new Dimension (600, 50);
             rlmessage.setMaximumSize (md);
