@@ -67,9 +67,10 @@ proc probecsr {csr} {
     bmwrword 0761210 0000776        ;# br  .-2
     bmwrword 0761000 0              ;# clear flag word
     startbootmem                    ;# start it up
-    after 200                       ;# give it plenty of time to run
-                                    ;# (150mS barely enough)
-    set flag [bmrdword 0761000]     ;# read flag word
+    for {set i 0} {$i < 1000000} {incr i} {
+        set flag [bmrdword 0761000] ;# read flag word
+        if {$flag != 0} break
+    }
     puts "probecsr: csr=[octal $csr] flag=$flag"
     switch $flag {
         0 {error "probecsr: failed to run"}
