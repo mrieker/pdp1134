@@ -280,7 +280,7 @@ static jstring rlfilejavstrings[4];
  * Method:    rlload
  * Signature: (IZLjava/lang/String;)Ljava/lang/String;
  *
- *  1) unload any existing file
+ *  1) if filename empty, unload any existing file
  *  2) set/clear readonly bit for the drive
  *  3) if filename given, load in drive
  */

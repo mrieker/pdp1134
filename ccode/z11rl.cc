@@ -76,6 +76,7 @@
 #define RFLD(n,m) ((ZRD(rlat[n]) & m) / (m & - m))
 
 static bool vcs[4];
+static char fns[4][SHMRL_FNSIZE];
 static int debug;
 static int fds[4];
 static uint64_t seekdoneats[4];
@@ -202,16 +203,19 @@ static bool loadfile (bool readwrite, int diskno, char const *filenm)
         return false;
     }
     fprintf (stderr, "z11rl: drive %d loaded with read%s file %s\n", diskno, (readwrite ? "/write" : "-only"), filenm);
-    LOCKIT;
-    close (fds[diskno]);
     fds[diskno] = fd;
-    vcs[diskno] = true;
-    shmrl->drives[diskno].lastposn = 0;
-    shmrl->drives[diskno].readonly = ! readwrite;
-    UNLKIT;
+
+    if (strcmp (fns[diskno], filenm) != 0) {
+        strcpy (fns[diskno], filenm);
+        vcs[diskno] = true;
+        shmrl->drives[diskno].lastposn = 0;
+        shmrl->drives[diskno].readonly = ! readwrite;
+    }
     return true;
 }
 
+// get what sector is currently under the head
+// - based on current time and rotation speed
 #define SECUNDERHEAD (nowus / USPERSEC % SECPERTRK)
 
 // do the disk file I/O
@@ -222,9 +226,8 @@ static void rlthread ()
     while (true) {
         usleep (1000);
 
-        LOCKIT;
-
         // check for load/unload commands in shared memory waiting to be processed
+        LOCKIT;
         switch (shmrl->command) {
 
             // something requesting file be loaded
@@ -232,6 +235,8 @@ static void rlthread ()
                 int driveno = shmrl->command - SHMRLCMD_LOAD;
                 ShmRLDrive *dr = &shmrl->drives[driveno];
                 UNLKIT;
+                close (fds[driveno]);
+                fds[driveno] = -1;
                 if (loadfile (! dr->readonly, driveno, dr->filename)) {
                     shmrl->lderrno = 0;
                 } else {
@@ -249,12 +254,14 @@ static void rlthread ()
                 ShmRLDrive *dr = &shmrl->drives[driveno];
                 dr->filename[0] = 0;
                 if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
+                fns[driveno][0] = 0;
                 close (fds[driveno]);
                 fds[driveno] = -1;
                 shmrl->command = SHMRLCMD_DONE;
                 break;
             }
         }
+        UNLKIT;
 
         // see if command from pdp waiting to be processed
         struct timespec nowts;
@@ -549,8 +556,6 @@ static void rlthread ()
             drdy += drdy + ready;
         }
         ZWR(rlat[4], (ZRD(rlat[4]) & ~ RL4_DRDY) | drdy * RL4_DRDY0);
-
-        UNLKIT;
     }
 }
 

@@ -43,7 +43,7 @@ static int forkserver ();
 static void rlunlk ();
 
 // load/unload a disk
-//  1) unload any existing file
+//  1) if filename empty, unload any existing file
 //  2) set/clear readonly bit for the drive
 //  3) if filename given, load in drive
 int shmrl_load (int drive, bool readonly, char const *filename)
@@ -54,41 +54,49 @@ int shmrl_load (int drive, bool readonly, char const *filename)
     char *fnbuf = NULL;
     int fnlen = 0;
     if (filename != NULL) {
-        fnbuf = realpath (filename, NULL);
-        if (fnbuf == NULL) {
-            int rc = - errno;
-            fprintf (stderr, "shmrl_load: failed to expand %s: %m\n", filename);
-            return rc;
-        }
-        fnlen = strlen (fnbuf);
-        if (fnlen >= SHMRL_FNSIZE) {
-            free (fnbuf);
-            fprintf (stderr, "shmrl_load: filename too long %s\n", fnbuf);
-            return -ERANGE;
+        if (filename[0] == 0) {
+            fnbuf = strdup ("");
+            if (fnbuf == NULL) abort ();
+        } else {
+            fnbuf = realpath (filename, NULL);
+            if (fnbuf == NULL) {
+                int rc = - errno;
+                fprintf (stderr, "shmrl_load: failed to expand %s: %m\n", filename);
+                return rc;
+            }
+            fnlen = strlen (fnbuf);
+            if (fnlen >= SHMRL_FNSIZE) {
+                fprintf (stderr, "shmrl_load: filename too long %s\n", fnbuf);
+                free (fnbuf);
+                return -ERANGE;
+            }
         }
     }
 
     // lock shared page and wait for it to be idle
     int rc = rlwaitidle ();
 
-    // make sure any previous file is unloaded
-    if (rc >= 0) rc = rlunload (drive);
+    // if empty filename, unload any previous file
+    if ((rc >= 0) && (fnbuf != NULL) && (fnbuf[0] == 0)) rc = rlunload (drive);
     if (rc >= 0) {
 
         // mark entry readonly status
         ShmRLDrive *dr = &rlshm->drives[drive];
         dr->readonly = readonly;
-        if (fnbuf == NULL) {
+        if ((fnbuf != NULL) && (fnbuf[0] == 0)) {
 
-            // if no filename, we're done
+            // if empty filename, we're done
             rlunlk ();
         } else {
 
             // send a load command for this drive
+            // if filename is NULL, keep same file (probably just changing readonly status)
             rlshm->cmdpid  = getpid ();
             rlshm->command = SHMRLCMD_LOAD + drive;
-            memcpy (dr->filename, fnbuf, ++ fnlen);
-            if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
+            if (fnbuf != NULL) {
+                memcpy (dr->filename, fnbuf, ++ fnlen);
+                if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
+            }
 
             // unlock, wait for done, then re-lock
             rc = rlwaitdone ();
@@ -264,6 +272,8 @@ static int forkserver ()
         fprintf (stderr, "rllock: error forking for z11rl: %m\n");
         return rc;
     }
+
+    for (int i = 3; i < 1024; i ++) close (i);
 
     char exebuf[1024];
     char const *z11rl = getenv ("Z11RLEXE");

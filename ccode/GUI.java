@@ -1386,11 +1386,12 @@ public class GUI extends JPanel {
                     } else {
 
                         // unload whatever is in there
-                        if (JOptionPane.showConfirmDialog (RLDrive.this,
-                                "Are you sure you want to unload drive " + drive + "?",
-                                "Unloading Drive",
-                                JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
-                            GUIZynqPage.rlload (drive, wprtswitch.ison, null);
+                        if ((GUIZynqPage.running () <= 0) ||
+                            (JOptionPane.showConfirmDialog (RLDrive.this,
+                                    "Are you sure you want to unload drive " + drive + "?",
+                                    "Unloading Drive",
+                                    JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
+                            GUIZynqPage.rlload (drive, wprtswitch.ison, "");
                             rlmessage.setText ("");
                             loadbutton.setOn (false);
                         }
@@ -1399,15 +1400,17 @@ public class GUI extends JPanel {
             });
 
             // do something when WRPRT button is clicked
-            // allow changes only when unloaded
             wprtswitch.addActionListener (new ActionListener () {
                 public void actionPerformed (ActionEvent ae)
                 {
-                    if ((GUIZynqPage.rlstat (drive) & GUIZynqPage.RLSTAT_LOAD) == 0) {
+                    if (((GUIZynqPage.rlstat (drive) & GUIZynqPage.RLSTAT_LOAD) == 0) ||
+                        (GUIZynqPage.running () <= 0) ||
+                        (JOptionPane.showConfirmDialog (RLDrive.this,
+                                "Are you sure you want to write " + (wprtswitch.ison ? "enable" : "protect") +
+                                        " drive " + drive + "?",
+                                "Write Protecting Drive",
+                                JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
                         GUIZynqPage.rlload (drive, ! wprtswitch.ison, null);
-                    } else {
-                        rlmessage.setText ("write protect change allowed only when unloaded");
-                        blockmsgupdates = System.currentTimeMillis () + 5000;
                     }
                 }
             });
