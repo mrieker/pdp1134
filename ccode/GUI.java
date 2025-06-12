@@ -147,11 +147,12 @@ public class GUI extends JPanel {
 
     public static JLabel messagelabel;
 
-    public static MemCkBox bmckbox;
-    public static DevCkBox dlckbox;
-    public static KWCkBox  kwckbox;
-    public static DevCkBox kyckbox;
-    public static DevCkBox rlckbox;
+    public static FModeCkBox fmckbox;
+    public static MemCkBox   bmckbox;
+    public static DevCkBox   dlckbox;
+    public static KWCkBox    kwckbox;
+    public static DevCkBox   kyckbox;
+    public static DevCkBox   rlckbox;
 
     public static RLDrive[] rldrives = new RLDrive[4];
 
@@ -187,30 +188,29 @@ public class GUI extends JPanel {
                 //            -1 : processor halted, reset required
                 //  ky11enab = true : using fpga console
                 //            false : using real PDP console
-                if ((lastrunning != sample_running) || (lastky11enab != kyckbox.isenab)) {
 
-                    // the memory access buttons require processor to be halted
-                    // they do not work with real KY-11 present cuz it blocks dma
-                    ldadbutton.setEnabled  ((sample_running <= 0) && kyckbox.isenab);
-                    exambutton.setEnabled  ((sample_running <= 0) && kyckbox.isenab);
-                    depbutton.setEnabled   ((sample_running <= 0) && kyckbox.isenab);
+                // the memory access buttons require processor to be halted
+                // they do not work with real KY-11 present cuz it blocks dma
+                boolean memenabs = (sample_running <= 0) && lastky11enab;
+                ldadbutton.setEnabled  (memenabs);
+                exambutton.setEnabled  (memenabs);
+                depbutton.setEnabled   (memenabs);
 
-                    // the cont & step buttons require process be halted and resumable
-                    // they do not seem to work with real KY-11 probably cuz of halt line
-                    // similar with start button except it does its own reset
-                    stepbutton.setEnabled  ((sample_running == 0) && kyckbox.isenab);
-                    contbutton.setEnabled  ((sample_running == 0) && kyckbox.isenab);
-                    startbutton.setEnabled ((sample_running <= 0) && kyckbox.isenab);
+                // the cont & step buttons require process be halted and resumable
+                // they do not seem to work with real KY-11 probably cuz of halt line
+                // similar with start button except it does its own reset
+                boolean ctlenabs = (sample_running <= 0) && lastky11enab;
+                stepbutton.setEnabled  (ctlenabs);
+                contbutton.setEnabled  (ctlenabs);
+                startbutton.setEnabled (memenabs);
 
-                    // these buttons function regardless of console status
-                    // - reset should always work so it is always on
-                    // - halt only makes sense if processor is running
-                    //   it does not work with real KY-11 in place cuz of halt line
-                    // - boot only works if processor is halted
-                    resetbutton.setEnabled  (true);
-                    haltbutton.setEnabled  ((sample_running  > 0) && kyckbox.isenab);
-                    bootbutton.setEnabled   (sample_running <= 0);
-                }
+                // these buttons function regardless of console status
+                // - reset should always work so just leave it defaulted to enabled
+                // - halt only makes sense if processor is running
+                //   it does not work with real KY-11 in place cuz of halt line
+                // - boot only works if processor is halted
+                haltbutton.setEnabled  ((sample_running  > 0) && lastky11enab);
+                bootbutton.setEnabled   (sample_running <= 0);
 
                 // if processor currently running, update lights from what fpga last captured from unibus
                 if (sample_running > 0) {
@@ -253,18 +253,14 @@ public class GUI extends JPanel {
                     messagelabel.setText (text);
                 }
 
+                // update ADDRS label with PHYS or VIRT or nothing
                 if (lastrunning != sample_running) {
                     lastrunning = sample_running;
                     updateaddrlabel ();
                 }
 
-                int fm = GUIZynqPage.pinget (fpgamodepin);
-                if (fpgamode != fm) {
-                    fpgamode = fm;
-                    fpgamoderadiobuttons[0].update ();
-                    fpgamoderadiobuttons[1].update ();
-                    fpgamoderadiobuttons[2].update ();
-                }
+                // update option selection checkboxes
+                fmckbox.update ();
                 bmckbox.update ();
                 dlckbox.update ();
                 kwckbox.update ();
@@ -620,18 +616,11 @@ public class GUI extends JPanel {
 
             add (new Box.Filler (fd, fd, fd));
 
-            ButtonGroup fmbg = new ButtonGroup ();
-            fmbg.add (new FPGAModeRadioButton ("OFF",  0));
-            fmbg.add (new FPGAModeRadioButton ("SIM",  1));
-            fmbg.add (new FPGAModeRadioButton ("REAL    ", 2));
-
             JPanel ckboxrow = new JPanel ();
             ckboxrow.setLayout (new BoxLayout (ckboxrow, BoxLayout.X_AXIS));
             add (ckboxrow);
-            ckboxrow.add (fpgamoderadiobuttons[0]);
-            ckboxrow.add (fpgamoderadiobuttons[1]);
-            ckboxrow.add (fpgamoderadiobuttons[2]);
-            ckboxrow.add (bmckbox = new MemCkBox   ("Mem/124KW    "));
+            ckboxrow.add (fmckbox = new FModeCkBox ("OFF    "));
+            ckboxrow.add (bmckbox = new MemCkBox   ("Mem    "));
             ckboxrow.add (dlckbox = new DevCkBox   ("DL-11    ", "dl_enable"));
             ckboxrow.add (kwckbox = new KWCkBox    ("KW-11    "));
             ckboxrow.add (kyckbox = new DevCkBox   ("KY-11    ", "ky_enable"));
@@ -820,38 +809,27 @@ public class GUI extends JPanel {
     }
 
     // - reset I/O devices and processor
-    public static class ResetButton extends MemButton implements ActionListener {
-        private Timer doubletimer;
-
+    public static class ResetButton extends MemButton {
         public ResetButton ()
         {
             super ("RESET");
+            setEnabled (true);
         }
 
         @Override  // MemButton
         public void buttonClicked ()
         {
-            if (doubletimer == null) {
-                doubletimer = new Timer (3000, this);
-                doubletimer.start ();
-                messagelabel.setText ("click RESET again so I'm sure");
-            } else {
-                doubletimer.stop ();
-                doubletimer = null;
+            if ((GUIZynqPage.running () <= 0) ||
+                (JOptionPane.showConfirmDialog (this,
+                        "Are you sure you want to reset the system?",
+                        "RESET Button",
+                        JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
                 berrled.setOn (false);
                 messagelabel.setText ("resetting processor");
                 GUIZynqPage.reset ();
                 checkforhalt ();
                 messagelabel.setText ("processor reset complete");
             }
-        }
-
-        @Override  // ActionListener
-        public void actionPerformed (ActionEvent ae)
-        {
-            messagelabel.setText ("");
-            doubletimer.stop ();
-            doubletimer = null;
         }
     }
 
@@ -1276,31 +1254,87 @@ public class GUI extends JPanel {
     //  OFF  - everything disconnected from unibus, simulated devices held in reset
     //  SIM  - everything disconnected from unibus, simulated devices can be enabled, processor simulator enabled
     //  REAL - enabled devices connected to unibus, processor simulator held in reset
-    public static FPGAModeRadioButton[] fpgamoderadiobuttons = new FPGAModeRadioButton[3];
+    public final static int FM_OFF  = 0;
+    public final static int FM_SIM  = 1;
+    public final static int FM_REAL = 2;
     public static int fpgamode = -1;
-    public static int fpgamodepin = findpin ("fpgamode");
 
-    public static class FPGAModeRadioButton extends JRadioButton implements ChangeListener {
-        public int value;
+    public static class FModeCkBox extends JCheckBox implements ChangeListener {
+        private boolean suppress;
+        private boolean waschecked;
+        private boolean wasenabled;
+        private boolean wasfiftyhz;
+        private int fpgamodepinindex;
+        private String offlabel;
+        private String realabel;
+        private String simlabel;
 
-        public FPGAModeRadioButton (String label, int value)
+        public FModeCkBox (String label)
         {
             super (label);
-            this.value = value;
-            fpgamoderadiobuttons[value] = this;
+            fpgamodepinindex = findpin ("fpgamode");
+            offlabel = label;
+            realabel = label.replace ("OFF", "REAL");
+            simlabel = label.replace ("OFF", "SIM");
             addChangeListener (this);
         }
 
+        // called many times a second to make sure checkbox matches fpga
         public void update ()
         {
-            setSelected (fpgamode == value);
+            int ismode = GUIZynqPage.pinget (fpgamodepinindex);
+            if (fpgamode != ismode) {
+                fpgamode = ismode;
+                switch (fpgamode) {
+                    case FM_OFF:  setText (offlabel); break;
+                    case FM_SIM:  setText (simlabel); break;
+                    case FM_REAL: setText (realabel); break;
+                    default: setText (Integer.toString (fpgamode)); break;
+                }
+                waschecked = (fpgamode != FM_OFF);
+                setSelected (waschecked);
+            }
         }
 
-        @Override
+        // checkbox clicked
+        @Override   // ChangeListener
         public void stateChanged (ChangeEvent e)
         {
-            if (isSelected ()) {
-                GUIZynqPage.pinset (fpgamodepin, value);
+            // nop if prompt is open
+            if (suppress) return;
+
+            // nop if no change in checkbox
+            boolean ischecked = isSelected ();
+            if (waschecked != ischecked) {
+                waschecked = ischecked;
+
+                // user changed checkbox, prompt to see what to actually do
+                JRadioButton butoff  = new JRadioButton ("OFF");
+                JRadioButton butreal = new JRadioButton ("REAL");
+                JRadioButton butsim  = new JRadioButton ("SIM");
+                butoff.setSelected  (fpgamode == FM_OFF);
+                butreal.setSelected (fpgamode == FM_REAL);
+                butsim.setSelected  (fpgamode == FM_SIM);
+                ButtonGroup group = new ButtonGroup ();
+                group.add (butoff);
+                group.add (butreal);
+                group.add (butsim);
+                JPanel panel = new JPanel ();
+                panel.add (butoff);
+                panel.add (butreal);
+                panel.add (butsim);
+                suppress = true;
+                if (JOptionPane.showConfirmDialog (this, panel,
+                        "FPGA Mode", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+
+                    // update fpgamode pin
+                    int newmode = FM_OFF;
+                    if (butreal.isSelected ()) newmode = FM_REAL;
+                    if (butsim.isSelected  ()) newmode = FM_SIM;
+                    GUIZynqPage.pinset (fpgamodepinindex, newmode);
+                }
+                suppress = false;
+                waschecked = isSelected ();
             }
         }
     }
@@ -1350,7 +1384,7 @@ public class GUI extends JPanel {
                 long mask = 0;                                          // assume disabling everything
                 if (isenab) {
                     mask = (1L << 62) - 1;                              // assume enabling everything
-                    if (fpgamode == 2) {                                // sim or off, enable everyting
+                    if (fpgamode == FM_REAL) {                          // sim or off, enable everyting
                         GUIZynqPage.pinset (enablopinindex, 0);         // real, turn off all fpga memory
                         GUIZynqPage.pinset (enabhipinindex, 0);
                         for (int page = 0; page < 62; page ++) {        // loop through all possible 4KB pages
@@ -1374,22 +1408,16 @@ public class GUI extends JPanel {
 
     // KW-11 line clock enable checkbox
     public static class KWCkBox extends JCheckBox implements ChangeListener {
+        private boolean suppress;
         private boolean waschecked;
         private boolean wasenabled;
         private boolean wasfiftyhz;
         private int enabledpinindex;
         private int fiftyhzpinindex;
-        private String disablelabel;
-        private String fiftyhzlabel;
-        private String sixtyhzlabel;
 
         public KWCkBox (String label)
         {
             super (label);
-            disablelabel = label;
-            int i = label.indexOf (' ');
-            fiftyhzlabel = label.substring (0, i) + ".50" + label.substring (i);
-            sixtyhzlabel = label.substring (0, i) + ".60" + label.substring (i);
             enabledpinindex = findpin ("kw_enable");
             fiftyhzpinindex = findpin ("kw_fiftyhz");
             addChangeListener (this);
@@ -1401,32 +1429,28 @@ public class GUI extends JPanel {
             boolean isenabled = GUIZynqPage.pinget (enabledpinindex) != 0;
             boolean isfiftyhz = GUIZynqPage.pinget (fiftyhzpinindex) != 0;
 
-            if (wasenabled & ! isenabled) {
-                waschecked = false;
-                setSelected (false);
-                setText (disablelabel);
-            } else if (isenabled && (! wasenabled || (wasfiftyhz != isfiftyhz))) {
-                waschecked = true;
-                setSelected (true);
-                setText (isfiftyhz ? fiftyhzlabel : sixtyhzlabel);
+            if (wasenabled != isenabled) {
+                waschecked = isenabled;
+                setSelected (isenabled);
             }
 
             wasenabled = isenabled;
             wasfiftyhz = isfiftyhz;
         }
 
-        private boolean suppress;
-
         // checkbox clicked
         @Override   // ChangeListener
         public void stateChanged (ChangeEvent e)
         {
+            // nop if prompt is open
             if (suppress) return;
 
+            // nop if no change in checkbox
             boolean ischecked = isSelected ();
             if (waschecked != ischecked) {
                 waschecked = ischecked;
 
+                // user changed checkbox, prompt to see what to actually do
                 JRadioButton butoff = new JRadioButton ("OFF");
                 JRadioButton but50  = new JRadioButton ("50Hz");
                 JRadioButton but60  = new JRadioButton ("60Hz");
@@ -1444,6 +1468,8 @@ public class GUI extends JPanel {
                 suppress = true;
                 if (JOptionPane.showConfirmDialog (this, panel,
                         "Line Clock", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+
+                    // update kw_enable and kw_fiftyhz pins
                     GUIZynqPage.pinset (enabledpinindex, butoff.isSelected () ? 0 : 1);
                     if (but50.isSelected ()) GUIZynqPage.pinset (fiftyhzpinindex, 1);
                     if (but60.isSelected ()) GUIZynqPage.pinset (fiftyhzpinindex, 0);
