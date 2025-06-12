@@ -28,6 +28,7 @@
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
@@ -211,8 +212,6 @@ public class GUI extends JPanel {
                     bootbutton.setEnabled   (sample_running <= 0);
                 }
 
-                lastky11enab = kyckbox.isenab;
-
                 // if processor currently running, update lights from what fpga last captured from unibus
                 if (sample_running > 0) {
                     writeaddrleds (sample_addr);
@@ -221,7 +220,7 @@ public class GUI extends JPanel {
                 }
 
                 // if processor just halted, display PC,PS
-                else if (lastrunning > 0) {
+                else if ((lastrunning > 0) && lastky11enab) {
                     int pc = GUIZynqPage.rdmem (0777707);
                     int ps = GUIZynqPage.rdmem (0777776);
                     String text = "";
@@ -272,12 +271,18 @@ public class GUI extends JPanel {
                 kyckbox.update ();
                 rlckbox.update ();
 
+                // remove lights & switches if KY-11 is disabled
+                if (lastky11enab != kyckbox.isenab) {
+                    lastky11enab = kyckbox.isenab;
+                    setConsoleLights (lastky11enab);
+                }
+
                 // flush updates to screen
                 toolkit.sync ();
             }
         };
 
-    public static boolean lastky11enab;
+    public static boolean lastky11enab = true;
     public static int lastrunning = 12345;
     public static long updatetimemillis;
 
@@ -288,6 +293,13 @@ public class GUI extends JPanel {
         return p;
     }
 
+    public static JPanel bits1715;
+    public static JPanel bits1412;
+    public static JPanel bits1109;
+    public static JPanel bits0806;
+    public static JPanel bits0503;
+    public static JPanel bits0200;
+
     // build the display
     public GUI ()
     {
@@ -297,12 +309,12 @@ public class GUI extends JPanel {
         ledbox.setLayout (new BoxLayout (ledbox, BoxLayout.X_AXIS));
         add (ledbox);
 
-        JPanel bits1715 = new JPanel ();
-        JPanel bits1412 = new JPanel ();
-        JPanel bits1109 = new JPanel ();
-        JPanel bits0806 = new JPanel ();
-        JPanel bits0503 = new JPanel ();
-        JPanel bits0200 = new JPanel ();
+        bits1715 = new JPanel ();
+        bits1412 = new JPanel ();
+        bits1109 = new JPanel ();
+        bits0806 = new JPanel ();
+        bits0503 = new JPanel ();
+        bits0200 = new JPanel ();
 
         bits1715.setBackground (Color.MAGENTA);
         bits1412.setBackground (Color.RED);
@@ -318,12 +330,12 @@ public class GUI extends JPanel {
         ledbox.add (bits0503);
         ledbox.add (bits0200);
 
-        bits1715.setLayout (new GridLayout (8, 3));
-        bits1412.setLayout (new GridLayout (8, 3));
-        bits1109.setLayout (new GridLayout (8, 3));
-        bits0806.setLayout (new GridLayout (8, 3));
-        bits0503.setLayout (new GridLayout (8, 3));
-        bits0200.setLayout (new GridLayout (8, 3));
+        bits1715.setLayout (new GridLayout (0, 3));
+        bits1412.setLayout (new GridLayout (0, 3));
+        bits1109.setLayout (new GridLayout (0, 3));
+        bits0806.setLayout (new GridLayout (0, 3));
+        bits0503.setLayout (new GridLayout (0, 3));
+        bits0200.setLayout (new GridLayout (0, 3));
 
         // row 0 - address label
         bits1715.add (addrlbls[17] = lightsLabel (""));
@@ -387,67 +399,8 @@ public class GUI extends JPanel {
             bits0200.add (dataleds[ 0+i] = new LED ());
         }
 
-        // row 4 - 777570 lights label
-        bits1715.add (lightsLabel ("BERR"));
-        bits1715.add (lightsLabel (""));
-        bits1715.add (lightsLabel (""));
-        bits1412.add (lightsLabel (""));
-        bits1412.add (lightsLabel (""));
-        bits1412.add (lightsLabel (""));
-        bits1109.add (lightsLabel (""));
-        bits1109.add (lightsLabel (""));
-        bits1109.add (lightsLabel (""));
-        bits0806.add (lightsLabel (""));
-        bits0806.add (lightsLabel (""));
-        bits0806.add (lightsLabel (""));
-        bits0503.add (lightsLabel ("L"));
-        bits0503.add (lightsLabel ("I"));
-        bits0503.add (lightsLabel ("G"));
-        bits0200.add (lightsLabel ("H"));
-        bits0200.add (lightsLabel ("T"));
-        bits0200.add (lightsLabel ("S"));
-
-        // row 5 - 777570 lights
-        bits1715.add (berrled = new FlashingLED ());
-        bits1715.add (lightsLabel (""));
-        bits1715.add (lregleds[15] = new LED ());
-        for (int i = 3; -- i >= 0;) {
-            bits1412.add (lregleds[12+i] = new LED ());
-            bits1109.add (lregleds[ 9+i] = new LED ());
-            bits0806.add (lregleds[ 6+i] = new LED ());
-            bits0503.add (lregleds[ 3+i] = new LED ());
-            bits0200.add (lregleds[ 0+i] = new LED ());
-        }
-
-        // row 6 - switches label
-        bits1715.add (lightsLabel (""));
-        bits1715.add (lightsLabel (""));
-        bits1715.add (lightsLabel (""));
-        bits1412.add (lightsLabel (""));
-        bits1412.add (lightsLabel (""));
-        bits1412.add (lightsLabel (""));
-        bits1109.add (lightsLabel (""));
-        bits1109.add (lightsLabel (""));
-        bits1109.add (lightsLabel (""));
-        bits0806.add (lightsLabel (""));
-        bits0806.add (lightsLabel ("S"));
-        bits0806.add (lightsLabel ("W"));
-        bits0503.add (lightsLabel ("I"));
-        bits0503.add (lightsLabel ("T"));
-        bits0503.add (lightsLabel ("C"));
-        bits0200.add (lightsLabel ("H"));
-        bits0200.add (lightsLabel ("E"));
-        bits0200.add (lightsLabel ("S"));
-
-        // row 7 - switch register
-        for (int i = 3; -- i >= 0;) {
-            bits1715.add (switches[15+i] = new Switch (15+i));
-            bits1412.add (switches[12+i] = new Switch (12+i));
-            bits1109.add (switches[ 9+i] = new Switch ( 9+i));
-            bits0806.add (switches[ 6+i] = new Switch ( 6+i));
-            bits0503.add (switches[ 3+i] = new Switch ( 3+i));
-            bits0200.add (switches[ 0+i] = new Switch ( 0+i));
-        }
+        // lights and switches rows
+        initConsoleLights ();
 
         // buttons along the bottom
         JPanel buttonbox1 = new JPanel ();
@@ -480,6 +433,163 @@ public class GUI extends JPanel {
         jl.setHorizontalAlignment (JLabel.CENTER);
         jl.setForeground (Color.WHITE);
         return jl;
+    }
+
+    // set up console 777570 lights & switch rows
+    public static void initConsoleLights ()
+    {
+        consolelights = new JComponent[72];
+
+        int j = 0;
+        consolelights[j++] = lightsLabel ("BERR");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("L");
+        consolelights[j++] = lightsLabel ("I");
+        consolelights[j++] = lightsLabel ("G");
+        consolelights[j++] = lightsLabel ("H");
+        consolelights[j++] = lightsLabel ("T");
+        consolelights[j++] = lightsLabel ("S");
+
+        // row 5 - 777570 lights
+        consolelights[j++] = berrled = new FlashingLED ();
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lregleds[15] = new LED ();
+        for (int i = 3; -- i >= 0;) {
+            consolelights[j++] = lregleds[12+i] = new LED ();
+            consolelights[j++] = lregleds[ 9+i] = new LED ();
+            consolelights[j++] = lregleds[ 6+i] = new LED ();
+            consolelights[j++] = lregleds[ 3+i] = new LED ();
+            consolelights[j++] = lregleds[ 0+i] = new LED ();
+        }
+
+        // row 6 - switches label
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("");
+        consolelights[j++] = lightsLabel ("S");
+        consolelights[j++] = lightsLabel ("W");
+        consolelights[j++] = lightsLabel ("I");
+        consolelights[j++] = lightsLabel ("T");
+        consolelights[j++] = lightsLabel ("C");
+        consolelights[j++] = lightsLabel ("H");
+        consolelights[j++] = lightsLabel ("E");
+        consolelights[j++] = lightsLabel ("S");
+
+        // row 7 - switch register
+        for (int i = 3; -- i >= 0;) {
+            consolelights[j++] = switches[15+i] = new Switch (15+i);
+            consolelights[j++] = switches[12+i] = new Switch (12+i);
+            consolelights[j++] = switches[ 9+i] = new Switch ( 9+i);
+            consolelights[j++] = switches[ 6+i] = new Switch ( 6+i);
+            consolelights[j++] = switches[ 3+i] = new Switch ( 3+i);
+            consolelights[j++] = switches[ 0+i] = new Switch ( 0+i);
+        }
+
+        // row 4 - 777570 lights label
+        j = 0;
+        bits1715.add (consolelights[j++]);      // lightsLabel ("BERR");
+        bits1715.add (consolelights[j++]);      // lightsLabel ("");
+        bits1715.add (consolelights[j++]);      // lightsLabel ("");
+        bits1412.add (consolelights[j++]);      // lightsLabel ("");
+        bits1412.add (consolelights[j++]);      // lightsLabel ("");
+        bits1412.add (consolelights[j++]);      // lightsLabel ("");
+        bits1109.add (consolelights[j++]);      // lightsLabel ("");
+        bits1109.add (consolelights[j++]);      // lightsLabel ("");
+        bits1109.add (consolelights[j++]);      // lightsLabel ("");
+        bits0806.add (consolelights[j++]);      // lightsLabel ("");
+        bits0806.add (consolelights[j++]);      // lightsLabel ("");
+        bits0806.add (consolelights[j++]);      // lightsLabel ("");
+        bits0503.add (consolelights[j++]);      // lightsLabel ("L");
+        bits0503.add (consolelights[j++]);      // lightsLabel ("I");
+        bits0503.add (consolelights[j++]);      // lightsLabel ("G");
+        bits0200.add (consolelights[j++]);      // lightsLabel ("H");
+        bits0200.add (consolelights[j++]);      // lightsLabel ("T");
+        bits0200.add (consolelights[j++]);      // lightsLabel ("S");
+
+        // row 5 - 777570 lights
+        bits1715.add (consolelights[j++]);      // berrled = new FlashingLED ();
+        bits1715.add (consolelights[j++]);      // lightsLabel ("");
+        bits1715.add (consolelights[j++]);      // lregleds[15] = new LED ();
+        for (int i = 3; -- i >= 0;) {
+            bits1412.add (consolelights[j++]);  // lregleds[12+i] = new LED ();
+            bits1109.add (consolelights[j++]);  // lregleds[ 9+i] = new LED ();
+            bits0806.add (consolelights[j++]);  // lregleds[ 6+i] = new LED ();
+            bits0503.add (consolelights[j++]);  // lregleds[ 3+i] = new LED ();
+            bits0200.add (consolelights[j++]);  // lregleds[ 0+i] = new LED ();
+        }
+
+        // row 6 - switches label
+        bits1715.add (consolelights[j++]);      // lightsLabel ("");
+        bits1715.add (consolelights[j++]);      // lightsLabel ("");
+        bits1715.add (consolelights[j++]);      // lightsLabel ("");
+        bits1412.add (consolelights[j++]);      // lightsLabel ("");
+        bits1412.add (consolelights[j++]);      // lightsLabel ("");
+        bits1412.add (consolelights[j++]);      // lightsLabel ("");
+        bits1109.add (consolelights[j++]);      // lightsLabel ("");
+        bits1109.add (consolelights[j++]);      // lightsLabel ("");
+        bits1109.add (consolelights[j++]);      // lightsLabel ("");
+        bits0806.add (consolelights[j++]);      // lightsLabel ("");
+        bits0806.add (consolelights[j++]);      // lightsLabel ("S");
+        bits0806.add (consolelights[j++]);      // lightsLabel ("W");
+        bits0503.add (consolelights[j++]);      // lightsLabel ("I");
+        bits0503.add (consolelights[j++]);      // lightsLabel ("T");
+        bits0503.add (consolelights[j++]);      // lightsLabel ("C");
+        bits0200.add (consolelights[j++]);      // lightsLabel ("H");
+        bits0200.add (consolelights[j++]);      // lightsLabel ("E");
+        bits0200.add (consolelights[j++]);      // lightsLabel ("S");
+
+        // row 7 - switch register
+        for (int i = 3; -- i >= 0;) {
+            bits1715.add (consolelights[j++]);  // switches[15+i] = new Switch (15+i);
+            bits1412.add (consolelights[j++]);  // switches[12+i] = new Switch (12+i);
+            bits1109.add (consolelights[j++]);  // switches[ 9+i] = new Switch ( 9+i);
+            bits0806.add (consolelights[j++]);  // switches[ 6+i] = new Switch ( 6+i);
+            bits0503.add (consolelights[j++]);  // switches[ 3+i] = new Switch ( 3+i);
+            bits0200.add (consolelights[j++]);  // switches[ 0+i] = new Switch ( 0+i);
+        }
+    }
+
+    public static Container[] consolecontainers;
+    public static JComponent[] consolelights;
+
+    // turn 777570 lights & switch rows on/off if KY-11 is enabled/disabled
+    public static void setConsoleLights (boolean kyenabled)
+    {
+        if (consolecontainers == null) {
+            consolecontainers = new Container[72];
+            for (int i = 0; i < 72; i ++) {
+                consolecontainers[i] = consolelights[i].getParent ();
+            }
+        }
+
+        if (kyenabled) {
+            for (int i = 0; i < 72; i ++) {
+                consolecontainers[i].add (consolelights[i]);
+            }
+        } else {
+            for (int i = 0; i < 72; i ++) {
+                consolecontainers[i].remove (consolelights[i]);
+            }
+        }
+
+        mainframe.pack ();
     }
 
     // panel what contains the messagelabel line and the fpgamode & device enable checkboxes
@@ -1063,14 +1173,15 @@ public class GUI extends JPanel {
         "above length of expand-up page",
         "unable to read par" };
 
-    public static abstract class MemButton extends JButton implements ActionListener, MouseListener {
+    public static abstract class MemButton extends JButton implements MouseListener {
         private boolean isenabled;
+
+        private boolean pressedinarea;
 
         public MemButton (String lbl)
         {
             super (lbl);
 
-            addActionListener (this);
             addMouseListener (this);
 
             setBackground (Color.BLACK);
@@ -1102,12 +1213,6 @@ public class GUI extends JPanel {
             }
         }
 
-        @Override  // ActionListener
-        public void actionPerformed (ActionEvent ae)
-        {
-            if (isenabled) buttonClicked ();
-        }
-
         @Override   // MouseListener
         public void mouseClicked(MouseEvent e) { }
 
@@ -1120,14 +1225,32 @@ public class GUI extends JPanel {
         @Override   // MouseListener
         public void mousePressed(MouseEvent e)
         {
-            if (isenabled) setIcon (buttonin);
+            if (isenabled) {
+                pressedinarea = eventInArea (e);
+                if (pressedinarea) setIcon (buttonin);
+            }
         }
 
         @Override   // MouseListener
         public void mouseReleased(MouseEvent e)
         {
-            if (isenabled) setIcon (buttonout);
+            if (isenabled && pressedinarea && eventInArea (e)) {
+                buttonClicked ();
+            }
+            setIcon (buttonout);
+            pressedinarea = false;
         }
+
+        // see if mouse is within the circle itself
+        // otherwise it gets clicks on the black border area
+        private boolean eventInArea (MouseEvent e)
+        {
+            int w = (int) buttondim.getWidth ();
+            int h = (int) buttondim.getHeight ();
+            return sq (e.getX () - w / 2) + sq (e.getY () - h / 2) < sq ((w + h) / 6);
+        }
+
+        private static int sq (int x) { return x * x; }
     }
 
     ////////////////////////////////
@@ -1256,7 +1379,6 @@ public class GUI extends JPanel {
         public void stateChanged (ChangeEvent e)
         {
             super.stateChanged (e);
-
             for (RLDrive rldrive : rldrives) {
                 rldrive.setVisible (isenab);
             }
