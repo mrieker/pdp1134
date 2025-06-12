@@ -6,7 +6,6 @@
 # 3) pdp can clear sw_irqlev by clearing 777570
 
 proc loadtest {} {
-    pin set fpgamode 2
     pin set ky_enable 1
     pin set bm_enablo 0xFFFF
 
