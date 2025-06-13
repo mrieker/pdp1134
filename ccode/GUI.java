@@ -86,6 +86,8 @@ public class GUI extends JPanel {
     public final static Dimension rl02pandim = new Dimension (1044, 50);
     public final static Image     rl02panimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("rl02pan.png")).getImage ();
 
+    public final static Image     pdplogoimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("pdplogo.png")).getImage ();
+
     public static BufferedImage redeyeim;
     public static JFrame mainframe;
     public static Toolkit toolkit;
@@ -306,7 +308,15 @@ public class GUI extends JPanel {
         ledbox.setLayout (new BoxLayout (ledbox, BoxLayout.X_AXIS));
         add (ledbox);
 
-        bits1715 = new JPanel ();
+        bits1715 = new JPanel () {
+            @Override
+            protected void paintComponent (Graphics g)
+            {
+                super.paintComponent (g);
+                g.drawImage (pdplogoimg, 5, 8, null);
+            }
+        };
+
         bits1412 = new JPanel ();
         bits1109 = new JPanel ();
         bits0806 = new JPanel ();
