@@ -14,8 +14,10 @@ endif
 
 GPP    := g++ $(CFLAGS) $(TCLINC) -std=c++11 -g -Wall -fPIC
 
+GUIEXTRAS := purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png rl02pan.png procpan.png pdplogo.png
+
 default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pr.$(MACH) z11rl.$(MACH) \
-	GUI.jar libGUIZynqPage.$(MACH).so
+	Z11GUI.jar libGUIZynqPage.$(MACH).so
 
 lib.$(MACH).a: \
 		cmd_pin.$(MACH).o \
@@ -38,16 +40,16 @@ lib.$(MACH).a: \
 %.$(MACH).o: %.cc *.h
 	$(GPP) -c -o $@ $<
 
-GUI.jar: GUI.java GUIZynqPage.h purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png rl02pan.png procpan.png pdplogo.png
-	rm -f GUI.class GUI\$$*.class GUI.jar
-	CLASSPATH=. javac GUI.java
-	jar cf GUI.jar GUI*.class purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png rl02pan.png procpan.png pdplogo.png
-	rm -f GUI.class GUI\$$*.class
+Z11GUI.jar: Z11GUI.java GUIZynqPage.class $(GUIEXTRAS)
+	rm -f Z11GUI.class Z11GUI\$$*.class Z11GUI.jar
+	CLASSPATH=. javac Z11GUI.java
+	jar cf Z11GUI.jar Z11GUI*.class GUIZynqPage.class $(GUIEXTRAS)
+	rm -f Z11GUI.class Z11GUI\$$*.class
 
 libGUIZynqPage.$(MACH).so: GUIZynqPage.cc GUIZynqPage.h $(LIBS)
 	$(GPP) -shared -o libGUIZynqPage.$(MACH).so -I/opt/jdk/include -I/opt/jdk/include/linux GUIZynqPage.cc $(LIBS) $(LNKFLG)
 
-GUIZynqPage.h: GUIZynqPage.java
+GUIZynqPage.class, GUIZynqPage.h: GUIZynqPage.java
 	rm -f GUIZynqPage.class GUIZynqPage.h
 	CLASSPATH=. javac -h . GUIZynqPage.java
 

@@ -21,7 +21,7 @@
 // GUI panel
 
 // run directly on zturn:
-//  ./GUI
+//  ./z11gui
 
 // apt install default-jdk
 // ln -s /usr/lib/jvm/java-11-openjdk-armhf /opt/jdk
@@ -40,11 +40,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
-import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
-import javax.imageio.ImageIO;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
@@ -68,27 +66,29 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
-public class GUI extends JPanel {
+public class Z11GUI extends JPanel {
 
     public final static int UPDMS = 3;  // updisplay() typically takes 1mS
 
     public final static Dimension buttondim = new Dimension (116, 116);
-    public final static ImageIcon buttonin  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
-    public final static ImageIcon buttonout = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc116.png"));
+    public final static ImageIcon buttonin  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
+    public final static ImageIcon buttonout = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purplecirc116.png"));
 
     public final static Dimension leddim = new Dimension (58, 58);
-    public final static ImageIcon ledon  = new ImageIcon (GUI.class.getClassLoader ().getResource ("violetcirc58.png"));
-    public final static ImageIcon ledoff = new ImageIcon (GUI.class.getClassLoader ().getResource ("purplecirc58.png"));
+    public final static ImageIcon ledon  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc58.png"));
+    public final static ImageIcon ledoff = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purplecirc58.png"));
 
     public final static Dimension procpandim = new Dimension (1044, 60);
-    public final static Image     procpanimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("procpan.png")).getImage ();
+    public final static Image     procpanimg = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("procpan.png")).getImage ();
 
     public final static Dimension rl02pandim = new Dimension (1044, 50);
-    public final static Image     rl02panimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("rl02pan.png")).getImage ();
+    public final static Image     rl02panimg = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("rl02pan.png")).getImage ();
 
-    public final static Image     pdplogoimg = new ImageIcon (GUI.class.getClassLoader ().getResource ("pdplogo.png")).getImage ();
+    public final static Image     pdplogoimg = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("pdplogo.png")).getImage ();
 
-    public static BufferedImage redeyeim;
+    public final static Dimension redeyedim  = new Dimension (36, 36);
+    public final static Image     redeyeimg  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("redeyeclip36.png")).getImage ();
+
     public static JFrame mainframe;
     public static Toolkit toolkit;
 
@@ -100,15 +100,13 @@ public class GUI extends JPanel {
             System.exit (1);
         }
 
-        redeyeim = ImageIO.read (GUI.class.getResourceAsStream ("redeyeclip36.png"));
-
         // open access to Zynq board
         GUIZynqPage.open ();
 
         // create window and show it
         mainframe = new JFrame ("PDP-11/34A");
         mainframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
-        mainframe.setContentPane (new GUI ());
+        mainframe.setContentPane (new Z11GUI ());
         SwingUtilities.invokeLater (new Runnable () {
             @Override
             public void run ()
@@ -300,7 +298,7 @@ public class GUI extends JPanel {
     public static JPanel bits0200;
 
     // build the display
-    public GUI ()
+    public Z11GUI ()
     {
         setLayout (new BoxLayout (this, BoxLayout.Y_AXIS));
 
@@ -718,8 +716,8 @@ public class GUI extends JPanel {
             setRolloverEnabled (false);
             setSize (leddim);
 
-            dotxl = (int) (leddim.getWidth  () - redeyeim.getWidth  ()) / 2 + 1;
-            dotyt = (int) (leddim.getHeight () - redeyeim.getHeight ()) / 2 - 1;
+            dotxl = (int) (leddim.getWidth  () - redeyedim.getWidth  ()) / 2 + 1;
+            dotyt = (int) (leddim.getHeight () - redeyedim.getHeight ()) / 2 - 1;
         }
 
         public void setOn (boolean on)
@@ -735,7 +733,7 @@ public class GUI extends JPanel {
         {
             super.paint (g);
             if (ison) {
-                g.drawImage (redeyeim, dotxl, dotyt, null);
+                g.drawImage (redeyeimg, dotxl, dotyt, null);
             }
         }
     }
@@ -871,7 +869,8 @@ public class GUI extends JPanel {
 
                         // start running guiboot.sh script
                         String ccode = System.getProperty ("ccode");
-                        ProcessBuilder pb = new ProcessBuilder (ccode + "/guiboot.sh", Integer.toString (switches));
+                        ProcessBuilder pb = new ProcessBuilder (ccode + "/guiboot.sh",
+                                Integer.toString (switches), Integer.toString (loadedaddress));
                         pb.redirectErrorStream (true);  // "2>&1"
                         bootprocess = pb.start ();
 
