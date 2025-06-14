@@ -389,6 +389,7 @@ module sim1134 (
                             mmr0[03:01] <= virtaddr[15:13];
                         end
                         memfunc <= 0;
+                        rwstate <= 0;
                         state   <= S_SERVICE;
                         trapvec <= T_MMUTRAP;
                     end
@@ -401,6 +402,7 @@ module sim1134 (
                             mmr0[03:01] <= virtaddr[15:13];
                         end
                         memfunc <= 0;
+                        rwstate <= 0;
                         state   <= S_SERVICE;
                         trapvec <= T_MMUTRAP;
                     end
@@ -413,6 +415,7 @@ module sim1134 (
                             mmr0[03:01] <= virtaddr[15:13];
                         end
                         memfunc <= 0;
+                        rwstate <= 0;
                         state   <= S_SERVICE;
                         trapvec <= T_MMUTRAP;
                     end

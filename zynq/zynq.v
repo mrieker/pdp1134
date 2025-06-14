@@ -117,7 +117,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131401C;
+    localparam VERSION = 32'h3131401D;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -1149,18 +1149,16 @@ module Zynq (
     //  ilaindex = next entry in ilaarray to write
 
     reg lastmsyn;
-    reg[15:00] lastrlcs;
     always @(posedge CLOCK) begin
         lastmsyn <= dev_syn_msyn_h;
-        lastrlcs <= rlcs;
     end
 
-    wire ilatrigr = rltrigger; // (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
-    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h) | (rlcs != lastrlcs);
+    wire ilatrigr = 0; // rltrigger; // (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
+    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // | (rlcs != lastrlcs);
 
     always @(*) begin
         ilacurwd = {
-            rlcs,               //48
+            16'b0,              //48
             dev_a_h,            //30
             dev_bg_l,           //26
             dev_br_h,           //22
