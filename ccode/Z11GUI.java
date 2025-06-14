@@ -1645,16 +1645,22 @@ public class Z11GUI extends JPanel {
 
                         // display chooser box to select file to load
                         JFileChooser chooser = new JFileChooser ();
+                        chooser.setFileSelectionMode (JFileChooser.FILES_AND_DIRECTORIES);
                         chooser.setFileFilter (
                             new FileNameExtensionFilter (
                                 "RL02 disk image", "rl02"));
                         chooser.setDialogTitle ("Loading RL drive " + drive);
-                        if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
-                        int rc = chooser.showOpenDialog (RLDrive.this);
-                        if (rc == JFileChooser.APPROVE_OPTION) {
+                        File ff;
+                        while (true) {
+                            if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
+                            int rc = chooser.showOpenDialog (RLDrive.this);
+                            ff = (rc == JFileChooser.APPROVE_OPTION) ? chooser.getSelectedFile () : null;
+                            if ((ff == null) || ! ff.isDirectory ()) break;
+                            rlchooserdirectory = ff;
+                        }
+                        if (ff != null) {
 
                             // file selected, pass to z11rl via shared memory
-                            File   ff = chooser.getSelectedFile ();
                             rlchooserdirectory = ff.getParentFile ();
                             long size = ff.length ();
                             if ((size == RLDISKSIZE) || (JOptionPane.showConfirmDialog (RLDrive.this,

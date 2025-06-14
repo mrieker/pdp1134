@@ -9,14 +9,19 @@ proc wrtty {str} {
         set ch [string index $str $i]
         if {$ch == "\n"} {wrtty "\r"}
         while {! [ctrlcflag] && ! ([rdword 0777564] & 0200)} {after 1}
+        if {[ctrlcflag]} break
         scan $ch "%c" by
         wrbyte 0777566 $by
     }
+    while {! [ctrlcflag] && ! ([rdword 0777564] & 0200)} {after 1}
 }
 
 # read single char from tty
 proc rdtty {} {
-    while {! [ctrlcflag] && ! ([rdword 0777560] & 0200)} {after 1}
+    while {! ([rdword 0777560] & 0200)} {
+        after 1
+        if {[ctrlcflag]} {return 3}
+    }
     return [rdbyte 0777562]
 }
 
