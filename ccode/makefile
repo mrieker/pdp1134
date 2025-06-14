@@ -49,7 +49,7 @@ Z11GUI.jar: Z11GUI.java GUIZynqPage.class $(GUIEXTRAS)
 libGUIZynqPage.$(MACH).so: GUIZynqPage.cc GUIZynqPage.h $(LIBS)
 	$(GPP) -shared -o libGUIZynqPage.$(MACH).so -I/opt/jdk/include -I/opt/jdk/include/linux GUIZynqPage.cc $(LIBS) $(LNKFLG)
 
-GUIZynqPage.class, GUIZynqPage.h: GUIZynqPage.java
+GUIZynqPage.class GUIZynqPage.h: GUIZynqPage.java
 	rm -f GUIZynqPage.class GUIZynqPage.h
 	CLASSPATH=. javac -h . GUIZynqPage.java
 

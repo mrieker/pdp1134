@@ -38,6 +38,8 @@ import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.io.BufferedReader;
@@ -62,13 +64,11 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.BevelBorder;
 import javax.swing.border.Border;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class Z11GUI extends JPanel {
 
-    public final static int UPDMS = 3;  // updisplay() typically takes 1mS
+    public final static int UPDMS = 23;     // updisplay() typically takes 1mS
 
     public final static Dimension buttondim = new Dimension (116, 116);
     public final static ImageIcon buttonin  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
@@ -1268,7 +1268,7 @@ public class Z11GUI extends JPanel {
     public final static int FM_REAL = 2;
     public static int fpgamode = -1;
 
-    public static class FModeCkBox extends JCheckBox implements ChangeListener {
+    public static class FModeCkBox extends JCheckBox implements ItemListener {
         private boolean suppress;
         private boolean waschecked;
         private boolean wasenabled;
@@ -1285,7 +1285,7 @@ public class Z11GUI extends JPanel {
             offlabel = label;
             realabel = label.replace ("OFF", "REAL");
             simlabel = label.replace ("OFF", "SIM");
-            addChangeListener (this);
+            addItemListener (this);
         }
 
         // called many times a second to make sure checkbox matches fpga
@@ -1306,8 +1306,8 @@ public class Z11GUI extends JPanel {
         }
 
         // checkbox clicked
-        @Override   // ChangeListener
-        public void stateChanged (ChangeEvent e)
+        @Override   // ItemListener
+        public void itemStateChanged (ItemEvent e)
         {
             // nop if prompt is open
             if (suppress) return;
@@ -1350,7 +1350,7 @@ public class Z11GUI extends JPanel {
 
     // memory enable checkbox
     // - manipulates bigmem.v enable bits
-    public static class MemCkBox extends JCheckBox implements ChangeListener {
+    public static class MemCkBox extends JCheckBox implements ItemListener {
         public boolean isenab;
         public int enablopinindex, enabhipinindex;
 
@@ -1359,7 +1359,7 @@ public class Z11GUI extends JPanel {
             super (label);
             enablopinindex = findpin ("bm_enablo");
             enabhipinindex = findpin ("bm_enabhi");
-            addChangeListener (this);
+            addItemListener (this);
         }
 
         // called repeatedly by updisplay() to make sure checkbox matches fpga enables
@@ -1384,8 +1384,8 @@ public class Z11GUI extends JPanel {
         // if enabling,
         //   if real mode, fills in for missing memory
         //           else, all enables are turned on
-        @Override   // ChangeListener
-        public void stateChanged (ChangeEvent e)
+        @Override   // ItemListener
+        public void itemStateChanged (ItemEvent e)
         {
             boolean en = isSelected ();
             if (isenab != en) {
@@ -1416,7 +1416,7 @@ public class Z11GUI extends JPanel {
     }
 
     // KW-11 line clock enable checkbox
-    public static class KWCkBox extends JCheckBox implements ChangeListener {
+    public static class KWCkBox extends JCheckBox implements ItemListener {
         private boolean suppress;
         private boolean waschecked;
         private boolean wasenabled;
@@ -1429,7 +1429,7 @@ public class Z11GUI extends JPanel {
             super (label);
             enabledpinindex = findpin ("kw_enable");
             fiftyhzpinindex = findpin ("kw_fiftyhz");
-            addChangeListener (this);
+            addItemListener (this);
         }
 
         // called many times a second to make sure checkbox matches fpga
@@ -1448,8 +1448,8 @@ public class Z11GUI extends JPanel {
         }
 
         // checkbox clicked
-        @Override   // ChangeListener
-        public void stateChanged (ChangeEvent e)
+        @Override   // ItemListener
+        public void itemStateChanged (ItemEvent e)
         {
             // nop if prompt is open
             if (suppress) return;
@@ -1497,30 +1497,35 @@ public class Z11GUI extends JPanel {
             super (label, "rl_enable");
         }
 
+        // called several times per second to update the display to match fpga & shm state
+        @Override   // DevCkBox
         public void update ()
         {
+            // update RL-11 checkbox to match fpga rl_enable
             super.update ();
+
+            // if checkbox changed, update visibility of drives
+            int nowvisible = isenab ? 1 : 0;
+            if (rldrives[0].isvisible != nowvisible) {
+                for (RLDrive rldrive : rldrives) {
+                    rldrive.isvisible = nowvisible;
+                    rldrive.setVisible (isenab);
+                }
+                mainframe.pack ();
+            }
+
+            // if checked, update the per-drive displays
             if (isenab) {
                 for (RLDrive rldrive : rldrives) {
                     rldrive.update ();
                 }
             }
         }
-
-        @Override   // DevCkBox
-        public void stateChanged (ChangeEvent e)
-        {
-            super.stateChanged (e);
-            for (RLDrive rldrive : rldrives) {
-                rldrive.setVisible (isenab);
-            }
-            mainframe.pack ();
-        }
     }
 
     // device enable checkbox
     // - plugs/unplugs simulated circuit board from unibus
-    public static class DevCkBox extends JCheckBox implements ChangeListener {
+    public static class DevCkBox extends JCheckBox implements ItemListener {
         public boolean isenab;
         public int enabpinindex;
 
@@ -1528,7 +1533,7 @@ public class Z11GUI extends JPanel {
         {
             super (label);
             enabpinindex = findpin (enabpin);
-            addChangeListener (this);
+            addItemListener (this);
         }
 
         public void update ()
@@ -1540,8 +1545,8 @@ public class Z11GUI extends JPanel {
             }
         }
 
-        @Override
-        public void stateChanged (ChangeEvent e)
+        @Override   // ItemListener
+        public void itemStateChanged (ItemEvent e)
         {
             boolean en = isSelected ();
             if (isenab != en) {
@@ -1583,6 +1588,7 @@ public class Z11GUI extends JPanel {
 
     public static class RLDrive extends JPanel {
         public int drive;
+        public int isvisible;
         public int lastcylno;
         public int lastfnseq;
         public JLabel cylnolbl;
@@ -1599,6 +1605,7 @@ public class Z11GUI extends JPanel {
         public RLDrive (int d)
         {
             drive = d;
+            isvisible = -1;
             lastcylno = -1;
             lastfnseq = -1;
 
@@ -1615,7 +1622,7 @@ public class Z11GUI extends JPanel {
             add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
             add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
             add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
-            add (rl02lbl    = new JLabel (" RL02 "));
+            add (rl02lbl    = new JLabel (" RLO2 "));   // yes 'O' looks more like real drive logo
             add (rlmessage  = new JLabel (""));
 
             Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
