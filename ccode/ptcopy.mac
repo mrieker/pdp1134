@@ -1,0 +1,132 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; Copy from papertape reader to punch
+
+;  $ ../MACRO11/src/macro11 -o ptcopy.obj -l ptcopy.lst ptcopy.mac
+;  $ ./z11ctrl
+;  > hardreset
+;  > loadlst ptcopy.lst
+;  > flickstart 0
+;  > exit
+;  $ ./z11pc reader inputfile &
+;  $ ./z11pc punch x1
+;      control-C before done punching
+;  $ ./z11pc punch x2
+;      control-C when done punching
+;  $ cat x1 x2 > x
+;  $ diff x inputfile
+
+    PRCS = 177550
+    PRDB = 177552
+    PPCS = 177554
+    PPDB = 177556
+
+    BUFSIZ = 0400           ; must be power of 2
+
+    ZZ = .
+    jmp @#start
+
+    . = ZZ + 4
+    .word   trap04
+    .word   0340
+    .word   trap10
+    .word   0340
+
+    . = ZZ + 0070
+
+    .word   rdrint
+    .word   0200
+    .word   punint
+    .word   0200
+
+    . = ZZ + 0400
+
+    .blkw   1000
+stktop:
+
+start:
+    mov #stktop,sp
+    clr r0          ; number of chars in buffer
+    clr r4          ; insertion index
+    clr r5          ; removal index
+    clr @#177776        ; enable interrupts
+    mov #0101,@#PRCS        ; start reading a char
+    mov #0100,@#PPCS        ; enable punch interrupts
+100$:
+    wait                ; interrupts do all the work
+    br  100$
+
+trap04:
+    halt
+    br  trap04
+trap10:
+    halt
+    br  trap10
+
+rdrint:
+    jsr pc,rdrchk
+    rti
+
+punint:
+    jsr pc,punchk
+    rti
+
+; check reader to see if char has been read
+; if so, queue it for punching and start punching if punch not already busy
+; then start reading another char if there is room for more
+rdrchk:
+    tstb    @#PRCS          ; see if char ready to read
+    bpl 100$
+    movb    @#PRDB,buffer(r4)   ; put char in buffer
+    inc r4          ; increment index with wrap
+    bic #-BUFSIZ,r4
+    inc r0          ; one more character in buffer
+    jsr pc,punchk       ; make sure the punch is going
+100$:
+    cmp r0,#BUFSIZ      ; see if buffer now full
+    beq 200$
+    mov #0101,@#PRCS        ; if not, start reading more
+200$:
+    rts pc
+
+; check punch to see if it is able to punch anything and see if anything queued to punch
+; if so,
+;   dequeue char from buffer and start punching it
+;   then make sure reader is running if the buffer is nearly empty
+punchk:
+    tst r0          ; see if anything queued to punch
+    beq 100$
+    tstb    @#PPCS          ; see if punch able to punch
+    bpl 100$
+    movb    buffer(r5),@#PPDB   ; start punching
+    inc r5          ; remove char from buffer
+    bic #-BUFSIZ,r5
+    dec r0          ; one fewer char in buffer
+    cmp r0,#BUFSIZ/4        ; see if buffer emptying
+    bhis    100$
+    mov #0101,@#PRCS        ; nearly empty, make sure reader going
+100$:
+    rts pc
+
+
+buffer: .blkb   BUFSIZ
+
+    .end

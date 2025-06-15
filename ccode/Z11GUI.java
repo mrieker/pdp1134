@@ -152,6 +152,7 @@ public class Z11GUI extends JPanel {
     public static DevCkBox   dlckbox;
     public static KWCkBox    kwckbox;
     public static DevCkBox   kyckbox;
+    public static DevCkBox   pcckbox;
     public static DevCkBox   rlckbox;
 
     public static RLDrive[] rldrives = new RLDrive[4];
@@ -198,8 +199,8 @@ public class Z11GUI extends JPanel {
 
                 // the cont & step buttons require process be halted and resumable
                 // they do not seem to work with real KY-11 probably cuz of halt line
-                // similar with start button except it does its own reset
-                boolean ctlenabs = (sample_running <= 0) && lastky11enab;
+                // start button does its own reset so halt does not need to be resumable
+                boolean ctlenabs = (sample_running == 0) && lastky11enab;
                 stepbutton.setEnabled  (ctlenabs);
                 contbutton.setEnabled  (ctlenabs);
                 startbutton.setEnabled (memenabs);
@@ -265,6 +266,7 @@ public class Z11GUI extends JPanel {
                 dlckbox.update ();
                 kwckbox.update ();
                 kyckbox.update ();
+                pcckbox.update ();
                 rlckbox.update ();
 
                 // remove lights & switches if KY-11 is disabled
@@ -627,11 +629,12 @@ public class Z11GUI extends JPanel {
             JPanel ckboxrow = new JPanel ();
             ckboxrow.setLayout (new BoxLayout (ckboxrow, BoxLayout.X_AXIS));
             add (ckboxrow);
-            ckboxrow.add (fmckbox = new FModeCkBox ("OFF    "));
-            ckboxrow.add (bmckbox = new MemCkBox   ("Mem    "));
-            ckboxrow.add (dlckbox = new DevCkBox   ("DL-11    ", "dl_enable"));
-            ckboxrow.add (kwckbox = new KWCkBox    ("KW-11    "));
-            ckboxrow.add (kyckbox = new DevCkBox   ("KY-11    ", "ky_enable"));
+            ckboxrow.add (fmckbox = new FModeCkBox ("OFF   "));
+            ckboxrow.add (bmckbox = new MemCkBox   ("Mem   "));
+            ckboxrow.add (dlckbox = new DevCkBox   ("DL-11   ", "dl_enable"));
+            ckboxrow.add (kwckbox = new KWCkBox    ("KW-11   "));
+            ckboxrow.add (kyckbox = new DevCkBox   ("KY-11   ", "ky_enable"));
+            ckboxrow.add (pcckbox = new DevCkBox   ("PC-11   ", "pc_enable"));
             ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11"));
         }
 

@@ -76,7 +76,8 @@ int main (int argc, char **argv)
         ZWR(pdpat[ILACTL], ILACTL_ARMED | AFTER * ILACTL_AFTER0);
         printf ("armed\n");
 
-        if (signal (SIGINT, siginthand) != SIG_DFL) ABORT ();
+        if (signal (SIGINT,  siginthand) == SIG_ERR) ABORT ();
+        if (signal (SIGTERM, siginthand) == SIG_ERR) ABORT ();
 
         // wait for sampling to stop
         while (true) {
@@ -104,8 +105,10 @@ int main (int argc, char **argv)
         ZWR(pdpat[ILACTL], index * ILACTL_INDEX0);
         uint64_t thisentry = ((uint64_t) ZRD(pdpat[ILADAT+1]) << 32) | ZRD(pdpat[ILADAT+0]);
 
-        printf ("[%5u]  %06o %02o %02o %o %06o  %o %o %o %o\n",
+        printf ("[%5u]  %02u  %06o %02o %02o %o %06o  %o %o %o %o\n",
             i,                                      // 10nS per tick
+
+            (unsigned) (thisentry >> 48) & 077,     // sim state
 
             (unsigned) (thisentry >> 30) & 0777777, // dev_a_h
             (unsigned) (thisentry >> 26) & 15,      // dev_bg_l

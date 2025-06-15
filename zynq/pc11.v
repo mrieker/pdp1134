@@ -47,7 +47,7 @@ module pc11
     reg enable;
     reg[15:00] rcsr, rbuf, xcsr, xbuf;
 
-    assign armrdata = (armraddr == 0) ? 32'h50431001 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h50431002 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rbuf, rcsr } :
                       (armraddr == 2) ? { xbuf, xcsr } :
                       { enable, 5'b0, INTVEC, ADDR };
@@ -105,12 +105,10 @@ module pc11
                     // pdp writing reader status
                     0: begin
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                            rcsr[06] <= d_in_h[06];
-                            rcsr[00] <= d_in_h[00];
+                            rcsr[06] <= d_in_h[06]; // interrupt enable
+                            rcsr[00] <= d_in_h[00]; // reader start
                             if (d_in_h[00]) begin   // reader start
-                                rcsr[07] <= 0;      // clear done
                                 rcsr[11] <= 1;      // set busy
-                                rbuf <= 0;          // clear buffer
                             end
                         end
                     end
@@ -118,7 +116,7 @@ module pc11
                     // pdp writing punch status
                     2: begin
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                            xcsr[06] <= d_in_h[06];
+                            xcsr[06] <= d_in_h[06]; // interrupt enable
                         end
                     end
 
@@ -127,7 +125,7 @@ module pc11
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
                             xbuf[07:00] <= d_in_h[07:00];
                         end
-                        xcsr[07] <= 0;
+                        xcsr[07] <= 0;              // punch busy
                     end
                 endcase
             end else begin

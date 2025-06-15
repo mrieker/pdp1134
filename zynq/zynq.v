@@ -1158,7 +1158,8 @@ module Zynq (
 
     always @(*) begin
         ilacurwd = {
-            16'b0,              //48
+            10'b0,              //54
+            regctlk_0500,       //48 sim state
             dev_a_h,            //30
             dev_bg_l,           //26
             dev_br_h,           //22
