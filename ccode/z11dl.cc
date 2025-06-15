@@ -60,6 +60,7 @@ static void sigrunhand (int signum);
 int main (int argc, char **argv)
 {
     bool killit = false;
+    char const *logname = NULL;
     int port = 0777560;
     char *p;
     for (int i = 0; ++ i < argc;) {
@@ -67,9 +68,10 @@ int main (int argc, char **argv)
             puts ("");
             puts ("     Access DL-11 TTY controller");
             puts ("");
-            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-nokb] [-upcase]");
+            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-upcase]");
             puts ("     -cps    : set chars per second, default 10");
             puts ("     -killit : kill other process that is processing this port");
+            puts ("     -log    : log output to given file");
             puts ("     -nokb   : do not pass stdin keyboard to pdp");
             puts ("     -upcase : convert all keyboard to upper case");
             puts ("");
@@ -91,6 +93,14 @@ int main (int argc, char **argv)
             killit = true;
             continue;
         }
+        if (strcasecmp (argv[i], "-log") == 0) {
+            if ((++ i >= argc) || (argv[i][0] == '-')) {
+                fprintf (stderr, "-log missing filename\n");
+                return 1;
+            }
+            logname = argv[i];
+            continue;
+        }
         if (strcasecmp (argv[i], "-nokb") == 0) {
             nokb = true;
             continue;
@@ -108,6 +118,16 @@ int main (int argc, char **argv)
             fprintf (stderr, "port number %s must be octal integer\n", argv[i]);
             return 1;
         }
+    }
+
+    FILE *logfile = NULL;
+    if (logname != NULL) {
+        logfile = fopen (logname, "w");
+        if (logfile == NULL) {
+            fprintf (stderr, "error creating %s: %m\n", logname);
+            return 1;
+        }
+        setlinebuf (logfile);
     }
 
     Z11Page z11p;
@@ -171,6 +191,7 @@ int main (int argc, char **argv)
                     int rc = write (STDOUT_FILENO, &prchar, 1);
                     if (rc <= 0) ABORT ();
                 }
+                if (logfile != NULL) fputc (prchar, logfile);
 
                 // check for another char to print after 1000000/cps usec
                 readnextprat = nowus + 1000000 / cps;
@@ -202,6 +223,8 @@ int main (int argc, char **argv)
         tcsetattr (STDIN_FILENO, TCSADRAIN, &term_original);
     }
     fprintf (stderr, "\n");
+
+    if (logfile != NULL) fclose (logfile);
 
     return 0;
 }

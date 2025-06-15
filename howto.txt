@@ -1,0 +1,317 @@
+
+Basic configurations:
+
+    1) real without console -
+        KY-11 console M7859 removed (leds dark but power switch works)
+        ZTurn plugged into primary backplane (so it has access to halt lines)
+        All console functions handled via GUI or TCL commands
+
+    2) real with console -
+        KY-11 console M7859 installed
+        ZTurn connected to Unibus theoretically anywhere
+        Only RESET and BOOT functions available via GUI and TCL
+        All other console functions handled via KY-11 keypad
+
+    Simulator will work with either of the above configurations.  It
+    will ignore anything coming in from the Unibus and not output
+    anything to the Unibus.  It will run with the processor power on
+    or off, and will run on a ZTurn board not plugged into anything.
+
+--------
+
+Quickstart guide:
+
+    To boot via GUI:
+
+        $ ./z11gui &
+            select REAL or SIM mode by clicking the OFF checkbox
+
+            if you do not have a real RL-11 controller or are using SIM mode,
+                click the RL-11 checkbox to turn it on
+                click the LOAD buttons to load RL02 image files
+
+            you do not need to check any of the other checkboxes,
+            the boot button script will figure out what it needs
+
+            click the BOOT button
+                (runs script guiboot.sh)
+
+        $ ./z11dl -cps 960      to access Zynq tty port
+            only if you do not have real DL-11 or are using SIM mode
+
+    To boot via command line:
+
+        $ ./z11ctrl
+        z11ctrl> pin set fpgamode 1         ;# select SIM mode
+            or
+        z11ctrl> pin set fpgamode 2         ;# select REAL mode
+
+        z11ctrl> source $Z11HOME/boots.tcl  ;# get some boot scripts
+        z11ctrl> probedevsandmem            ;# fill in any missing devices and memory
+
+        if you do not have a real RL-11 controller or are using SIM mode,
+            rlload 0 [-readonly] somefile.rl02      ;# bootable disk image
+            rlload 1 [-readonly] otherfile.rl02     ;# as needed, also can load drives 2 and 3
+
+        z11ctrl> rlboot                     ;# boot rl drive 0
+        z11ctrl> exit
+
+        $ ./z11dl -cps 960      to access Zynq tty port
+            only if you do not have real DL-11 or are using SIM mode
+
+        Note:
+
+            You can put the z11ctrl commands in a file, eg myboot.tcl,
+            with your customized rlload commands.  Do not include the
+            'exit' command.
+
+            The z11dl program (if needed) can be run from TCL with:
+
+                exec -ignorestderr ./z11dl < /dev/tty > /dev/tty
+
+            ...so it can be at the end of myboot.tcl.
+
+            Then run the script with './z11ctrl myboot.tcl'.  
+
+    Note:
+        You can run the GUI (z11gui) and TCL (z11ctrl) programs
+        at the same time.  The GUI will pick up any state changes
+        made by a TCL script and the TCL script can sense any changes
+        made by the GUI.
+
+        This is possible because all state is kept in shared memory.
+
+--------
+
+The FPGA contains circuits for:
+
+    RL-11 disk controller
+    KY-11 11/34 console
+    DL-11 Console TTY
+    KW-11 Line clock
+    Main memory with parity controller (124KW selectable in 4KB chunks)
+    Boot memory (address range 760000..7777777 selectable in 512B chunks)
+
+    The FPGA also has a PDP-11/34 simulator so software can be developed
+    without requiring the real 11/34.
+
+The Zynq chip used contains two major parts:  an FPGA and an ARM processor.
+The FPGA code interfaces with the ARM processor via a 4KB page consisting of
+1024 32-bit registers.  Those registers are divided into sections.  The first
+register of each section is a 32-bit read-only descriptor telling what the
+section is for.  The descriptors all have this format:
+
+    <31:16> = two ascii characters naming the section
+                "11" - main registers for controlling the FPGA and simulator
+                "BM" - block memory, up to 124KW main memory, plus boot memory
+                "DL" - DL-11 serial line registers
+                "KW" - KW-11 line clock registers
+                "KY" - KY-11 console registers
+                "RL" - RL-11 controller registers
+
+    <15:12> = log2 of number of 32-bit registers in the section
+                (including descriptor register):
+                    0 =  2 registers
+                    1 =  4 registers
+                    2 =  8 registers
+                    3 = 16 registers
+                    4 = 32 registers
+                        etc
+
+    <11:00> = version information
+
+Any unused registers read as DEADBEEF.
+
+The format of the remaining registers of a section are dependent on what the
+section is for.  It can be a bit messy, but in general for the I/O devices,
+the PDP visible registers will be in there along with any other needed control
+bits (such as an 'enable' bit which connects the board to the Unibus).
+The BM section has an enable bit for each 4KB block of memory so they can be
+individually enabled, and there are registers for giving the ARM direct access
+to the memory.  Details of the sections can be found in the corresponding .v
+source file, like pick dl11.v for a simple one.
+
+You can see what sections are present with:
+
+    ./z11dump -once
+
+The ARM part of the Zynq chip runs Raspberry PI OS (or probably any Linux you
+could get to run on it).  It has a kernel specific to the Zynq chip but the
+filesystem is from a RasPI.
+
+There are a few programs that run on the ARM (under Linux) that control the
+FPGA via that 4KB register page:
+
+    z11ctrl     - main control program
+                  provides TCL scripting of all functions
+
+    z11rl       - processes RL-11 disk I/O instructions,
+                  accessing the simulated RL02 disk files
+                  it runs as a daemon automatically started when the GUI
+                  or a TCL script accesses the RL-11 controller
+
+    z11dl       - processes DL-11 tty I/O instructions,
+                  passing input/output to the tty it is being run from
+                  must be manually started to access the DL-11 port
+
+    z11dump     - dumps out the FPGA/ARM interface registers
+                  can be left to run contonuously to keep a screen updated
+
+    z11gui      - a blinking-lights panel with various usual PDP-11 type
+                  lights, switches and buttons
+
+There are 4 modes the FPGA can be in:
+
+    0 = OFF     - The FPGA hi-Zs all its outputs to the Unibus and ignores any
+                  input from the Unibus.  Also, none of its I/O devices will do
+                  anything.
+
+    1 = SIM     - The FPGA again hi-Zs all its outputs to the Unibus and
+                  ignores any input from the Unibus.  However, the internal
+                  PDP-11/34 simulator circuit is turned on and the FPGAs I/O
+                  devices can be turned on.  It will act just like a real PDP
+                  (no FPU though), with the I/O devices internal to the FPGA.
+
+    2 = REAL    - The FPGA will output to the Unibus and process inputs from
+                  the Unibus.  It is assumed there is a PDP on the Unibus, but
+                  there does not have to be anything else (except for
+                  terminators).
+
+    3 = MAN     - The FPGA will process manual control of the Unibus pins and
+                  its internal devices will be disabled.  This mode is only used
+                  for testing the circuit board pins one at a time.  There is a
+                  test script edgepintest.tcl that uses this mode.
+
+On power up, the FPGA is in OFF mode.
+
+To control the mode, use either z11ctrl or z11gui.  z11ctrl uses a TCL interpreter
+to process commands, and you can simply type in commands as well as script them.
+There are several scripting examples in the ccode directory.  To select real mode,
+use 'pin set fpgamode 2', to select sim mode, use 'pin set fpgamode 1'.  'pin get
+fpgamode' will return what mode it is in.  For the GUI, click the OFF checkbox then
+select REAL or SIM.
+
+There are a few commands that z11ctrl has added to the standard TCL commands that
+provide access to the FPGA.  To list out all the z11ctrl-specific commands, type help:
+
+    $ ./z11ctrl
+    z11ctrl> help
+
+One example is the 'pin' command.  It can get and set various bits in the FPGA
+register page.  To get a list of all pins available to the pin command:
+
+    z11ctrl> pin list
+
+To set the mode:
+
+    z11ctrl> pin set fpgamode 1         ;# use simulator, no real Unibus access
+    z11ctrl> pin set fpgamode 2         ;# connect FPGA to real Unibus and PDP
+
+To query the current mode:
+
+    z11ctrl> pin get fpgamode           ;# the 'get' keyword is optional
+    2
+
+To toggle in a simple program:
+    Note:  Won't work on real PDP with KY-11 M7859 board installed
+        as the M7859 hogs the Unibus when the processor is halted.
+
+    z11ctrl> pin set fpgamode 1 or 2    ;# 1 for simulator; 2 for real pdp
+    z11ctrl> hardreset                  ;# make sure sim or pdp is reset and halted
+                                        ;#   (hardreset is a bunch of pin commands)
+                                        ;#   (see z11ctrlini.tcl - proc hardreset)
+    z11ctrl> enabmem                    ;# make sure we have some memory
+                                        ;# - if sim, turns on all FGPA memory (124KW)
+                                        ;# - if real, pads real mem to 124KW
+                                        ;# wrword,rdword use dma cycles to access memory when processor is running
+                                        ;# - if processor is halted, they revert to using examine/deposit cycles
+    z11ctrl> wrword 0100 05200          ;# INC R0
+    z11ctrl> wrword 0102 00776          ;# BR 0100
+    z11ctrl> flickstart 0100            ;# start it running
+    z11ctrl> flickstep                  ;# step it (causes it to halt)
+    66                                  ;# prints PC in decimal
+    z11ctrl> octal [flickstep]          ;# step it again, print PC in octal
+    000100
+    z11ctrl> octal [rdword 0777700]     ;# read R0 then display in octal
+    065321
+    z11ctrl> flickcont                  ;# continue it
+    z11ctrl> flickstep                  ;# halt it
+    66
+    z11ctrl> octal [rdword 0777700]     ;# read R0 then display in octal
+    142356
+    z11ctrl> octal [rdword 0777707]     ;# read PC then display in octal
+    000102                              ;# - should numerically match what flickstep returned
+
+Other pins of interest:
+
+    Set these pins to 1 to enable FPGA device, 0 to disable
+    (equivalent of plugging/unplugging board from Unibus):
+
+        dl_enable - DL-11 console tty controller
+        kw_enable - KW-11 line clock
+        ky_enable - 777570 light & switch registers
+        rl_enable - RL-11 disk controller
+
+Do not enable an FPGA device if in REAL mode and there is that same device on the Unibus.
+It won't damage anything (the Unibus is open-collector), but they will stomp on each other.
+They won't stomp on each other in SIM mode because the FPGA is disconnected from the Unibus.
+
+So this sequence works in REAL mode only if the real KY-11 M7859 board is removed from the Unibus.
+It also works in SIM mode.
+
+    z11ctrl> pin set ky_enable 1        ;# enable FPGA 777570 lights and switches registers
+    z11ctrl> pin set kw_switches 012345 ;# set switch register
+    z11ctrl> octal [rdword 0777570]     ;# do a dma/examine cycle to read the switch register
+    012345
+    z11ctrl> wrword 0777570 054321      ;# do a dma/deposit cycle to write the light register
+    z11ctrl> octal [pin get ky_lights]  ;# get light register
+    054321
+    z11ctrl>
+
+Enabling memory is a bit more involved.  It is 124KW with individual bits for each 4KB.
+If in REAL mode with no memory or in SIM mode, this will turn on all 124KW:
+
+    z11ctrl> pin set bm_enablo 0xFFFFFFFF   ;# turns on addresses 000000..377777
+    z11ctrl> pin set bm_enabhi 0x3FFFFFFF   ;# turns on addresses 400000..757777
+
+If in REAL mode and the PDP has 32KW memory, this will fill it to 124KW:
+
+    z11ctrl> pin set bm_enablo 0xFFFF0000   ;# turns on addresses 200000..377777 (turns off 000000..177777)
+    z11ctrl> pin set bm_enabhi 0x3FFFFFFF   ;# turns on addresses 400000..757777
+
+If in REAL mode and the PDP has 80KW memory, this will fill it to 124KW:
+
+    z11ctrl> pin set bm_enablo 0            ;# turns off addresses 000000..377777
+    z11ctrl> pin set bm_enabhi 0x3FFFFF00   ;# turns on addresses 500000..757777 (turns off 400000..477777)
+
+If in REAL mode and you only want to use the real memory (turns off all FPGA memory):
+
+    z11ctrl> pin set bm_enablo 0 bm_enabhi 0
+
+--------
+
+The rdword and wrword commands read and write Unibus locations using DMA cycles.
+If the processor is halted, they use examine/deposit cycles instead (basically
+same as regular DMA cycles but without the NPR/NPG sequence), just like the real
+KY-11 console board.
+
+If the Zynq is in REAL mode and the KY-11 is installed and the processor is
+halted, the KY-11 will hog the bus by holding BBSY asserted.  So this blocks
+the Zynq from accessing the Unibus, and rdword, wrword will fail.
+
+--------
+
+FYI, there is a stand-alone memory test program that will pound the daylights out of
+whatever memory is accessible, real or FPGA:
+
+    ./memtest.armv7l <lowaddress> <highaddress>
+
+  eg, to test the first 16KW:
+
+    ./memtest.armv7l 0 077777
+
+It writes random numbers then reads them back using DMA cycles, writing random
+numbers from time to time.  Since it uses DMA cycles with the processor halted,
+it won't work if the real KY-11 console board is plugged in the Unibus.
+
+--------

@@ -1,0 +1,239 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; Print out all I/O registers that the running CPU can see
+
+;  $ ../MACRO11/src/macro11 -o ioregs.obj -l ioregs.lst ioregs.mac
+;  $ ./z11ctrl
+;  > hardreset
+;  > loadlst ioregs.lst
+;  > flickstart 0400
+;  > exit
+;  $ ./z11dl -cps 960 -log ioregs.log
+
+	ZZ = .
+
+	.word	0,0
+	.word	trap04,0340	; bus error
+	.word	trap10,0340	; ill instr
+	.word	trap14,0340	; bpt/trace
+	.word	trap20,0340	; iot (prchar)
+
+	. = ZZ + 400
+
+start:
+	mtps	#340
+	mov	#stktop,sp
+
+	jsr	r5,prascz
+		.asciz	"starting..."<15><12>
+
+	mov	#160000,r5
+loop:
+	clc
+	mov	@r5,r4	; trap 4 sets carry
+error:			; ...when return pc = #error
+	bcs	next
+	mov	r5,r1	; something is there, print its address
+	jsr	pc,proct6
+	mov	#40,r0
+	iot
+	mov	r4,r1	; print what was read from the address
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+next:
+	add	#2,r5
+	bne	loop
+	halt
+
+trap04:
+	cmp	@sp,#error
+	bne	100$
+	bis	#1,2(sp)
+	rti
+100$:
+	mov	#4,-(sp)
+	br	trapxx
+trap10:
+	mov	#10,-(sp)
+trapxx:
+	jsr	r5,prascz
+		.asciz	<15><12>"trap"
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PS="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt
+	br	.-2
+
+trap14:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz " PC="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz " PS="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	rtt
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	14(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+; print asciz string following the jsr r5 call
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	iot
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	iot
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	iot
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print decimal number
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prdcml:
+	clr	-(sp)
+100$:
+	clr	r0
+	div	#12,r0
+	add	#60,r1
+	mov	r1,-(sp)
+	mov	r0,r1
+	bne	100$
+	mov	(sp)+,r0
+200$:
+	iot
+	mov	(sp)+,r0
+	bne	200$
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	iot
+	mov	#12,r0
+	iot
+	rts	pc
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+trap20:
+	tstb	@#177564
+	bpl	trap20
+	movb	r0,@#177566
+	rti
+
+	.blkw	1000
+stktop:
+
+	.end
