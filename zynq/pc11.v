@@ -44,10 +44,11 @@ module pc11
     output reg[15:00] d_out_h,
     output reg ssyn_out_h);
 
-    reg enable;
+    reg enable, lastrenab;
     reg[15:00] rcsr, rbuf, xcsr, xbuf;
+    wire pulseirq;
 
-    assign armrdata = (armraddr == 0) ? 32'h50431002 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h50431003 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rbuf, rcsr } :
                       (armraddr == 2) ? { xbuf, xcsr } :
                       { enable, 5'b0, INTVEC, ADDR };
@@ -56,7 +57,7 @@ module pc11
         .CLOCK    (CLOCK),
         .RESET    (init_in_h),
         .INTVEC   (INTVEC),
-        .rirqlevl ((rcsr[15] | rcsr[07]) & rcsr[06]),
+        .rirqlevl ((rcsr[15] | rcsr[07]) & rcsr[06] & ~ pulseirq),
         .xirqlevl ((xcsr[15] | xcsr[07]) & xcsr[06]),
         .intreq   (intreq),
         .irvec    (irvec),
@@ -64,15 +65,21 @@ module pc11
         .igvec    (igvec)
     );
 
+    // pulse reader interrupt request when trying to set GO when ERROR is currently set
+    assign pulserirq = msyn_in_h & enable & (a_in_h[17:01] == ADDR[17:01]) & c_in_h[1] &
+                (~ c_in_h[0] | ~ a_in_h[00]) & d_in_h[00] & rcsr[15];
+
     always @(posedge CLOCK) begin
         if (init_in_h) begin
             if (RESET) begin
-                enable <= 0;
+                enable   <= 0;
+                rcsr[15] <= 1;
+                xcsr[15] <= 1;
             end
-            rcsr       <= 0;
-            xcsr       <= 16'o200;
-            d_out_h    <= 0;
-            ssyn_out_h <= 0;
+            rcsr[14:00] <= 15'o00000;
+            xcsr[14:00] <= (RESET | xcsr[15]) ? 15'o0000 : 15'o00200;
+            d_out_h     <= 0;
+            ssyn_out_h  <= 0;
         end
 
         // arm processor is writing one of the registers
@@ -105,10 +112,14 @@ module pc11
                     // pdp writing reader status
                     0: begin
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                            rcsr[06] <= d_in_h[06]; // interrupt enable
-                            rcsr[00] <= d_in_h[00]; // reader start
-                            if (d_in_h[00]) begin   // reader start
-                                rcsr[11] <= 1;      // set busy
+                            rcsr[06] <= d_in_h[06];         // interrupt enable
+                            if (~ rcsr[15]) begin
+                                rcsr[00] <= d_in_h[00];     // reader start
+                                if (d_in_h[00]) begin       // reader start
+                                    rcsr[07] <= 0;          // clear done
+                                    rcsr[11] <= 1;          // set busy
+                                    rbuf     <= 0;          // clear data buffer
+                                end
                             end
                         end
                     end
@@ -139,5 +150,7 @@ module pc11
                 endcase
             end
         end
+
+        lastrenab <= rcsr[00];
     end
 endmodule

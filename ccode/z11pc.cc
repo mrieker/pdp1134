@@ -35,9 +35,11 @@
 
 #define PC1_STEP  0x00000001U
 #define PC1_RRDY  0x00000080U
+#define PC1_RERR  0x00008000U
 #define PC1_RBUF0 0x00010000U
 
 #define PC2_EMPTY 0x00000080U
+#define PC2_ERROR 0x00008000U
 #define PC2_BUFFR 0x00FF0000U
 
 #define PC3_ENAB  0x80000000U
@@ -146,6 +148,11 @@ int main (int argc, char **argv)
         if (signal (SIGINT,  sighand) == SIG_ERR) ABORT ();
         if (signal (SIGTERM, sighand) == SIG_ERR) ABORT ();
 
+        if (pcat[2] & PC2_ERROR) {  // see if previously reporting 'out of tape'
+            pcat[2] = 0;            // two separate steps to trigger interrupt
+            pcat[2] = PC2_EMPTY;    // ok, now we are ready to accept bytes
+        }
+
         bool lastcr = false;
         int32_t  idlect = 0;
         uint32_t fbytes = 0;
@@ -166,6 +173,7 @@ int main (int argc, char **argv)
 
                     // write buffer to file
                     if ((fbytes < nbytes) && (fflush (file) < 0)) {
+                        pcat[2] = PC2_ERROR;
                         fprintf (stderr, "error writing %s: %m\n", filename);
                         return 1;
                     }
@@ -173,6 +181,7 @@ int main (int argc, char **argv)
 
                     // if terminated, close and exit
                     if (ctrlcflag) {
+                        pcat[2] = PC2_ERROR;
                         if (! quiet) fputc ('\n', stderr);
                         if ((file != stdout) && (fclose (file) < 0)) {
                             fprintf (stderr, "error closing %s: %m\n", filename);
@@ -198,6 +207,7 @@ int main (int argc, char **argv)
             // if we skipped a CR last time and this is not an LF, punch the CR
             if (lastcr && ((wrbyte & 0177) != '\n')) {
                 if (fputc ('\r', file) < 0) {
+                    pcat[2] = PC2_ERROR;
                     fprintf (stderr, "error writing %s: %m\n", filename);
                     return 1;
                 }
@@ -208,6 +218,7 @@ int main (int argc, char **argv)
             lastcr = (remcr && ((wrbyte & 0177) == '\r'));
             if (! lastcr) {
                 if (fputc (wrbyte, file) < 0) {
+                    pcat[2] = PC2_ERROR;
                     fprintf (stderr, "error writing %s: %m\n", filename);
                     return 1;
                 }
@@ -233,6 +244,10 @@ int main (int argc, char **argv)
         z11p.locksubdev (&pcat[1], 1, killit);
         pcat[3] = PC3_ENAB;
 
+        if (pcat[1] & PC1_RERR) {   // see if was reporting no tape in reader
+            pcat[1] = 0;            // ok say we have a tape now
+        }
+
         bool lastcr = false;
         uint32_t nbytes = 0;
         if (cps == 0) cps = 300;
@@ -248,6 +263,7 @@ int main (int argc, char **argv)
 
             int rc = fgetc (file);
             if (rc < 0) {
+                pcat[1] = PC1_RERR;
                 if (ferror (file)) {
                     fprintf (stderr, "error reading %s: %m\n", filename);
                     return 1;
