@@ -39,12 +39,13 @@ public class GUIZynqPage {
     public native static int pinget (int index);
     public native static boolean pinset (int index, int value);
 
-    public final static int RLSTAT_LOAD  = 00000001;
-    public final static int RLSTAT_WRPRT = 00000002;
-    public final static int RLSTAT_READY = 00000004;
-    public final static int RLSTAT_FAULT = 00000010;
-    public final static int RLSTAT_FNSEQ = 00007760;
-    public final static int RLSTAT_CYLNO = 07770000;
+    public final static int RLSTAT_LOAD  = 000000001;
+    public final static int RLSTAT_WRPRT = 000000002;
+    public final static int RLSTAT_READY = 000000004;
+    public final static int RLSTAT_FAULT = 000000010;
+    public final static int RLSTAT_FNSEQ = 000007760;
+    public final static int RLSTAT_CYLNO = 007770000;
+    public final static int RLSTAT_RL01  = 010000000;
 
     public native static String rlload (int drive, boolean readonly, String filename);
     public native static int    rlstat (int drive);

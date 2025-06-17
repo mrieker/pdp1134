@@ -46,7 +46,9 @@
 #include "z11util.h"
 
                         // (p25/v1-13)
-#define NCYLS 512       // RL02  (256 for RL01)
+#define NCYLS_RL01 256
+#define NCYLS_RL02 512
+#define NCYLS (dr->rl01?NCYLS_RL01:NCYLS_RL02)
 #define SECPERTRK 40
 #define TRKPERCYL 2
 #define NSECS (NCYLS*TRKPERCYL*SECPERTRK)
@@ -115,8 +117,8 @@ static void mutexunlk ()
 }
 
 static void rlthread ();
-static int loadfile (bool readwrite, int diskno, char const *filenm);
-static void unloadfile (int diskno);
+static int loadfile (uint16_t drivesel);
+static void unloadfile (uint16_t drivesel);
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func);
 
 int main (int argc, char **argv)
@@ -190,7 +192,7 @@ int main (int argc, char **argv)
 // do the disk file I/O
 static void rlthread ()
 {
-    if (debug > 1) fprintf (stderr, "z11rl: thread started\r\n");
+    if (debug > 1) fprintf (stderr, "z11rl: thread started\n");
 
     while (true) {
         usleep (1000);
@@ -205,14 +207,13 @@ static void rlthread ()
                 ShmRLDrive *dr = &shmrl->drives[driveno];
                 UNLKIT;
                 unloadfile (driveno);
-                int rc = loadfile (! dr->readonly, driveno, dr->filename);
+                int rc = loadfile (driveno);
                 LOCKIT;
                 if (rc >= 0) {
-                    shmrl->lderrno = 0;
+                    shmrl->negerr = 0;
                 } else {
                     dr->filename[0] = 0;
-                    shmrl->lderrno = - rc;
-                    if (shmrl->lderrno == 0) shmrl->lderrno = -1;
+                    shmrl->negerr = rc;
                 }
                 shmrl->command = SHMRLCMD_DONE;
                 break;
@@ -254,8 +255,8 @@ static void rlthread ()
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];
             ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
-            ShmRLDrive *shmdr = &shmrl->drives[drivesel];
-            shmdr->ready = false;
+            ShmRLDrive *dr = &shmrl->drives[drivesel];
+            dr->ready = false;
 
             uint32_t seekdelay = (seekdoneats[drivesel] > nowus) ? seekdoneats[drivesel] - nowus : 0;
             uint32_t rotndelay = ((rlda & 63) + SECPERTRK - SECUNDERHEAD) % SECPERTRK;
@@ -277,10 +278,10 @@ static void rlthread ()
                 case 1: {
                     usleep (totldelay);
 
-                    if (debug > 0) fprintf (stderr, "z11rl:   writecheck wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   writecheck wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
 
-                    if (shmdr->lastposn != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", shmdr->lastposn, rlda);
+                    if (dr->lastposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->lastposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -289,7 +290,7 @@ static void rlthread ()
                     do {
                         uint16_t sec = rlda & 63;
                         if (sec >= SECPERTRK) {
-                            if (debug > 0) fprintf (stderr, "z11rl:       sec=%02o\n", sec);
+                            if (debug > 0) fprintf (stderr, "z11rl: [%u]       sec=%02o\n", drivesel, sec);
                             goto hnferr;
                         }
 
@@ -297,11 +298,11 @@ static void rlthread ()
                         uint32_t off = (((uint32_t) cyl * TRKPERCYL + trk) * SECPERTRK + sec) * sizeof buf;
                         int rc = pread (fd, buf, sizeof buf, off);
                         if (rc < 0) {
-                            fprintf (stderr, "z11rl: error reading at %u: %m\n", off);
+                            fprintf (stderr, "z11rl: [%u] error reading at %u: %m\n", drivesel, off);
                             goto opierr;
                         }
                         if (rc < (int) sizeof buf) {
-                            fprintf (stderr, "z11rl: only read %d of %d bytes at %u\n", rc, (int) sizeof buf, off);
+                            fprintf (stderr, "z11rl: [%u] only read %d of %d bytes at %u\n", drivesel, rc, (int) sizeof buf, off);
                             goto opierr;
                         }
                         rlda ++;
@@ -328,14 +329,15 @@ static void rlthread ()
 
                 // GET STATUS
                 case 2: {
-                    if (debug > 0) fprintf (stderr, "z11rl:   getstatus\n");
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   getstatus\n", drivesel);
                     if (rlda & 8) {                     // reset
                         vcs[drivesel] = false;
                     }
-                    rlmp = 0x008DU;                     // 0 0 wl 0 -- 0 wge vc 0 -- 1 hs 0 ho -- 1 0 0 0
-                    if (shmdr->readonly) rlmp |= 0x2000U; // write locked
+                    rlmp = 0x000DU;                     // 0 0 wl 0 -- 0 wge vc 0 -- 1 hs dt ho 1 0 0 0
+                    if (! dr->rl01) rlmp |= 0x0080U;    // is an RL02
+                    if (dr->readonly) rlmp |= 0x2000U;  // write locked
                     if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
-                    rlmp |= shmdr->lastposn & 0x0040U;  // head select
+                    rlmp |= dr->lastposn & 0x0040U;     // head select
                     if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk
                     if (seekdelay > 0) rlmp |= 0x0004U; // seeking
                     else if (fd >= 0)  rlmp |= 0x0005U; // 'lock on'
@@ -346,16 +348,16 @@ static void rlthread ()
                 case 3: {
                     if (fd < 0) goto opierr;
 
-                    if (debug > 0) fprintf (stderr, "z11rl:   seek da=%06o\n", rlda);
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   seek da=%06o\n", drivesel, rlda);
 
-                    int32_t newcyl = shmdr->lastposn >> 7;
+                    int32_t newcyl = dr->lastposn >> 7;
                     if (rlda & 4) newcyl += rlda >> 7;
                              else newcyl -= rlda >> 7;
-                    if (debug > 1) fprintf (stderr, "z11rl:       newcyl=%d\n", newcyl);
+                    if (debug > 1) fprintf (stderr, "z11rl: [%u]       newcyl=%d\n", drivesel, newcyl);
                     if (newcyl < 0) newcyl = 0;
                     if (newcyl > NCYLS - 1) newcyl = NCYLS - 1;
 
-                    shmdr->lastposn = (newcyl << 7) | ((rlda << 2) & 0x40);
+                    dr->lastposn = (newcyl << 7) | ((rlda << 2) & 0x40);
 
                     seekdoneats[drivesel] = nowus + (rlda >> 7) * USPERCYL + SETTLEUS;
                     break;
@@ -363,10 +365,10 @@ static void rlthread ()
 
                 // READ HEADER
                 case 4: {
-                    if (debug > 0) fprintf (stderr, "z11rl:   readheader\n");
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   readheader\n", drivesel);
                     usleep (seekdelay);
                     nowus += seekdelay;
-                    rlmp   = shmdr->lastposn | SECUNDERHEAD;
+                    rlmp   = dr->lastposn | SECUNDERHEAD;
                     rlmp2  = 0;
                     rlmp3  = 0;
                     goto rhddone;
@@ -376,10 +378,10 @@ static void rlthread ()
                 case 5: {
                     usleep (totldelay);
 
-                    if (debug > 0) fprintf (stderr, "z11rl:   writedata wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   writedata wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
 
-                    if (shmdr->lastposn != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", shmdr->lastposn, rlda);
+                    if (dr->lastposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->lastposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -388,7 +390,7 @@ static void rlthread ()
                     do {
                         uint16_t sec = rlda & 63;
                         if (sec >= SECPERTRK) {
-                            if (debug > 0) fprintf (stderr, "z11rl:       sec=%02o\n", sec);
+                            if (debug > 0) fprintf (stderr, "z11rl: [%u]       sec=%02o\n", drivesel, sec);
                             goto hnferr;
                         }
 
@@ -413,11 +415,11 @@ static void rlthread ()
                         uint32_t off = (((uint32_t) cyl * TRKPERCYL + trk) * SECPERTRK + sec) * sizeof buf;
                         int rc = pwrite (fd, buf, sizeof buf, off);
                         if (rc < 0) {
-                            fprintf (stderr, "z11rl: error writing at %u: %m\n", off);
+                            fprintf (stderr, "z11rl: [%u] error writing at %u: %m\n", drivesel, off);
                             goto opierr;
                         }
                         if (rc < (int) sizeof buf) {
-                            fprintf (stderr, "z11rl: only wrote %d of %d bytes at %u\n", rc, (int) sizeof buf, off);
+                            fprintf (stderr, "z11rl: [%u] only wrote %d of %d bytes at %u\n", drivesel, rc, (int) sizeof buf, off);
                             goto opierr;
                         }
                         if (debug > 2) dumpbuf (drivesel, buf, off, xbasave, "write");
@@ -430,10 +432,10 @@ static void rlthread ()
                 case 6: {
                     usleep (totldelay);
 
-                    if (debug > 0) fprintf (stderr, "z11rl:   readdata wc=%06o da=%06o xba=%06o\n", 65536 - rlmp, rlda, rlxba);
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   readdata wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
 
-                    if (shmdr->lastposn != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl:       latestposition=%06o rlda=%06o\n", shmdr->lastposn, rlda);
+                    if (dr->lastposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->lastposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -442,7 +444,7 @@ static void rlthread ()
                     do {
                         uint16_t sec = rlda & 63;
                         if (sec >= SECPERTRK) {
-                            if (debug > 0) fprintf (stderr, "z11rl:       sec=%02o\n", sec);
+                            if (debug > 0) fprintf (stderr, "z11rl: [%u]       sec=%02o\n", drivesel, sec);
                             goto hnferr;
                         }
 
@@ -450,11 +452,11 @@ static void rlthread ()
                         uint32_t off = (((uint32_t) cyl * TRKPERCYL + trk) * SECPERTRK + sec) * sizeof buf;
                         int rc = pread (fd, buf, sizeof buf, off);
                         if (rc < 0) {
-                            fprintf (stderr, "z11rl: error reading at %u: %m\n", off);
+                            fprintf (stderr, "z11rl: [%u] error reading at %u: %m\n", drivesel, off);
                             goto opierr;
                         }
                         if (rc < (int) sizeof buf) {
-                            fprintf (stderr, "z11rl: only read %d of %d bytes at %u\n", rc, (int) sizeof buf, off);
+                            fprintf (stderr, "z11rl: [%u] only read %d of %d bytes at %u\n", drivesel, rc, (int) sizeof buf, off);
                             goto opierr;
                         }
                         if (debug > 2) dumpbuf (drivesel, buf, off, rlxba, "read");
@@ -476,7 +478,7 @@ static void rlthread ()
 
                 // READ DATA WITHOUT HEADER CHECK
                 case 7: {
-                    if (debug > 0) fprintf (stderr, "z11rl:   read data without header check\n");
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   read data without header check\n", drivesel);
                     goto opierr;
                 }
             }
@@ -507,14 +509,14 @@ static void rlthread ()
             nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
             uint16_t drdy = ((fd >= 0) && (seekdoneats[drivesel] <= nowus)) ? RL4_DRDY0 : 0;
             ZWR(rlat[4], (ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel)) | (drdy << drivesel));
-            shmdr->ready = drdy != 0;
+            dr->ready = drdy != 0;
 
             // update RLMPs, RLDA, then RLBA and RLCS
             ZWR(rlat[3], ((uint32_t) rlmp3 << 16) | rlmp2);
             ZWR(rlat[2], ((uint32_t) rlmp  << 16) | rlda);
             ZWR(rlat[1], ((uint32_t) rlxba << 16) | rlcs);
-            if (debug > 0) fprintf (stderr, "z11rl:  done RLCS=%06o RLxBA=%06o RLDA=%06o RLMP=%06o %06o %06o\n",
-                    rlcs, rlxba, rlda, rlmp, rlmp2, rlmp3);
+            if (debug > 0) fprintf (stderr, "z11rl: [%u]  done RLCS=%06o RLxBA=%06o RLDA=%06o RLMP=%06o %06o %06o\n",
+                    drivesel, rlcs, rlxba, rlda, rlmp, rlmp2, rlmp3);
         }
 
         // always update drive readies in case a seek just completed
@@ -530,18 +532,28 @@ static void rlthread ()
 
 // load file in a drive
 //  input:
-//   readwrite = write-enable drive
 //   diskno = disk number 0..3
-//   filenm = filename
 //  output:
 //   returns < 0: errno
 //          else: successful
-static int loadfile (bool readwrite, int diskno, char const *filenm)
+static int loadfile (uint16_t drivesel)
 {
+    ShmRLDrive *dr = &shmrl->drives[drivesel];
+    bool readwrite = ! dr->readonly;
+    char const *filenm = dr->filename;
+
+    int fnlen = strlen (filenm);
+         if ((fnlen >= 5) && (strcasecmp (filenm + fnlen - 5, ".rl01") == 0)) dr->rl01 = true;
+    else if ((fnlen >= 5) && (strcasecmp (filenm + fnlen - 5, ".rl02") == 0)) dr->rl01 = false;
+    else {
+        fprintf (stderr, "z11rl: [%u] error decoding %s: name ends with neither .rl01 nor .rl02\n", drivesel, filenm);
+        return -EBADF;
+    }
+
     int fd = open (filenm, readwrite ? O_RDWR | O_CREAT : O_RDONLY, 0666);
     if (fd < 0) {
         fd = - errno;
-        fprintf (stderr, "z11rl: error opening %s: %m\n", filenm);
+        fprintf (stderr, "z11rl: [%u] error opening %s: %m\n", drivesel, filenm);
         return fd;
     }
 
@@ -554,40 +566,42 @@ lockit:;
     flockit.l_len    = 4096;
     if (fcntl (fd, F_OFD_SETLK, &flockit) < 0) {
         int rc = - errno;
+        ASSERT (rc < 0);
         if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_GETLK, &flockit) >= 0)) {
             if (flockit.l_type == F_UNLCK) goto lockit;
-            fprintf (stderr, "z11rl: error locking %s: locked by pid %d\n", filenm, (int) flockit.l_pid);
+            fprintf (stderr, "z11rl: [%u] error locking %s: locked by pid %d\n", drivesel, filenm, (int) flockit.l_pid);
         } else {
-            fprintf (stderr, "z11rl: error locking %s: %m\n", filenm);
+            fprintf (stderr, "z11rl: [%u] error locking %s: %m\n", drivesel, filenm);
         }
+        close (fd);
         return rc;
     }
 
     // extend it to full size
     if (readwrite && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) {
         int rc = - errno;
-        fprintf (stderr, "z11rl: error extending %s: %m\n", filenm);
+        ASSERT (rc < 0);
+        fprintf (stderr, "z11rl: [%u] error extending %s: %m\n", drivesel, filenm);
         close (fd);
         return rc;
     }
 
     // all is good
-    fprintf (stderr, "z11rl: drive %d loaded with read%s file %s\n", diskno, (readwrite ? "/write" : "-only"), filenm);
-    fds[diskno] = fd;
-    if (strcmp (fns[diskno], filenm) != 0) {
-        strcpy (fns[diskno], filenm);
-        vcs[diskno] = true;
-        shmrl->drives[diskno].lastposn = 0;
-        shmrl->drives[diskno].readonly = ! readwrite;
+    fprintf (stderr, "z11rl: [%u] loaded read%s file %s\n", drivesel, (readwrite ? "/write" : "-only"), filenm);
+    fds[drivesel] = fd;
+    if (strcmp (fns[drivesel], filenm) != 0) {
+        strcpy (fns[drivesel], filenm);
+        vcs[drivesel] = true;
+        dr->lastposn  = 0;
     }
     return fd;
 }
 
 // close file loaded on a disk drive
-static void unloadfile (int diskno)
+static void unloadfile (uint16_t drivesel)
 {
-    close (fds[diskno]);
-    fds[diskno] = -1;
+    close (fds[drivesel]);
+    fds[drivesel] = -1;
 }
 
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func)

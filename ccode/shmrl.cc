@@ -76,16 +76,20 @@ int shmrl_load (int drive, bool readonly, char const *filename)
     // lock shared page and wait for it to be idle
     int rc = rlwaitidle ();
 
+    // fnbuf == NULL means keep the same file loaded (probably just changing readonly status)
+    // fnbuf == "" means unload any file that's in there
+
     // if empty filename, unload any previous file
     if ((rc >= 0) && (fnbuf != NULL) && (fnbuf[0] == 0)) rc = rlunload (drive);
+
     if (rc >= 0) {
 
         // mark entry readonly status
         ShmRLDrive *dr = &rlshm->drives[drive];
         dr->readonly = readonly;
-        if ((fnbuf != NULL) && (fnbuf[0] == 0)) {
 
-            // if empty filename, we're done
+        // if we aren't going to load anything, we're done
+        if ((fnbuf != NULL) ? (fnbuf[0] == 0) : (dr->filename[0] == 0)) {
             rlunlk ();
         } else {
 
@@ -103,7 +107,7 @@ int shmrl_load (int drive, bool readonly, char const *filename)
             if (rc >= 0) {
 
                 // completed, get load status and say page is idle
-                rc = rlshm->lderrno;
+                rc = rlshm->negerr;
                 rlshm->command = SHMRLCMD_IDLE;
                 rlunlk ();
             }
@@ -125,6 +129,7 @@ int shmrl_stat (int drive, char *buff, int size)
         if (dr->readonly) statbits |= RLSTAT_WRPROT;        // write protected
         if (dr->ready)    statbits |= RLSTAT_READY;         // ready (not seeking etc)
         if (dr->fault)    statbits |= RLSTAT_FAULT;         // fault (drive error)
+        if (dr->rl01)     statbits |= RLSTAT_RL01;          // RL01 drive
         statbits |= dr->fnseq * (RLSTAT_FNSEQ & - RLSTAT_FNSEQ);
         statbits |= (dr->lastposn / 128) * (RLSTAT_CYLNO & - RLSTAT_CYLNO);
         if (size > 0) {

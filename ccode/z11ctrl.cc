@@ -372,7 +372,7 @@ static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
         char const *stri = Tcl_GetString (objv[1]);
         if (strcasecmp (stri, "help") == 0) {
             puts ("");
-            puts ("  rlstat <drive> [cylinder] [fault] [file] [readonly] [ready]");
+            puts ("  rlstat <drive> [cylinder] [fault] [file] [readonly] [ready] [type]");
             puts ("");
             return TCL_OK;
         }
@@ -419,6 +419,10 @@ static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
             if (strcasecmp (stri, "ready") == 0) {
                 int val = (rc & RLSTAT_READY) / RLSTAT_READY;
                 vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if (strcasecmp (stri, "type") == 0) {
+                vals[nvals++] = Tcl_NewStringObj ((rc & RLSTAT_RL01) ? "RL01" : "RL02", -1);
                 continue;
             }
             Tcl_SetResultF (interp, "unknown keyword %s", stri);

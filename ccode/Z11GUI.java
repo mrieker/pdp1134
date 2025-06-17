@@ -1590,12 +1590,14 @@ public class Z11GUI extends JPanel {
     }
 
     public static class RLDrive extends JPanel {
+        public boolean rl01shows;
         public int drive;
         public int isvisible;
         public int lastcylno;
         public int lastfnseq;
         public JLabel cylnolbl;
         public JLabel rlmessage;
+        public JLabel rloxlbl;
         public long blockmsgupdates;
         public long winkoutready;
         public RLButton loadbutton;
@@ -1603,7 +1605,8 @@ public class Z11GUI extends JPanel {
         public RLButton faultlight;
         public RLButton wprtswitch;
 
-        public final static int RLDISKSIZE = 512*2*40*256;  // bytes in disk file
+        public final static int RL01DISKSIZE = 256*2*40*256;  // bytes in RL01 disk file
+        public final static int RL02DISKSIZE = 512*2*40*256;  // bytes in RL02 disk file
 
         public RLDrive (int d)
         {
@@ -1618,21 +1621,20 @@ public class Z11GUI extends JPanel {
             setPreferredSize (rl02pandim);
             setSize (rl02pandim);
 
-            JLabel rl02lbl;
-
             add (cylnolbl   = new JLabel ("       "));
             add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
             add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
             add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
             add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
-            add (rl02lbl    = new JLabel (" RLO2 "));   // yes 'O' looks more like real drive logo
+            add (rloxlbl    = new JLabel (""));
             add (rlmessage  = new JLabel (""));
 
             Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
             cylnolbl.setFont (lf);
 
-            Font rf = rl02lbl.getFont ();
-            rl02lbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
+            updateLabel ();
+            Font rf = rloxlbl.getFont ();
+            rloxlbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
 
             Dimension md = new Dimension (600, 50);
             rlmessage.setMaximumSize (md);
@@ -1649,36 +1651,62 @@ public class Z11GUI extends JPanel {
                         // display chooser box to select file to load
                         JFileChooser chooser = new JFileChooser ();
                         chooser.setFileSelectionMode (JFileChooser.FILES_AND_DIRECTORIES);
-                        chooser.setFileFilter (
-                            new FileNameExtensionFilter (
-                                "RL02 disk image", "rl02"));
+                        if (rl01shows) {
+                            chooser.setFileFilter (
+                                new FileNameExtensionFilter (
+                                    "RL01 disk image", "rl01"));
+                            chooser.addChoosableFileFilter (
+                                new FileNameExtensionFilter (
+                                    "RL02 disk image", "rl02"));
+                        } else {
+                            chooser.setFileFilter (
+                                new FileNameExtensionFilter (
+                                    "RL02 disk image", "rl02"));
+                            chooser.addChoosableFileFilter (
+                                new FileNameExtensionFilter (
+                                    "RL01 disk image", "rl01"));
+                        }
                         chooser.setDialogTitle ("Loading RL drive " + drive);
-                        File ff;
                         while (true) {
                             if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
                             int rc = chooser.showOpenDialog (RLDrive.this);
-                            ff = (rc == JFileChooser.APPROVE_OPTION) ? chooser.getSelectedFile () : null;
-                            if ((ff == null) || ! ff.isDirectory ()) break;
-                            rlchooserdirectory = ff;
-                        }
-                        if (ff != null) {
-
-                            // file selected, pass to z11rl via shared memory
+                            if (rc != JFileChooser.APPROVE_OPTION) break;
+                            File ff = chooser.getSelectedFile ();
+                            if (ff.isDirectory ()) {
+                                rlchooserdirectory = ff;
+                                continue;
+                            }
                             rlchooserdirectory = ff.getParentFile ();
-                            long size = ff.length ();
-                            if ((size == RLDISKSIZE) || (JOptionPane.showConfirmDialog (RLDrive.this,
-                                    ff.getName () + " size " + size + " is not " + RLDISKSIZE + "\nAre you sure you want to load it?",
+
+                            long issize = ff.length ();
+                            long sbsize = 0;
+                            String ffname = ff.getName ();
+                            if (ffname.toUpperCase ().endsWith (".RL01")) {
+                                rl01shows = true;
+                                sbsize    = RL01DISKSIZE;
+                            }
+                            if (ffname.toUpperCase ().endsWith (".RL02")) {
+                                rl01shows = false;
+                                sbsize    = RL02DISKSIZE;
+                            }
+                            updateLabel ();
+                            if (sbsize == 0) {
+                                JOptionPane.showMessageDialog (RLDrive.this, "filename " + ffname + " must end with .rl01 or .rl02",
+                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                                continue;
+                            }
+                            if ((issize == sbsize) || (JOptionPane.showConfirmDialog (RLDrive.this,
+                                    ffname + " size " + issize + " is not " + sbsize + "\nAre you sure you want to load it?",
                                     "Loading Drive", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
                                 String fn = ff.getAbsolutePath ();
                                 String er = GUIZynqPage.rlload (drive, wprtswitch.ison, fn);
-                                if (er != null) {
-                                    rlmessage.setText ("error loading: " + er);
-                                    blockmsgupdates = System.currentTimeMillis () + 5000;
-                                    loadbutton.setOn (false);
-                                } else {
+                                if (er == null) {
                                     rlmessage.setText (fn);
                                     loadbutton.setOn (true);
+                                    break;
                                 }
+                                JOptionPane.showMessageDialog (RLDrive.this, "error loading " + ffname + ": " + er,
+                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
                             }
                         }
                     } else {
@@ -1737,6 +1765,13 @@ public class Z11GUI extends JPanel {
             faultlight.setOn ((stat & GUIZynqPage.RLSTAT_FAULT) != 0);
             wprtswitch.setOn ((stat & GUIZynqPage.RLSTAT_WRPRT) != 0);
 
+            // update drive type label
+            boolean rl01loaded = (stat & GUIZynqPage.RLSTAT_RL01) != 0;
+            if (rl01shows != rl01loaded) {
+                rl01shows  = rl01loaded;
+                updateLabel ();
+            }
+
             // update loaded filename if there was a change and if no error message is being displayed
             int thisfnseq = stat & GUIZynqPage.RLSTAT_FNSEQ;
             if (((blockmsgupdates == 0) && (lastfnseq != thisfnseq)) || (updatetimemillis > blockmsgupdates)) {
@@ -1744,6 +1779,12 @@ public class Z11GUI extends JPanel {
                 blockmsgupdates = 0;
                 lastfnseq = thisfnseq;
             }
+        }
+
+        private void updateLabel ()
+        {
+            // yes 'O' looks more like real drive logo
+            rloxlbl.setText (rl01shows ? " RLO1 " : " RLO2 ");
         }
 
         @Override

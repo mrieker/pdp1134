@@ -27,12 +27,13 @@
 
 #define SHMRL_NAME "/shm_zturn11_rl"
 
-#define RLSTAT_LOAD   00000001
-#define RLSTAT_WRPROT 00000002
-#define RLSTAT_READY  00000004
-#define RLSTAT_FAULT  00000010
-#define RLSTAT_FNSEQ  00007760
-#define RLSTAT_CYLNO  07770000
+#define RLSTAT_LOAD   000000001
+#define RLSTAT_WRPROT 000000002
+#define RLSTAT_READY  000000004
+#define RLSTAT_FAULT  000000010
+#define RLSTAT_FNSEQ  000007760
+#define RLSTAT_CYLNO  007770000
+#define RLSTAT_RL01   010000000
 
 #define SHMRLCMD_IDLE 0     // not doing anything
 #define SHMRLCMD_LOAD 1     // load drive with filename,readonly
@@ -46,6 +47,7 @@ struct ShmRLDrive {
     bool readonly;          // write protected
     bool ready;             // drive ready
     bool fault;             // drive fault
+    bool rl01;              // is an RL01
     uint8_t fnseq;          // incremented each change in filename
     char filename[SHMRL_FNSIZE];  // "" for unloaded, else filename loaded
 };
@@ -55,7 +57,7 @@ struct ShmRL {
     int svrpid;         // z11rl process id
     int cmdpid;         // what is sending command in some command
     int command;        // command to be processed by z11rl
-    int lderrno;        // errno for load commands (0 if success)
+    int negerr;         // negative errno for load commands (0 if success)
     ShmRLDrive drives[4];
 };
 
