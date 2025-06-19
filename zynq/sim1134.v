@@ -1460,6 +1460,7 @@ module sim1134 (
             //  [06] = odd address
             //  [04] = unibus timeout
             //  [03] = yellow stack
+        /***
             if ((bus_a_in_l >> 1) == (~ 18'o777766 >> 1)) begin
                 if (bus_msyn_in_l) begin
                     cer_d_out_l    <= 16'o177777;
@@ -1473,6 +1474,7 @@ module sim1134 (
                     bus_ssyn_out_l <= 0;
                 end
             end
+        ***/
 
             // processor status word access via 777776
             if ((bus_a_in_l >> 1) == (~ 18'o777776 >> 1)) begin
