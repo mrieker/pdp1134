@@ -772,10 +772,11 @@ public class Z11GUI extends JPanel {
         public StepButton ()
         {
             super ("STEP");
+            setToolTipText ("process single instruction");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             berrled.setOn (false);
             messagelabel.setText ("stepping processor");
@@ -790,10 +791,11 @@ public class Z11GUI extends JPanel {
         public HaltButton ()
         {
             super ("HALT");
+            setToolTipText ("stop processing instructions");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             berrled.setOn (false);
             messagelabel.setText ("halting processor");
@@ -807,10 +809,11 @@ public class Z11GUI extends JPanel {
         public ContButton ()
         {
             super ("CONT");
+            setToolTipText ("continue processing instructions");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             berrled.setOn (false);
             messagelabel.setText ("resuming processor");
@@ -825,12 +828,14 @@ public class Z11GUI extends JPanel {
         {
             super ("RESET");
             setEnabled (true);
+            setToolTipText ("reset processor and halt");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             if ((GUIZynqPage.running () <= 0) ||
+                longclick ||
                 (JOptionPane.showConfirmDialog (this,
                         "Are you sure you want to reset the system?",
                         "RESET Button",
@@ -851,10 +856,11 @@ public class Z11GUI extends JPanel {
         public BootButton ()
         {
             super ("BOOT");
+            setToolTipText ("boot processor via guiboot.sh");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             messagelabel.setText ("booting...");
             int switches = GUIZynqPage.getsr ();
@@ -910,10 +916,11 @@ public class Z11GUI extends JPanel {
         public StartButton ()
         {
             super ("START");
+            setToolTipText ("reset then start processing instructions");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             berrled.setOn (false);
             messagelabel.setText ("resetting processor");
@@ -953,15 +960,14 @@ public class Z11GUI extends JPanel {
 
     // - load address button
     public static class LdAdButton extends MemButton {
-        public long pressedat;
-
         public LdAdButton ()
         {
             super ("LD.AD");
+            setToolTipText ("load address for exam/dep/start; long click for virt addr with mode in <17:16>");
         }
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             messagelabel.setText ("");
             depbutton.autoincrement = false;
@@ -972,8 +978,7 @@ public class Z11GUI extends JPanel {
             }
             writeaddrleds (loadedaddress);
             writedataleds (0);
-            long releasedat = System.currentTimeMillis ();
-            loadedaddrvirt = (releasedat - pressedat) >= 800;
+            loadedaddrvirt = longclick;
             updateaddrlabel ();
             String as = String.format ("loaded %s address %06o", loadedaddrvirt ? "virtual" : "physical", loadedaddress);
             boolean berr = false;
@@ -988,13 +993,6 @@ public class Z11GUI extends JPanel {
             }
             berrled.setOn (berr);
             messagelabel.setText (as);
-        }
-
-        @Override   // MouseListener
-        public void mousePressed(MouseEvent e)
-        {
-            super.mousePressed (e);
-            pressedat = System.currentTimeMillis ();
         }
     }
 
@@ -1024,6 +1022,7 @@ public class Z11GUI extends JPanel {
         public ExamButton ()
         {
             super ("EXAM");
+            setToolTipText ("examine memory location");
         }
 
         @Override  // ExDepButton
@@ -1044,6 +1043,7 @@ public class Z11GUI extends JPanel {
         public DepButton ()
         {
             super ("DEP");
+            setToolTipText ("write memory location from switches");
         }
 
         @Override  // ExDepButton
@@ -1073,7 +1073,7 @@ public class Z11GUI extends JPanel {
         public abstract int rwmem (int pa);
 
         @Override  // MemButton
-        public void buttonClicked ()
+        public void buttonClicked (boolean longclick)
         {
             messagelabel.setText ("");
 
@@ -1180,8 +1180,8 @@ public class Z11GUI extends JPanel {
 
     public static abstract class MemButton extends JButton implements MouseListener {
         private boolean isenabled;
-
         private boolean pressedinarea;
+        private long pressedat;
 
         public MemButton (String lbl)
         {
@@ -1202,7 +1202,7 @@ public class Z11GUI extends JPanel {
             setVerticalTextPosition (SwingConstants.CENTER);
         }
 
-        public abstract void buttonClicked ();
+        public abstract void buttonClicked (boolean longclick);
 
         @Override
         public void setEnabled (boolean enable)
@@ -1232,6 +1232,7 @@ public class Z11GUI extends JPanel {
         {
             if (isenabled) {
                 pressedinarea = eventInArea (e);
+                pressedat = System.currentTimeMillis ();
                 if (pressedinarea) setIcon (buttonin);
             }
         }
@@ -1240,7 +1241,8 @@ public class Z11GUI extends JPanel {
         public void mouseReleased(MouseEvent e)
         {
             if (isenabled && pressedinarea && eventInArea (e)) {
-                buttonClicked ();
+                long releasedat = System.currentTimeMillis ();
+                buttonClicked ((releasedat - pressedat) >= 800);
             }
             setIcon (buttonout);
             pressedinarea = false;
