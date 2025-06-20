@@ -23,6 +23,8 @@
 #ifndef _Z11DEFS
 #define _Z11DEFS
 
+#include "km-zynqpdp11/zgintdefs.h"
+
 #define Z_VER 0
 #define Z_RA 1
 #define Z_RB 2
@@ -180,5 +182,17 @@
 #define KY3_DMACTRL0  0x04000000U
 #define KY3_DMAADDR0  0x00000001U
 #define KY4_DMADATA0  0x00000001U
+
+#define RL1_RLCS  0x0000FFFFU
+#define RL1_RLBA  0xFFFF0000U
+#define RL2_RLDA  0x0000FFFFU
+#define RL2_RLMP1 0xFFFF0000U
+#define RL3_RLMP2 0x0000FFFFU
+#define RL3_RLMP3 0xFFFF0000U
+#define RL4_DRDY  0x0000000FU
+#define RL4_DERR  0x000000F0U
+#define RL4_DRDY0 (RL4_DRDY & - RL4_DRDY)
+#define RL5_ENAB  0x80000000U
+#define RL5_FAST  0x40000000U
 
 #endif

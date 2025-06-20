@@ -209,8 +209,8 @@ int main (int argc, char **argv)
             printf ("   man_sack_out_h=%o        sack_in_h=%o       dev_sack_h=%o       simpc=%06o%s", FIELD(Z_RA,a_man_sack_out_h), FIELD(Z_RC,c_sack_in_h),    FIELD(Z_RD,d_dev_sack_h), FIELD(Z_RJ,j_simpc), eol);
             printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o       simps=%06o%s", FIELD(Z_RA,a_man_ssyn_out_h), FIELD(Z_RC,c_ssyn_in_h),    FIELD(Z_RD,d_dev_ssyn_h), FIELD(Z_RJ,j_simps), eol);
             printf ("%s", eol);
-            printf ("  man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], eol);
-            printf ("  ILA_ARMED=%o  ILA_AFTER=%05o  ILA_OFLOW=%o  ILA_INDEX=%05o%s", FIELD(ILACTL,ILACTL_ARMED), FIELD(ILACTL,ILACTL_AFTER), FIELD(ILACTL,ILACTL_OFLOW), FIELD(ILACTL,ILACTL_INDEX), eol);
+            printf ("  man_rsel_h=%o   rsel1,2,3_h=%o,%o,%o   mux=%05o   cyc=%08X  armintena=%08X%s",  FIELD(Z_RB,b_man_rsel_h), rsel1, rsel2, rsel3, (z11s[Z_RC]>>17)&32767, z11s[9], z11s[ZG_INTENABS], eol);
+            printf ("  ILA_ARMED=%o  ILA_AFTER=%05o  ILA_OFLOW=%o  ILA_INDEX=%05o   armintreq=%08X%s", FIELD(ILACTL,ILACTL_ARMED), FIELD(ILACTL,ILACTL_AFTER), FIELD(ILACTL,ILACTL_OFLOW), FIELD(ILACTL,ILACTL_INDEX), z11s[ZG_INTFLAGS], eol);
 
             for (int i = 0; i < pagelen;) {
                 uint32_t idver = z11s[i];

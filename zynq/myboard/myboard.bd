@@ -289,6 +289,15 @@
           "ac_lo_out_h": {
             "direction": "O"
           },
+          "armintreq": {
+            "direction": "O",
+            "parameters": {
+              "PortWidth": {
+                "value": "1",
+                "value_src": "default_prop"
+              }
+            }
+          },
           "bbsy_in_h": {
             "direction": "I"
           },
@@ -796,6 +805,12 @@
           "PCW_CLK3_FREQ": {
             "value": "10000000"
           },
+          "PCW_CORE0_IRQ_INTR": {
+            "value": "0"
+          },
+          "PCW_CORE1_IRQ_INTR": {
+            "value": "0"
+          },
           "PCW_CPU_CPU_6X4X_MAX_RANGE": {
             "value": "667"
           },
@@ -990,6 +1005,9 @@
           },
           "PCW_I2C_RESET_SELECT": {
             "value": "Share reset pin"
+          },
+          "PCW_IRQ_F2P_INTR": {
+            "value": "1"
           },
           "PCW_MIO_0_IOTYPE": {
             "value": "LVCMOS 3.3V"
@@ -1702,6 +1720,9 @@
           "PCW_USB_RESET_SELECT": {
             "value": "Share reset pin"
           },
+          "PCW_USE_FABRIC_INTERRUPT": {
+            "value": "1"
+          },
           "PCW_USE_M_AXI_GP0": {
             "value": "1"
           },
@@ -1859,6 +1880,12 @@
         "ports": [
           "Zynq_0/ac_lo_out_h",
           "ac_lo_out_h_0"
+        ]
+      },
+      "Zynq_0_armintreq": {
+        "ports": [
+          "Zynq_0/armintreq",
+          "processing_system7_0/IRQ_F2P"
         ]
       },
       "Zynq_0_bbsy_out_h": {

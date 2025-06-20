@@ -29,6 +29,7 @@ module rl11
     input[2:0] armraddr, armwaddr,
     input[31:00] armwdata,
     output[31:00] armrdata,
+    output armintrq,
 
     output intreq,
     output[7:0] irvec,
@@ -47,7 +48,7 @@ module rl11
     ,output[15:00] rlcs
     ,output trigger);
 
-    reg enable;
+    reg enable, fastio;
     reg[15:00] rlba, rlda, rlmp1, rlmp2, rlmp3;
     reg rlcs_15, rlcs_14, rlcs_00;
     reg[13:01] rlcs_1301;
@@ -56,15 +57,17 @@ module rl11
 
     assign rlcs = { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 };
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2003 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h524C2005 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rlba,  rlcs  } :
                       (armraddr == 2) ? { rlmp1, rlda  } :
                       (armraddr == 3) ? { rlmp3, rlmp2 } :
                       (armraddr == 4) ? { 24'b0, driveerrors, drivereadys } :
-                      (armraddr == 5) ? { enable, 5'b0, INTVEC, ADDR } :
+                      (armraddr == 5) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
                       32'hDEADBEEF;
 
     assign trigger = rlcs_1301[07] & (rlda == 16'o002250);
+
+    assign armintrq = ~ rlcs_1301[07];
 
     intreq rlintreq (
         .CLOCK    (CLOCK),
@@ -88,6 +91,7 @@ module rl11
         if (init_in_h) begin
             if (RESET) begin
                 enable <= 0;
+                fastio <= 0;
                 driveerrors <= 0;
                 drivereadys <= 0;
             end
@@ -120,6 +124,7 @@ module rl11
                 end
                 5: begin
                     enable <= armwdata[31];
+                    fastio <= armwdata[30];
                 end
             endcase
         end

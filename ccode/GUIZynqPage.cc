@@ -44,6 +44,7 @@ static int maxpinidx;
 static int mypid;
 static uint32_t volatile *pdpat;
 static uint32_t volatile *kyat;
+static uint32_t volatile *rlat;
 
 /*
  * Class:     GUIZynqPage
@@ -350,4 +351,22 @@ JNIEXPORT jstring JNICALL Java_GUIZynqPage_rlfile
     rlfileutfstrings[drive] = EXCKR (env->GetStringUTFChars (fn, NULL));
     rlfilejavstrings[drive] = fn;
     return fn;
+}
+
+/*
+ * Class:     GUIZynqPage
+ * Method:    rlfast
+ * Signature: (I)I
+ */
+JNIEXPORT jint JNICALL Java_GUIZynqPage_rlfast
+  (JNIEnv *env, jclass klass, jint newflag)
+{
+    if (rlat == NULL) {
+        rlat = z11page->findev ("RL", NULL, NULL, false, false);
+    }
+    int was = (rlat[5] / RL5_FAST) & 1;
+    if (newflag >= 0) {
+        rlat[5] = (rlat[5] & ~ RL5_FAST) | ((newflag & 1) * RL5_FAST);
+    }
+    return was;
 }

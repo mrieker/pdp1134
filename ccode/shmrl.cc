@@ -319,4 +319,5 @@ static void rlunlk ()
     int tmpfutex = mypid;
     if (! atomic_compare_exchange (&rlshm->rlfutex, &tmpfutex, 0)) ABORT ();
     if (futex (&rlshm->rlfutex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+    if (futex (&rlshm->command, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
 }

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
@@ -264,6 +265,23 @@ void Z11Page::dmaunlk ()
     ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[5], mypid);
+}
+
+// wait for interrupt(s) given in mask
+// checks for bit(s) set in regarmintreq
+// if not already set,
+//   enables the interrupt in regarmintena
+//   waits for interrupt
+//   clears the bits from regarmintena
+//     (unless something else waiting for them)
+// caller should do whatever to device to clear bits in regarmintreq before calling again
+void Z11Page::waitint (uint32_t mask)
+{
+    int rc = ioctl (zynqfd, ZGIOCTL_WFI, mask);
+    if ((rc < 0) && (errno != EINTR)) {
+        fprintf (stderr, "Z11Page::waitint: error waiting for interrupt: %m\n");
+        ABORT ();
+    }
 }
 
 // generate a random number

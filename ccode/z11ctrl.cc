@@ -41,6 +41,8 @@
 #include "tclmain.h"
 #include "z11util.h"
 
+extern Z11Page *z11page;
+
 // internal TCL commands
 static Tcl_ObjCmdProc cmd_disasop;
 static Tcl_ObjCmdProc cmd_gettod;
@@ -48,6 +50,7 @@ static Tcl_ObjCmdProc cmd_readchar;
 static Tcl_ObjCmdProc cmd_rlload;
 static Tcl_ObjCmdProc cmd_rlstat;
 static Tcl_ObjCmdProc cmd_rlunload;
+static Tcl_ObjCmdProc cmd_waitint;
 
 static TclFunDef const fundefs[] = {
     { cmd_disasop,  "disasop",  "disassemble instruction" },
@@ -57,6 +60,7 @@ static TclFunDef const fundefs[] = {
     { cmd_rlload,   "rlload",   "load file in RL drive" },
     { cmd_rlstat,   "rlstat",   "get RL drive status" },
     { cmd_rlunload, "rlunload", "unload file from RL drive" },
+    { cmd_waitint,  "waitint",  "wait for interrupt" },
     { NULL, NULL, NULL }
 };
 
@@ -94,6 +98,8 @@ int main (int argc, char **argv)
         break;
     }
 
+    z11page = new Z11Page ();
+
     // process tcl commands
     return tclmain (fundefs, argv[0], "z11ctrl", logname, getenv ("z11ctrlini"), argc - tclargs, argv + tclargs);
 }
@@ -110,7 +116,6 @@ struct DisRdCtx {
 
 static bool disread (void *param, uint32_t addr, uint16_t *data_r)
 {
-    extern Z11Page *z11page;
     DisRdCtx *drctx = (DisRdCtx *) param;
 
     // maybe we're given a physical address
@@ -465,6 +470,27 @@ static int cmd_rlunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;
         }
+        return TCL_OK;
+    }
+    Tcl_SetResultF (interp, "bad number args");
+    return TCL_ERROR;
+}
+
+static int cmd_waitint (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            puts ("  waitint <mask>");
+            puts ("");
+            return TCL_OK;
+        }
+
+        int mask = -1;
+        int rc = Tcl_GetIntFromObj (interp, objv[1], &mask);
+        if (rc != TCL_OK) return rc;
+        z11page->waitint ((unsigned) mask);
         return TCL_OK;
     }
     Tcl_SetResultF (interp, "bad number args");

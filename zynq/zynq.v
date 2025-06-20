@@ -113,11 +113,13 @@ module Zynq (
     output reg    saxi_RVALID,
     input[31:00]  saxi_WDATA,
     output reg    saxi_WREADY,
-    input         saxi_WVALID
+    input         saxi_WVALID,
+
+    output        armintreq
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131401D;
+    localparam VERSION = 32'h3131401E;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -131,8 +133,9 @@ module Zynq (
     reg ilaarmed, ilaoflow;
 
     // arm writes these to control fpga
-    reg[31:00] regctla, regctlb, regctli, regctll;
-    wire[31:00] regctlj;
+    reg[31:00] regctla, regctlb, regctli, regctll, regarmintena;
+    reg regarmintreq_30;
+    wire[31:00] regctlj, regarmintreq;
 
     reg[23:06]  regctlk_2306;
     wire[05:00] regctlk_0500;
@@ -515,29 +518,31 @@ module Zynq (
     wire[31:00] bmarmrdata, kwarmrdata, pcarmrdata, rlarmrdata, slarmrdata, tt0armrdata;
 
     assign saxi_RDATA =
-        (readaddr        == 10'b0000000000) ? VERSION     :
-        (readaddr        == 10'b0000000001) ? regctla     :
-        (readaddr        == 10'b0000000010) ? regctlb     :
-        (readaddr        == 10'b0000000011) ? regctlc     :
-        (readaddr        == 10'b0000000100) ? regctld     :
-        (readaddr        == 10'b0000000101) ? regctle     :
-        (readaddr        == 10'b0000000110) ? regctlf     :
-        (readaddr        == 10'b0000000111) ? regctlg     :
-        (readaddr        == 10'b0000001000) ? regctlh     :
-        (readaddr        == 10'b0000001001) ? regctli     :
-        (readaddr        == 10'b0000001010) ? regctlj     :
+        (readaddr        == 10'b0000000000) ? VERSION      :
+        (readaddr        == 10'b0000000001) ? regctla      :
+        (readaddr        == 10'b0000000010) ? regctlb      :
+        (readaddr        == 10'b0000000011) ? regctlc      :
+        (readaddr        == 10'b0000000100) ? regctld      :
+        (readaddr        == 10'b0000000101) ? regctle      :
+        (readaddr        == 10'b0000000110) ? regctlf      :
+        (readaddr        == 10'b0000000111) ? regctlg      :
+        (readaddr        == 10'b0000001000) ? regctlh      :
+        (readaddr        == 10'b0000001001) ? regctli      :
+        (readaddr        == 10'b0000001010) ? regctlj      :
         (readaddr        == 10'b0000001011) ? { 8'b0, regctlk_2306, regctlk_0500 } :
-        (readaddr        == 10'b0000001100) ? regctll     :
+        (readaddr        == 10'b0000001100) ? regctll      :
+        (readaddr        == 10'b0000011010) ? regarmintena :    // ZG_INTENABS in km
+        (readaddr        == 10'b0000011011) ? regarmintreq :    // ZG_INTFLAGS in km
         (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
         (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
         (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
-        (readaddr[11:05] ==  7'b0000100)    ? bmarmrdata  :
-        (readaddr[11:05] ==  7'b0000101)    ? rlarmrdata  :
-        (readaddr[11:05] ==  7'b0000110)    ? slarmrdata  :
-        (readaddr[11:04] ==  8'b00001110)   ? pcarmrdata  :
-        (readaddr[11:04] ==  8'b00001111)   ? tt0armrdata :
-        (readaddr[11:03] ==  9'b000100000)  ? kwarmrdata  :
+        (readaddr[11:05] ==  7'b0000100)    ? bmarmrdata   :
+        (readaddr[11:05] ==  7'b0000101)    ? rlarmrdata   :
+        (readaddr[11:05] ==  7'b0000110)    ? slarmrdata   :
+        (readaddr[11:04] ==  8'b00001110)   ? pcarmrdata   :
+        (readaddr[11:04] ==  8'b00001111)   ? tt0armrdata  :
+        (readaddr[11:03] ==  9'b000100000)  ? kwarmrdata   :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
@@ -558,15 +563,18 @@ module Zynq (
             saxi_WREADY  <= 0;                              // we are not ready to accept write data
             saxi_BVALID  <= 0;                              // we are not acknowledging any write
 
-            regctla[31:30] <= FM_OFF;                       // FM_OFF disconnect from bus
-            regctla[29:22] <= 0;
-            regctla[21]    <= 1'b1;                         // man_npg_out_l
-            regctla[20:00] <= 0;
-            regctlb[31:28] <= 0;
-            regctlb[27:24] <= 4'b1111;                      // man_bg_out_l
-            regctlb[23:00] <= 0;
-            regctll[31:22] <= 0;
-            regctll[04:00] <= 21;                           // muxdelay (18=bad; 19=ok)
+            regctla[31:30]  <= FM_OFF;                      // FM_OFF disconnect from bus
+            regctla[29:22]  <= 0;
+            regctla[21]     <= 1'b1;                        // man_npg_out_l
+            regctla[20:00]  <= 0;
+            regctlb[31:28]  <= 0;
+            regctlb[27:24]  <= 4'b1111;                     // man_bg_out_l
+            regctlb[23:00]  <= 0;
+            regctll[31:22]  <= 0;
+            regctll[04:00]  <= 21;                          // muxdelay (18=bad; 19=ok)
+
+            regarmintena    <= 0;                           // disable all interrupts to arm
+            regarmintreq_30 <= 0;                           // disable the one arm can request to itself
 
         end else begin
 
@@ -602,6 +610,12 @@ module Zynq (
                     10'b0000001100: begin
                         regctll[05:00] <= saxi_WDATA[05:00];
                     end
+                    10'b0000011010: begin
+                        regarmintena[30:00] <= saxi_WDATA[30:00];
+                    end
+                    10'b0000011011: begin
+                        regarmintreq_30     <= saxi_WDATA[30];
+                    end
                     default: begin end
                 endcase
                 saxi_AWREADY <= 1;                          // we are ready to accept an address again
@@ -630,6 +644,11 @@ module Zynq (
 
     wire irq4_intr_out_h, irq5_intr_out_h, irq6_intr_out_h, irq7_intr_out_h;
     wire[7:0] irq4_d70_out_h, irq5_d70_out_h, irq6_d70_out_h, irq7_d70_out_h;
+
+    assign armintreq = (regarmintena[30:00] & regarmintreq[30:00]) != 0;
+    assign regarmintreq[31] = armintreq;
+    assign regarmintreq[30] = regarmintreq_30;
+    assign regarmintreq[29:01] = 0;
 
     // big memory
     wire bm_pb_out_h, bm_ssyn_out_h;
@@ -710,6 +729,7 @@ module Zynq (
         .armwaddr (writeaddr[4:2]),
         .armwdata (saxi_WDATA),
         .armwrite (rlarmwrite),
+        .armintrq (regarmintreq[00]),
 
         .intreq (rlintreq),
         .irvec  (rlintvec),

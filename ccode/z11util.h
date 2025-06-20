@@ -62,6 +62,7 @@ struct Z11Page {
     bool dmawritelocked (uint32_t xba, uint16_t data);
     void dmalock ();
     void dmaunlk ();
+    void waitint (uint32_t mask);
 
 private:
     int zynqfd;

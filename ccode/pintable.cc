@@ -165,7 +165,16 @@ PinDef const pindefs[] = {
     { "kw_enable",       DEV_KW, 1,    0x80000000,        0, true  },
     { "kw_fiftyhz",      DEV_KW, 1,    0x00000004,        0, true  },
 
-    { "rl_enable",       DEV_RL, 5,    0x80000000,        0, true  },
+    { "rl_rlcs",         DEV_RL, 1,    RL1_RLCS,          0, true  },
+    { "rl_rlba",         DEV_RL, 1,    RL1_RLBA,          0, true  },
+    { "rl_rlda",         DEV_RL, 2,    RL2_RLDA,          0, true  },
+    { "rl_rlmp1",        DEV_RL, 2,    RL2_RLMP1,         0, true  },
+    { "rl_rlmp2",        DEV_RL, 3,    RL3_RLMP2,         0, true  },
+    { "rl_rlmp3",        DEV_RL, 3,    RL3_RLMP3,         0, true  },
+    { "rl_drdy",         DEV_RL, 4,    RL4_DRDY,          0, true  },
+    { "rl_derr",         DEV_RL, 4,    RL4_DERR,          0, true  },
+    { "rl_enable",       DEV_RL, 5,    RL5_ENAB,          0, true  },
+    { "rl_fastio",       DEV_RL, 5,    RL5_FAST,          0, true  },
 
     { "pc_rcsr",         DEV_PC, 1,    0x0000FFFF,        0, true  },
     { "pc_rbuf",         DEV_PC, 1,    0xFFFF0000,        0, true  },

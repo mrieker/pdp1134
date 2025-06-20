@@ -50,4 +50,5 @@ public class GUIZynqPage {
     public native static String rlload (int drive, boolean readonly, String filename);
     public native static int    rlstat (int drive);
     public native static String rlfile (int drive);
+    public native static int    rlfast (int newflag);
 }
