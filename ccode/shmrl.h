@@ -45,8 +45,6 @@
 struct ShmRLDrive {
     uint16_t lastposn;      // last cyl/head/sec
     bool readonly;          // write protected
-    bool ready;             // drive ready
-    bool fault;             // drive fault
     bool rl01;              // is an RL01
     uint8_t fnseq;          // incremented each change in filename
     char filename[SHMRL_FNSIZE];  // "" for unloaded, else filename loaded

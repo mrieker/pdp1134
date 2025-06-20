@@ -33,6 +33,7 @@
 static int mypid;
 static int rlshmfd = -1;
 static ShmRL *rlshm = NULL;
+static uint32_t volatile *rlat;
 
 static int rlunload (int drive);
 static int rlwaitidle ();
@@ -121,15 +122,20 @@ int shmrl_load (int drive, bool readonly, char const *filename)
 int shmrl_stat (int drive, char *buff, int size)
 {
     if ((drive < 0) || (drive > 3)) ABORT ();
+    if (rlat == NULL) {
+        Z11Page *z11page = new Z11Page ();
+        rlat = z11page->findev ("RL", NULL, NULL, false);
+    }
     int statbits = rllock ();
     if (statbits >= 0) {
         statbits = 0;
         ShmRLDrive *dr = &rlshm->drives[drive];
+        uint32_t rl4 = ZRD(rlat[4]) >> drive;
         if (dr->filename[0] != 0) statbits |= RLSTAT_LOAD;  // something loaded
-        if (dr->readonly) statbits |= RLSTAT_WRPROT;        // write protected
-        if (dr->ready)    statbits |= RLSTAT_READY;         // ready (not seeking etc)
-        if (dr->fault)    statbits |= RLSTAT_FAULT;         // fault (drive error)
-        if (dr->rl01)     statbits |= RLSTAT_RL01;          // RL01 drive
+        if (dr->readonly)    statbits |= RLSTAT_WRPROT;     // write protected
+        if (rl4 & RL4_DRDY0) statbits |= RLSTAT_READY;      // ready (not seeking etc)
+        if (rl4 & RL4_DERR0) statbits |= RLSTAT_FAULT;      // fault (drive error)
+        if (dr->rl01)        statbits |= RLSTAT_RL01;       // RL01 drive
         statbits |= dr->fnseq * (RLSTAT_FNSEQ & - RLSTAT_FNSEQ);
         statbits |= (dr->lastposn / 128) * (RLSTAT_CYLNO & - RLSTAT_CYLNO);
         if (size > 0) {
@@ -166,11 +172,13 @@ static int rlwaitidle ()
         }
 
         // if idle, return success status
-        if (rlshm->command == SHMRLCMD_IDLE) return 0;
+        int cmd = rlshm->command;
+        if (cmd == SHMRLCMD_IDLE) return 0;
 
         // busy, unlock, wait then try again
         rlunlk ();
-        usleep (i);
+        rc = futex (&rlshm->command, FUTEX_WAIT, cmd, NULL, NULL, 0);
+        if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
     }
 
     fprintf (stderr, "rlwaitidle: waited too long for idle (is %d by %d)\n",
@@ -185,10 +193,12 @@ static int rlwaitidle ()
 static int rlwaitdone ()
 {
     int svrpid = rlshm->svrpid;
-    while (rlshm->command != SHMRLCMD_DONE) {
+    int cmd;
+    while ((cmd = rlshm->command) != SHMRLCMD_DONE) {
         rlunlk ();
-        usleep (2000);
-        int rc = rllock ();
+        int rc = futex (&rlshm->command, FUTEX_WAIT, cmd, NULL, NULL, 0);
+        if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
+        rc = rllock ();
         if (rc < 0) return rc;
         if (rlshm->svrpid != svrpid) {
             fprintf (stderr, "rlwaitdone: server restarted while processing function\n");

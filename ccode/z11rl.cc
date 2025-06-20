@@ -166,10 +166,12 @@ int main (int argc, char **argv)
             shmrl->drives[i].filename[0] = 0;
         }
     }
+    // ...and no drives are ready or faulted
+    ZWR(rlat[4], 0);
     UNLKIT;
 
     // enable board to process io instructions
-    ZWR(rlat[5], RL5_ENAB);
+    ZWR(rlat[5], (rlat[5] & RL5_FAST) | RL5_ENAB);
 
     debug = 0;
     char const *dbgenv = getenv ("z11rl_debug");
@@ -228,7 +230,6 @@ static void *rliothread (void *dummy)
             int fd = fds[drivesel];
             ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
             ShmRLDrive *dr = &shmrl->drives[drivesel];
-            dr->ready = false;
 
             struct timespec nowts;
             if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
@@ -520,7 +521,6 @@ static void *rliothread (void *dummy)
             nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
             uint16_t drdy = ((fd >= 0) && (seekdoneats[drivesel] <= nowus)) ? RL4_DRDY0 : 0;
             ZWR(rlat[4], (ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel)) | (drdy << drivesel));
-            dr->ready = drdy != 0;
 
             // update RLMPs, RLDA, then RLBA and RLCS
             ZWR(rlat[3], ((uint32_t) rlmp3 << 16) | rlmp2);
@@ -589,12 +589,14 @@ static void procommands ()
             case SHMRLCMD_LOAD+0 ... SHMRLCMD_LOAD+3: {
                 int driveno = cmd - SHMRLCMD_LOAD;
                 ShmRLDrive *dr = &shmrl->drives[driveno];
+                ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << driveno));
                 UNLKIT;
                 unloadfile (driveno);
                 int rc = loadfile (driveno);
                 LOCKIT;
                 if (rc >= 0) {
                     shmrl->negerr = 0;
+                    ZWR(rlat[4], ZRD(rlat[4]) | (RL4_DRDY0 << driveno));
                 } else {
                     dr->filename[0] = 0;
                     shmrl->negerr = rc;
@@ -611,6 +613,7 @@ static void procommands ()
                 dr->filename[0] = 0;
                 if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
                 fns[driveno][0] = 0;
+                ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << driveno));
                 unloadfile (driveno);
                 shmrl->command = SHMRLCMD_DONE;
                 if (futex (&shmrl->command, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
