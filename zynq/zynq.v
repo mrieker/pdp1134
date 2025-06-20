@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131401E;
+    localparam VERSION = 32'h3131401F;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -146,6 +146,8 @@ module Zynq (
     localparam FM_SIM  = 1;     // simulating - still acts as grant jumper to outside world
     localparam FM_REAL = 2;     // real - connected to outside signals
     localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
+
+    wire turbo = regctll[22];   // skip simulation delays
 
     wire[31:00] regctlh;        // debug display in z11dump
 
@@ -365,6 +367,7 @@ module Zynq (
         .CLOCK (CLOCK),
         .RESET (sim_reset_h),
 
+        .turbo (turbo),
         .pcout (regctlj[15:00]),
         .psout (regctlj[31:16]),
         .stout (regctlk_0500),
@@ -609,6 +612,7 @@ module Zynq (
                     end
                     10'b0000001100: begin
                         regctll[05:00] <= saxi_WDATA[05:00];
+                        regctll[22]    <= saxi_WDATA[22];
                     end
                     10'b0000011010: begin
                         regarmintena[30:00] <= saxi_WDATA[30:00];
@@ -766,6 +770,8 @@ module Zynq (
         .armwaddr (writeaddr[4:2]),
         .armwdata (saxi_WDATA),
         .armwrite (slarmwrite),
+
+        .turbo (turbo),
 
         .a_in_h      (dev_a_h),          //<< address from pdp/sim to read switch register or write light register
         .ac_lo_in_h  (dev_ac_lo_h),      //<< power is going down

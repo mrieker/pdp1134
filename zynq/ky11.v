@@ -34,6 +34,8 @@ module ky11 (
     input[31:00] armwdata,
     output[31:00] armrdata,
 
+    input turbo,
+
     input[17:00] a_in_h,
     input ac_lo_in_h,
     input bbsy_in_h,
@@ -79,7 +81,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B59200F : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592010 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -306,9 +308,9 @@ module ky11 (
 
             // after 150nS, send out msyn
             3: begin
-                if (dmadelay[3:0] != 15) begin
+                sack_out_h     <= halted;
+                if ((dmadelay[3:0] != 15) & ~ turbo) begin
                     dmadelay   <= dmadelay + 1;
-                    sack_out_h <= halted;
                 end else begin
                     msyn_out_h <= 1;
                     dmadelay   <= 0;
@@ -336,7 +338,7 @@ module ky11 (
 
             // wait 150nS then clock in read data and drop msyn
             5: begin
-                if (dmadelay[3:0] != 15) begin
+                if ((dmadelay[3:0] != 15) & ~ turbo) begin
                     dmadelay <= dmadelay + 1;
                 end else begin
                     if (~ dmactrl[1]) begin
@@ -352,7 +354,7 @@ module ky11 (
 
             // wait 150nS then drop everything else and tell arm it completed successfully
             6: begin
-                if (dmadelay[3:0] != 15) begin
+                if ((dmadelay[3:0] != 15) & ~ turbo) begin
                     dmadelay    <= dmadelay + 1;
                 end else if (~ del_ssyn_in_h) begin
                     a_out_h     <= 0;

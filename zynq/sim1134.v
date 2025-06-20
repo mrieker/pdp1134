@@ -24,6 +24,7 @@ module sim1134 (
     input CLOCK,
     input RESET,
 
+    input turbo,
     output[15:00] r0out, pcout, psout,
     output[5:0] stout,
     output waiting,
@@ -448,8 +449,8 @@ module sim1134 (
 
                 // give 150nS for signals to flow out the bus and be decoded
                 3: begin
-                    if (rwdelay == 15) rwstate <= 4;
-                        else rwdelay <= rwdelay + 1;
+                    if ((rwdelay == 15) | turbo) rwstate <= 4;
+                                  else rwdelay <= rwdelay + 1;
                 end
 
                 // assert MSYN to say it's all valid now
@@ -479,7 +480,7 @@ module sim1134 (
                 // wait 150nS for read data
                 // complete write immediately
                 6: begin
-                    if ((memfunc == MF_WR) | (rwdelay == 15)) begin
+                    if ((memfunc == MF_WR) | (rwdelay == 15) | turbo) begin
                         if ((memfunc == MF_RM) | (memfunc == MF_RD)) begin
                             readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
                             readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
@@ -499,7 +500,7 @@ module sim1134 (
                 // let address, data and function linger for 80nS after dropping MSYN
                 // also wait for slave to drop SSYN
                 7: begin
-                    if (rwdelay != 8) begin
+                    if ((rwdelay != 8) & ~ turbo) begin
                         rwdelay        <= rwdelay + 1;
                     end else if (bus_ssyn_in_l) begin
                         bus_a_out_l    <= 18'o777777;

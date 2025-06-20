@@ -203,9 +203,9 @@ int main (int argc, char **argv)
             printf ("   man_intr_out_h=%o        intr_in_h=%o       dev_intr_h=%o%s",       FIELD(Z_RA,a_man_intr_out_h),   FIELD(Z_RC,c_intr_in_h),       FIELD(Z_RD,d_dev_intr_h),   eol);
             printf ("   man_msyn_out_h=%o        msyn_in_h=%o       dev_msyn_h=%o%s",       FIELD(Z_RA,a_man_msyn_out_h),   FIELD(Z_RC,c_msyn_in_h),       FIELD(Z_RD,d_dev_msyn_h),   eol);
             printf ("    man_npg_out_l=%o         npg_in_l=%o        dev_npg_l=%o%s",       FIELD(Z_RA,a_man_npg_out_l),    FIELD(Z_RC,c_npg_in_l),        FIELD(Z_RD,d_dev_npg_l),    eol);
-            printf ("    man_npr_out_h=%o     dmx_npr_in_h=%o        dev_npr_h=%o       simst=%02u%s", FIELD(Z_RA,a_man_npr_out_h),  FIELD(Z_RE,e_dmx_npr_in_h), FIELD(Z_RD,d_dev_npr_h),  FIELD(Z_RK,k_simst), eol);
-            printf ("     man_pa_out_h=%o      dmx_pa_in_h=%o         dev_pa_h=%o%s",       FIELD(Z_RA,a_man_pa_out_h),     FIELD(Z_RE,e_dmx_pa_in_h),     FIELD(Z_RD,d_dev_pa_h),     eol);
-            printf ("     man_pb_out_h=%o      dmx_pb_in_h=%o         dev_pb_h=%o%s",       FIELD(Z_RA,a_man_pb_out_h),     FIELD(Z_RE,e_dmx_pb_in_h),     FIELD(Z_RD,d_dev_pb_h),     eol);
+            printf ("    man_npr_out_h=%o     dmx_npr_in_h=%o        dev_npr_h=%o%s",       FIELD(Z_RA,a_man_npr_out_h),    FIELD(Z_RE,e_dmx_npr_in_h),    FIELD(Z_RD,d_dev_npr_h),    eol);
+            printf ("     man_pa_out_h=%o      dmx_pa_in_h=%o         dev_pa_h=%o       turbo=%o%s",   FIELD(Z_RA,a_man_pa_out_h),   FIELD(Z_RE,e_dmx_pa_in_h),  FIELD(Z_RD,d_dev_pa_h),   FIELD(Z_RL,l_turbo), eol);
+            printf ("     man_pb_out_h=%o      dmx_pb_in_h=%o         dev_pb_h=%o       simst=%02u%s", FIELD(Z_RA,a_man_pb_out_h),   FIELD(Z_RE,e_dmx_pb_in_h),  FIELD(Z_RD,d_dev_pb_h),   FIELD(Z_RK,k_simst), eol);
             printf ("   man_sack_out_h=%o        sack_in_h=%o       dev_sack_h=%o       simpc=%06o%s", FIELD(Z_RA,a_man_sack_out_h), FIELD(Z_RC,c_sack_in_h),    FIELD(Z_RD,d_dev_sack_h), FIELD(Z_RJ,j_simpc), eol);
             printf ("   man_ssyn_out_h=%o        ssyn_in_h=%o       dev_ssyn_h=%o       simps=%06o%s", FIELD(Z_RA,a_man_ssyn_out_h), FIELD(Z_RC,c_ssyn_in_h),    FIELD(Z_RD,d_dev_ssyn_h), FIELD(Z_RJ,j_simps), eol);
             printf ("%s", eol);

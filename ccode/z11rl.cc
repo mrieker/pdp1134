@@ -335,10 +335,12 @@ static void *rliothread (void *dummy)
 
                     dr->lastposn = (newcyl << 7) | ((rlda << 2) & 0x40);
 
-                    int oldsdaint = (int) seekdoneats[drivesel];
-                    seekdoneats[drivesel] = nowus + (fastio ? 0 : (rlda >> 7) * USPERCYL + SETTLEUS);
-                    if ((int) seekdoneats[drivesel] == oldsdaint) seekdoneats[drivesel] ++;
-                    if (futex ((int *)&seekdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+                    if (! fastio) {
+                        int oldsdaint = (int) seekdoneats[drivesel];
+                        seekdoneats[drivesel] = nowus + (rlda >> 7) * USPERCYL + SETTLEUS;
+                        if ((int) seekdoneats[drivesel] == oldsdaint) seekdoneats[drivesel] ++;
+                        if (futex ((int *)&seekdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+                    }
                     break;
                 }
 

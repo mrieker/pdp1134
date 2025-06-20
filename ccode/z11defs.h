@@ -134,6 +134,7 @@
 #define k_lataddr     (0x00FFFFC0U)
 #define l_muxdelay    (0x0000003FU)
 #define l_latdata     (0x003FFFC0U)
+#define l_turbo       (0x00400000U)
 
 #define ILACTL 034
 #define ILATIM 035
