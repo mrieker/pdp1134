@@ -92,7 +92,6 @@ module sim1134 (
     localparam[5:0] S_EXMUL4    = 27;
     localparam[5:0] S_EXDIV     = 28;
     localparam[5:0] S_EXDIV3    = 29;
-    localparam[5:0] S_EXDIV4    = 30;
     localparam[5:0] S_EXDIV5    = 31;
     localparam[5:0] S_EXDIV6    = 32;
     localparam[5:0] S_EXMFPI    = 33;
@@ -258,6 +257,7 @@ module sim1134 (
     localparam[1:0] MF_RM = 3;  // do a DATIP cycle
 
     wire[31:00] multstep = { 1'b0, product[31:16] + (srcval[00] ? dstval : 16'b0), product[15:01] };
+    wire[17:00] divdiff  = { 1'b0, product[31:15] } - { 2'b0, dstval };
 
     // unibus data output
     reg[15:00] cer_d_out_l, cpu_d_out_l, gpr_d_out_l, mmr_d_out_l, mmv_d_out_l, psw_d_out_l;
@@ -1030,7 +1030,7 @@ module sim1134 (
                     psw[3] <= product[31];
                     psw[2] <= product == 0;
                     psw[1] <= 0;
-                    psw[0] <= psw[0] | (product > 32'h00007FFF) & (product < 32'hFFFF8000);
+                    psw[0] <= (product[31:15] != 17'o0000000) & (product[31:15] != 17'o0377777);
                     if (~ instreg[06]) gprs[srcgprx] <= product[31:16];
                     gprs[srcgprx1] <= product[15:00];
                     state  <= S_SERVICE;
@@ -1040,34 +1040,36 @@ module sim1134 (
                 //  dstval = divisor
                 //  instreg[08:06] = dividend; destination register
                 S_EXDIV: begin
-                    product[31:16] <= gprs[srcgprx];
-                    product[15:00] <= gprs[srcgprx1];
-                    state          <= S_EXDIV3;
-                end
-                S_EXDIV3: begin
-                    dstval     <= dstval[15] ? - dstval : dstval;
-                    product    <= product[31] ? - product : product;
-                    psw[00]    <= 0;
-                    psw[01]    <= 0;
-                    srcval[15] <= product[31];
-                    signbit    <= product[31] ^ dstval[15];
-                    state      <= S_EXDIV4;
-                end
-                S_EXDIV4: begin
-                    if (product[31:15] >= { 1'b0, dstval }) begin
-                        psw[00] <= (dstval == 0);
-                        psw[01] <= 1;
-                        state   <= S_SERVICE;
+                    if (dstval == 0) begin
+                        psw[3:0]       <= 4'b0011;
+                        state          <= S_SERVICE;
                     end else begin
-                        counter <= 15;
-                        state   <= S_EXDIV5;
+                        product[31:16] <= gprs[srcgprx];
+                        product[15:00] <= gprs[srcgprx1];
+                        psw[3:0]       <= 4'b0000;
+                        state          <= S_EXDIV3;
                     end
                 end
+                S_EXDIV3: begin
+                    counter    <= 15;
+                    dstval     <= dstval[15]  ? - dstval  : dstval;
+                    product    <= product[31] ? - product : product;
+                    srcval[15] <= product[31];
+                    signbit    <= product[31] ^ dstval[15];
+                    state      <= S_EXDIV5;
+                end
                 S_EXDIV5: begin
-                    if (product[30:15] >= dstval) begin
-                        product <= { product[30:15] - dstval, product[14:00], 1'b1 };
-                    end else begin
+                    // compare dividend[31:15] to 1'b0,divisor[15:00]
+                    if (divdiff[17]) begin
+                        // dividend[31:15] smaller than 1'b0,divisor[15:00]
+                        // shift dividend left and shift in a 0 quotient bit
                         product <= { product[30:00], 1'b0 };
+                    end else begin
+                        // dividend[31:15] at least as big as 1'b0,divisor[15:00]
+                        // subtract divisor from dividend, shift left, shift in a 1 quotient bit
+                        product <= { divdiff[15:00], product[14:00], 1'b1 };
+                        // overflow if they are too much bigger cuz we shifted out a 1
+                        psw[1]  <= psw[1] | divdiff[16];
                     end
                     if (counter == 0) state <= S_EXDIV6;
                             else counter <= counter - 1;
@@ -1079,7 +1081,8 @@ module sim1134 (
                 S_EXDIV6: begin
                     psw[3] <= signbit & (product[15:00] != 0);
                     psw[2] <= product[15:00] == 0;
-                    gprs[srcgprx] <= signbit ? - product[15:00] : product[15:00];
+                    psw[1] <= psw[1] | product[15];
+                    gprs[srcgprx]  <= signbit    ? - product[15:00] : product[15:00];
                     gprs[srcgprx1] <= srcval[15] ? - product[31:16] : product[31:16];
                     state  <= S_SERVICE;
                 end

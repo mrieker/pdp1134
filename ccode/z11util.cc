@@ -289,7 +289,7 @@ uint32_t randbits (int nbits)
 {
     static uint64_t seed = 0x123456789ABCDEF0ULL;
 
-    uint16_t randval = 0;
+    uint32_t randval = 0;
 
     while (-- nbits >= 0) {
 

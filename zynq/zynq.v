@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h3131401F;
+    localparam VERSION = 32'h31314020;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -147,7 +147,7 @@ module Zynq (
     localparam FM_REAL = 2;     // real - connected to outside signals
     localparam FM_MAN  = 3;     // manual - connected to outside signals with manual manipulation
 
-    wire turbo = regctll[22];   // skip simulation delays
+    wire turbo = regctll[22] & (fpgamode == FM_SIM);  // skip MSYN/SSYN deskewing delays when in simulation mode
 
     wire[31:00] regctlh;        // debug display in z11dump
 
