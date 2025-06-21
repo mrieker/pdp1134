@@ -171,10 +171,10 @@ module sim1134 (
     wire iIOT   = (instreg == 4);
     wire iRESET = (instreg == 5);
     wire iRTT   = (instreg == 6);
-    wire iJMP   = (instreg[15:06] == 10'o0001) & (instreg[05:03] != 0);
+    wire iJMP   = (instreg[15:06] == 10'o0001);
     wire iRTS   = (instreg[15:03] == 13'o0020);
     wire iSWAB  = (instreg[15:06] == 10'o0003);
-    wire iJSR   = (instreg[15:09] ==   7'o004) & (instreg[05:03] != 0);
+    wire iJSR   = (instreg[15:09] ==   7'o004);
     wire iCLRb  = (instreg[14:06] ==   9'o050);
     wire iCOMb  = (instreg[14:06] ==   9'o051);
     wire iINCb  = (instreg[14:06] ==   9'o052);
@@ -565,6 +565,7 @@ module sim1134 (
                 4, 5: begin
                     case (getopaddr)
                         1: begin
+                            if (getgprx == 6) yellowck <= 1;  // KSP (not USP)
                             gprs[getgprx] <= gprs[getgprx] - getopinc;
                             virtaddr      <= gprs[getgprx] - getopinc;
                             if (getopmode[3]) begin
@@ -799,7 +800,11 @@ module sim1134 (
                 // start getting destination operand
                 S_GETDST: begin
                     if (instreg[05:03] == 0) begin
-                             if (iMFPID) state <= S_EXMFPI;
+                        if (iJMP | iJSR) begin
+                            state   <= S_SERVICE;
+                            trapvec <= T_CPUERR;
+                        end
+                        else if (iMFPID) state <= S_EXMFPI;
                         else if (iMTPID) state <= S_EXMTPI;
                         else begin
                             dstval <= byteinstr ? { gprs[dstgprx][7:0], 8'b0 } : gprs[dstgprx];
@@ -1198,10 +1203,12 @@ module sim1134 (
                     // do traps caused by instruction before checking halt switch
                     if (trapvec != 0) begin
                         state      <= S_TRAP;
+                        yellowck   <= 1;
                     end else if (yellowck & (psw[15:14] == 0) & (gprs[6] < YELSTKLIM)) begin
                         cpuerr[03] <= 1;
                         state      <= S_TRAP;
                         trapvec    <= T_CPUERR;
+                        yellowck   <= 0;
                     end
 
                     // maybe power just failed
@@ -1209,6 +1216,7 @@ module sim1134 (
                         aclock     <= 0;
                         state      <= S_TRAP;
                         trapvec    <= T_PWRFAIL;
+                        yellowck   <= 1;
                     end
 
                     // check halt switch
@@ -1239,8 +1247,9 @@ module sim1134 (
 
                     // check instruction trace
                     else if (traceck & psw[4]) begin
-                        state   <= S_TRAP;
-                        trapvec <= T_BPTRACE;
+                        state    <= S_TRAP;
+                        trapvec  <= T_BPTRACE;
+                        yellowck <= 1;
                     end
 
                     // nothing special, fetch next instruction
@@ -1296,6 +1305,10 @@ module sim1134 (
 
                 // do trap via trapvec
                 // - start reading new PC into srcval
+                // - trapping = 0 : wasn't doing a trap, so it's ok to do a trap
+                //              1 : trapped while doing a trap (double-fault), halt
+                // - yellowck = 1 : check for yellow stack afterward
+                //              0 : don't check yellow stack afterward
                 S_TRAP: begin
                     if (trapping) begin
                         // was in middle of doing a trap, can't do nested ones
@@ -1311,7 +1324,6 @@ module sim1134 (
                         trapping   <= 1;                    // if we trap whilst doing this trap, halt
                         trapvec    <= 0;
                         virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
-                        yellowck   <= trapvec != T_CPUERR;  // check yellow stack only for other than the yellow stack vector
                     end
                 end
 
