@@ -725,6 +725,7 @@ module sim1134 (
                 S_EXRESET: begin
                     if (resdelay != 1000000) begin
                         bus_init_out_l <= 0;
+                        mmr0           <= 0;
                         resdelay       <= resdelay + 1;
                     end else begin
                         resdelay       <= 0;
