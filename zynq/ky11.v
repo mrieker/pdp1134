@@ -81,7 +81,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B592010 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592011 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -336,9 +336,9 @@ module ky11 (
                 end
             end
 
-            // wait 150nS then clock in read data and drop msyn
+            // wait 80nS then clock in read data and drop msyn
             5: begin
-                if ((dmadelay[3:0] != 15) & ~ turbo) begin
+                if ((dmadelay[3:0] != 8) & ~ turbo) begin
                     dmadelay <= dmadelay + 1;
                 end else begin
                     if (~ dmactrl[1]) begin
@@ -352,9 +352,9 @@ module ky11 (
                 end
             end
 
-            // wait 150nS then drop everything else and tell arm it completed successfully
+            // wait 80nS then drop everything else and tell arm it completed successfully
             6: begin
-                if ((dmadelay[3:0] != 15) & ~ turbo) begin
+                if ((dmadelay[3:0] != 8) & ~ turbo) begin
                     dmadelay    <= dmadelay + 1;
                 end else if (~ del_ssyn_in_h) begin
                     a_out_h     <= 0;
