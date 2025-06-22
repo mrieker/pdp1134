@@ -4,32 +4,37 @@
 
 proc helpini {} {
     puts ""
-    puts "       bmrdbyte addr - read byte from fpga memory"
-    puts "       bmrdword addr - read word from fpga memory"
-    puts "  bmwrbyte addr data - write byte to fpga memory"
-    puts "  bmwrword addr data - write word to fpga memory"
-    puts "       dumpmem lo hi - dump memory from lo to hi address"
-    puts "        enabmem size - enable given size of memory"
-    puts "           flickcont - continue processing"
-    puts "           flickhalt - halt processing"
-    puts "  flickstart pc \[ps\] - reset processor and start at given address"
-    puts "           flickstep - step processor one instruction then print PC"
-    puts "      getenv var def - get envar 'var', default to 'def'"
-    puts "           hardreset - hard reset processor to halted state"
-    puts "             loadbin - load binary tape file, return start address"
-    puts "             loadlst - load from MACRO11 listing"
-    puts "             lockdma - lock access to dma controller"
-    puts "             octal x - convert integer x to 6-digit octal string"
-    puts "         rdbyte addr - read byte at given physical address"
-    puts "         rdword addr - read word at given physical address"
-    puts "     rdwordtimo addr - read word at given physical address"
-    puts "             realmem - determine size of real memory"
-    puts "           steptrace - single step with disassembly"
-    puts "       steptraceloop - single step with disassembly - looped"
-    puts "             unlkdma - unlock access to dma controller"
-    puts "              vatopa - convert virtual address to physical"
-    puts "    wrbyte addr data - write data byte to given physical address"
-    puts "    wrword addr data - write data word to given physical address"
+    puts "               bmrdbyte addr - read byte from fpga memory"
+    puts "               bmrdword addr - read word from fpga memory"
+    puts "          bmwrbyte addr data - write byte to fpga memory"
+    puts "          bmwrword addr data - write word to fpga memory"
+    puts "               dumpmem lo hi - dump memory from lo to hi address"
+    puts "                enabmem size - enable given size of memory"
+    puts "                   flickcont - continue processing"
+    puts "                   flickhalt - halt processing"
+    puts "          flickstart pc \[ps\] - reset processor and start at given address"
+    puts "                   flickstep - step processor one instruction then print PC"
+    puts "              getenv var def - get envar 'var', default to 'def'"
+    puts "                   hardreset - hard reset processor to halted state"
+    puts "                     loadbin - load binary tape file, return start address"
+    puts "                     loadlst - load from MACRO11 listing"
+    puts "                     lockdma - lock access to dma controller"
+    puts "                     octal x - convert integer x to 6-digit octal string"
+    puts "                 rdbyte addr - read byte at given physical address"
+    puts "                 rdword addr - read word at given physical address"
+    puts "             rdwordtimo addr - read word at given physical address"
+    puts "          readttychar timoms - read char pdp sent to tty printer"
+    puts "                     realmem - determine size of real memory"
+    puts "  replytoprompt prompt reply - wait for string to be output to tty then send reply"
+    puts "                 rsxdatetime - current date/time string for RSX TIM command"
+    puts "              sendttychar ch - send char to pdp via tty keyboard"
+    puts "                   steptrace - single step with disassembly"
+    puts "               steptraceloop - single step with disassembly - looped"
+    puts "                     unlkdma - unlock access to dma controller"
+    puts "                      vatopa - convert virtual address to physical"
+    puts "        waitforstring prompt - wait for string to be output to tty"
+    puts "            wrbyte addr data - write data byte to given physical address"
+    puts "            wrword addr data - write data word to given physical address"
     puts ""
 }
 
@@ -377,6 +382,18 @@ proc octal {x} {
     return [format "%06o" $x]
 }
 
+# read character printed by PDP
+proc readttychar {timoms} {
+    for {set i 0} {! [ctrlcflag] && ($i < $timoms)} {incr i} {
+        after 1
+        if {! ([pin dl_xcsr] & 0200)} {
+            set by [pin dl_xbuf set dl_xcsr 0200]
+            return [format "%c" $by]
+        }
+    }
+    return ""
+}
+
 # read a byte from unibus via dma (ky11.v)
 proc rdbyte {addr} {
     if {($addr < 0) || ($addr > 0777777)} {
@@ -475,6 +492,41 @@ proc realmem {} {
     return $addr
 }
 
+# read and display output from PDP until prompt seen
+# then send and echo reply string followed by <CR>
+proc replytoprompt {prompt reply} {
+    waitforstring $prompt
+    after 300
+    set rpllen [string length $reply]
+    for {set rplout 0} {! [ctrlcflag] && ($rplout < $rpllen)} {incr rplout} {
+        flush stdout
+        after 100
+        set ch [string index $reply $rplout]
+        sendttychar "$ch"
+        set ch2 [readttychar 100]
+        puts -nonewline "$ch2"
+        if {$ch2 != $ch} {error "replytoprompt: '$ch' echoed as '$ch2'"}
+    }
+    after 100
+    sendttychar "\r"
+}
+
+# get current date/time hh:mm:ss dd-mmm-99 suitable for RSX TIM command
+proc rsxdatetime {} {
+    return [string toupper [clock format [clock seconds] -format "%H:%M:%S %d-%b-99"]]
+}
+
+# send keyboard character to PDP
+proc sendttychar {ch} {
+    for {set i 0} {[pin dl_rcsr] & 0200} {incr i} {
+        if {[ctrlcflag]} return
+        if {$i > 500} {error "sendttychar: keyboard stuck"}
+        after 1
+    }
+    scan $ch "%c" by
+    pin set dl_rbuf $by dl_rcsr 0200
+}
+
 # step, printing disassembly
 proc steptrace {} {
     if {! [pin ky_halted]} {
@@ -533,6 +585,23 @@ proc vatopa {vaddr {mode cur}} {
     if {($pdr & 8) ? ($blk < $plf) : ($blk > $plf)} {error "vatopa: length error vaddr [octal $vaddr]"}
     set par [rdword [expr {$pdr0 + 040 + 2 * $page}]]
     return [expr {(($par << 6) + ($vaddr & 017777)) & 0777777}]
+}
+
+# wait for the given string, echoing everything, including the string, until matched
+proc waitforstring {prompt} {
+    set pmtlen [string length $prompt]
+    set pmtmat 0
+    while {! [ctrlcflag] && ($pmtmat < $pmtlen)} {
+        set ch [readttychar 1000]
+        puts -nonewline "$ch"
+        if {$ch == ""} {
+            flush stdout
+        } elseif {[string index $prompt $pmtmat] == "$ch"} {
+            incr pmtmat
+        } else {
+            set pmtmat 0
+        }
+    }
 }
 
 # write a byte to unibus via dma (ky11.v)
