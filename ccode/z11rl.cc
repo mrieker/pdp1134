@@ -198,8 +198,7 @@ static void *rliothread (void *dummy)
 {
     if (debug > 1) fprintf (stderr, "z11rl: thread started\n");
 
-    int logrlfd = -1; // open ("/tmp/logrl.bin", O_RDONLY);
-    uint32_t logrlpos = 0;
+    int logrlfd = (debug < 0) ? open ("/tmp/logrl.bin", O_WRONLY | O_CREAT, 0666) : -1;
 
     while (true) {
 
@@ -369,21 +368,6 @@ static void *rliothread (void *dummy)
                     uint16_t trk = (rlda >> 6) & 1;
                     uint16_t cyl =  rlda >> 7;
 
-                    if (logrlfd >= 0) {
-                        uint16_t hdr[3];
-                        int rc = pread (logrlfd, hdr, sizeof hdr, logrlpos);
-                        if (rc < (int) sizeof hdr) {
-                            fprintf (stderr, "z11rl: [%u] only read %d of %d bytes from logrl\n", drivesel, rc, (int) sizeof hdr);
-                            ABORT ();
-                        }
-                        uint16_t exp[3] = { ('W' << 8) | 'R', BLKNUM (rlda), SECCNT (rlmp) };
-                        if (memcmp (hdr, exp, 6) != 0) {
-                            fprintf (stderr, "z11rl: [%u] %08X got %06o %06o %06o expect %06o %06o %06o\n", drivesel, logrlpos, hdr[0], hdr[1], hdr[2], exp[0], exp[1], exp[2]);
-                            ABORT ();
-                        }
-                        logrlpos += sizeof hdr + (uint32_t) hdr[2] * 256;
-                    }
-
                     do {
                         uint16_t sec = rlda & 63;
                         if (sec >= SECPERTRK) {
@@ -420,6 +404,21 @@ static void *rliothread (void *dummy)
                             goto opierr;
                         }
                         if (debug > 2) dumpbuf (drivesel, buf, off, xbasave, "write");
+
+                        if (logrlfd >= 0) {
+                            uint16_t hdr[] = { (uint16_t) (('W' << 8) + '0' + drivesel), rlda, (uint16_t) off, (uint16_t) (off >> 16) };
+                            rc = write (logrlfd, hdr, sizeof hdr);
+                            if (rc < (int) sizeof hdr) {
+                                fprintf (stderr, "z11rl: [%u] only wrote %d of %d bytes to logrl\n", drivesel, rc, (int) sizeof hdr);
+                                ABORT ();
+                            }
+                            rc = write (logrlfd, buf, sizeof buf);
+                            if (rc < (int) sizeof buf) {
+                                fprintf (stderr, "z11rl: [%u] only wrote %d of %d bytes to logrl\n", drivesel, rc, (int) sizeof buf);
+                                ABORT ();
+                            }
+                        }
+
                         rlda ++;
                     } while (rlmp != 0);
                     break;
@@ -437,21 +436,6 @@ static void *rliothread (void *dummy)
                     }
                     uint16_t trk = (rlda >> 6) & 1;
                     uint16_t cyl =  rlda >> 7;
-
-                    if (logrlfd >= 0) {
-                        uint16_t hdr[3];
-                        int rc = pread (logrlfd, hdr, sizeof hdr, logrlpos);
-                        if (rc < (int) sizeof hdr) {
-                            fprintf (stderr, "z11rl: [%u] only read %d of %d bytes from logrl\n", drivesel, rc, (int) sizeof hdr);
-                            ABORT ();
-                        }
-                        uint16_t exp[3] = { ('R' << 8) | 'D', BLKNUM (rlda), SECCNT (rlmp) };
-                        if (memcmp (hdr, exp, 6) != 0) {
-                            fprintf (stderr, "z11rl: [%u] %08X got %06o %06o %06o expect %06o %06o %06o\n", drivesel, logrlpos, hdr[0], hdr[1], hdr[2], exp[0], exp[1], exp[2]);
-                            ABORT ();
-                        }
-                        logrlpos += sizeof hdr + (uint32_t) hdr[2] * 256;
-                    }
 
                     do {
                         uint16_t sec = rlda & 63;
@@ -472,6 +456,21 @@ static void *rliothread (void *dummy)
                             goto opierr;
                         }
                         if (debug > 2) dumpbuf (drivesel, buf, off, rlxba, "read");
+
+                        if (logrlfd >= 0) {
+                            uint16_t hdr[] = { (uint16_t) (('R' << 8) + '0' + drivesel), rlda, (uint16_t) off, (uint16_t) (off >> 16) };
+                            rc = write (logrlfd, hdr, sizeof hdr);
+                            if (rc < (int) sizeof hdr) {
+                                fprintf (stderr, "z11rl: [%u] only wrote %d of %d bytes to logrl\n", drivesel, rc, (int) sizeof hdr);
+                                ABORT ();
+                            }
+                            rc = write (logrlfd, buf, sizeof buf);
+                            if (rc < (int) sizeof buf) {
+                                fprintf (stderr, "z11rl: [%u] only wrote %d of %d bytes to logrl\n", drivesel, rc, (int) sizeof buf);
+                                ABORT ();
+                            }
+                        }
+
                         rlda ++;
 
                         z11p->dmalock ();
@@ -624,7 +623,7 @@ static void procommands ()
             default: {
                 UNLKIT;
                 int rc = futex (&shmrl->command, FUTEX_WAIT, cmd, NULL, NULL, 0);
-                if ((rc < 0) && (errno != EINTR)) ABORT ();
+                if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
                 LOCKIT;
             }
         }

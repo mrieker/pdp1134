@@ -278,9 +278,6 @@ static void lockmutex ()
 
 static int forkserver ()
 {
-    // make sure server does not zombie
-    if (signal (SIGCHLD, SIG_IGN) == SIG_ERR) ABORT();
-
     // create process for the server
     int pid = fork ();
 
