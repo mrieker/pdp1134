@@ -1,0 +1,545 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; Test dz11.v and z11dz.cc
+
+;   $ ../MACRO11/src/macro11 -o dztest.obj -l dztest.lst dztest.mac
+;       on another screen:  $ ./z11dz -cps 960 0  (should be able to control-\
+;       on another screen:  $ ./z11dz -cps 840 1   ... and restart at will)
+;       on another screen:  $ ./z11dz -cps 720 2
+;       on another screen:  $ ./z11dl -cps 960    (error messages only)
+;   $ ./z11ctrl testdz.tcl
+;   $ ./z11dump  or  ./z11gui   to see it working
+
+;  repeatedly prints message on all terminals at same time
+;  if keyboard input given, echoes input until <CR> then resumes printing
+
+; Switches:
+;   <7:0> = line enables
+;   <15> = hang on interrupt
+
+	DZCSR = 160100
+	DZRBR = 160102	; ro
+	DZLPR = 160102	; wo
+	DZTCR = 160104
+	DZMSR = 160106	; ro
+	DZTDR = 160106	; wo
+
+	SWLI = 177570
+
+	;T.NEXT = 0	; link to next on queue
+	T.SVR2 = 02
+	T.SVR3 = 04
+	T.SVR4 = 06
+	T.SVR5 = 10
+	T.SVSP = 12	; saved stack pointer
+	T.SVPC = 14
+	T.PAR1 = 16
+	T.PAR2 = 20
+	T.PAR3 = 22
+	T.PAR4 = 24
+	T.PAR5 = 26
+	T.PAR6 = 30
+	T.STAK = 32
+	T.SIZE = 2000
+
+	ZZ = .
+
+	.word	0,0
+	.word	trap04,0340	; bus error
+	.word	trap10,0340	; ill instr
+	.word	trap14,0340	; bpt/trace
+	.word	trap20,0340	; iot (prchar)
+
+	. = ZZ + 114
+	.word	trp114,0340
+
+	. = ZZ + 300
+	.word	dzintr,0340
+
+	. = ZZ + 400
+
+start:
+	mtps	#340
+	mov	#stktop,sp
+
+;;	jsr	r5,prascz
+;;		.asciz	"starting..."<15><12>
+;;		.even
+
+	clr	r3
+100$:
+	mov	#1,r1		; see if switch<r3> set
+	ash	r3,r1
+	bit	r1,@#SWLI
+	beq	200$
+
+	mov	r3,r1		; point to thread block
+	mul	#T.SIZE,r1
+	add	#dr0thr,r1
+	mov	r1,r0
+
+	add	#T.SIZE,r1	; thread stack = end of thread block
+
+	mov	#tstart,r2	; initial program counter
+	jsr	pc,thinit
+
+200$:
+	inc	r3
+	cmp	r3,#10
+	bne	100$
+
+	; enable DZ-11 interrupts
+	mov	#040100,@#DZCSR
+
+	; grab a runnable thread
+	jmp	thbegn
+;;;;	mov	#360,-(sp)	;;;; turn trace trap on
+;;;;	mov	#thbegn,-(sp)	;;;;
+;;;;	rti			;;;;
+
+	; testing starts here in per-thread context
+
+tstart:
+	; r3 = line number
+
+	mov	r3,r0		; set 'rcvon' for this line
+	bis	#10000,r0
+	mov	r0,@#DZLPR
+
+bgloop:
+	mov	#outmsg,r4	; point to test message
+100$:
+	movb	(r4)+,r0	; print test message until null
+	beq	bgloop
+	jsr	pc,dzprch
+	tstb	kbchrs(r3)	; see if keyboard char
+	beq	100$		; if not, keep printing
+
+	mov	#15,r0		; keyboard char, print <CR><LF>'>'
+	jsr	pc,dzprch
+	mov	#12,r0
+	jsr	pc,dzprch
+	mov	#76,r0
+	jsr	pc,dzprch
+
+500$:
+	jsr	pc,dzkbch	; read kb char, waiting if none
+	mov	r0,r2		; print keyboard char
+	jsr	pc,dzprch
+	cmpb	r2,#15		; check for <CR>
+	bne	500$
+	mov	#12,r0		; if so, print an <LF>
+	jsr	pc,dzprch
+	br	100$		; resume printing message
+
+outmsg:	.asciz	<15><12>"all work and no play makes jack a dull boy."
+	.even
+
+
+
+; print char to DZ line
+;  input:
+;   r0 = char to print
+;   r3 = dz line to print on
+;  scratch:
+;   r1
+dzprch:
+	tstb	prchrs(r3)		; see if still busy printing last char
+	beq	200$
+	mov	r0,-(sp)
+	mov	#prwfiq,r1
+	jsr	pc,dzwfin		; wait for interrupt
+	mov	(sp)+,r0
+	br	dzprch			; check status again
+200$:
+	movb	r0,prchrs(r3)		; queue for printing
+	mov	#1,r1			; enable transmit
+	ash	r3,r1
+	bis	r1,@#DZTCR		; ...for this line
+	rts	pc
+
+; read char from DZ line
+;  input:
+;   r3 = dz line to read from
+;  output:
+;   r0 = keyboard char
+;  scratch:
+;   r1
+dzkbch:
+	movb	kbchrs(r3),r0
+	bne	100$
+	mov	#kbwfiq,r1
+	jsr	pc,dzwfin
+	br	dzkbch
+100$:
+	clrb	kbchrs(r3)
+	rts	pc
+
+; wait for DZ interrupt
+;  input:
+;   r1 = kbwfiq or prwfiq
+;   r3 = line number
+;  scratch:
+;   r0,r1
+dzwfin:
+	add	r3,r1			; save current thread in {kb,pr}wfiq(r3)
+	add	r3,r1
+	mov	curthr,@r1
+	jmp	thwait			; find something else to run or wait for interrupt
+
+; interrupt handler for DZ11
+dzintr:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+
+	tst	@#SWLI
+	bmi	.-4
+
+100$:
+	mov	@#DZRBR,r0		; see if anything in silo
+	bpl	200$
+	mov	r0,r1			; save it
+	swab	r1
+	bic	#177770,r1
+	movb	r0,kbchrs(r1)
+	beq	100$			; ignore nulls
+	asl	r1			; see if anything waiting for it
+	mov	kbwfiq(r1),r0
+	beq	100$
+	clr	kbwfiq(r1)		; if so, wake it
+	jsr	pc,thwake
+	br	100$
+
+200$:
+	mov	@#DZCSR,r1		; see if xmtr ready
+	bpl	400$
+	swab	r1			; see what line is ready
+	bic	#177770,r1
+	mov	r1,r0			; get char for that line
+	swab	r0			;## debug lineno in top ##;
+	bisb	prchrs(r1),r0
+	beq	300$
+	clrb	prchrs(r1)		; start printing it
+	mov	r0,@#DZTDR
+300$:
+	mov	#1,r0			; disable transmit interrupt for this line
+	ash	r1,r0
+	bic	r0,@#DZTCR
+	asl	r1			; see if something waiting
+	mov	prwfiq(r1),r0
+	beq	200$
+	clr	prwfiq(r1)
+	jsr	pc,thwake		; wake it
+	br	200$
+
+400$:
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	br	retint
+
+kbchrs:	.byte	0,0,0,0,0,0,0,0
+prchrs:	.byte	0,0,0,0,0,0,0,0
+kbwfiq:	.word	0,0,0,0,0,0,0,0
+prwfiq:	.word	0,0,0,0,0,0,0,0
+
+; return from interrupt
+; but if about to return to a wait instruction, skip over it
+retint:
+	cmp	@0(sp),#1
+	bne	100$
+	add	#2,@sp
+100$:
+	rti
+
+
+
+seed:	.word	123456
+
+; get a 16-bit random nmber
+random:
+	mov	seed,r0
+	mul	#13671,r0
+	add	r1,r0
+	inc	r0
+	mov	r0,seed
+	rts	pc
+
+
+
+curthr:	.word	0	; currently running thread
+runthr:	.word	0	; threads waiting for cpu
+runend:	.word	runthr	; T.NEXT of last thread on runthr list
+
+; initialize thread and link to runnable thread queue
+;  input:
+;   r0 = thread to initialize
+;   r1 = initial stack pointer
+;   r2 = initial program counter
+;   r2..r5 = initial contents
+;  scratch:
+;   r0,r2
+thinit:
+	mov	r0,@r0
+	mov	r2,T.SVR2(r0)
+	mov	r3,T.SVR3(r0)
+	mov	r4,T.SVR4(r0)
+	mov	r5,T.SVR5(r0)
+	mov	r1,T.SVSP(r0)
+	mov	r2,T.SVPC(r0)
+	jmp	thwake
+
+; save current thread registers
+; find another one that is runnable
+; if none, wait for interrupt
+;  input:
+;   ps = interrupts disabled
+;   @(sp)+ = return address
+;  output:
+;   ps = interrupts disabled
+;  scratch:
+;   r0,r1
+thwait:
+	mov	curthr,r0
+	mov	r2,T.SVR2(r0)
+	mov	r3,T.SVR3(r0)
+	mov	r4,T.SVR4(r0)
+	mov	r5,T.SVR5(r0)
+	mov	(sp)+,T.SVPC(r0)
+	mov	sp,T.SVSP(r0)
+
+; load up first runnable thread or do a wait
+thbegn:
+100$:
+	mov	runthr,r0		; see if anything runnable
+	beq	400$
+	mov	@r0,runthr		; dequeue it
+	bne	200$
+	mov	#runthr,runend
+200$:
+	mov	r0,@r0			; mark as current thread
+	mov	r0,curthr
+	mov	T.SVR2(r0),r2		; restore registers
+	mov	T.SVR3(r0),r3
+	mov	T.SVR4(r0),r4
+	mov	T.SVR5(r0),r5
+	mov	T.SVSP(r0),sp
+	jmp	@T.SVPC(r0)		; resume after jsr pc,thwait call
+400$:
+	mov	rollem,r0		; runthr queue empty, roll lights
+	mtps	#0
+	wait				; ...with a wait instruction
+	asl	r0
+	adc	r0
+	mov	r0,rollem
+	mtps	#340			; then check again
+	br	100$
+
+rollem:	.word	77
+
+; wake a thread
+;  input:
+;   r0 = thread to be woken
+;   ps = interrupts disabled
+;   @(sp)+ = return address
+thwake:
+	mov	r0,@runend		; put on end of run queue
+	mov	r0,runend
+	clr	@r0
+	rts	pc
+
+
+
+trap04:
+	mov	#4,-(sp)
+	br	trapxx
+trap10:
+	mov	#10,-(sp)
+	br	trapxx
+trp114:
+	mov	#114,-(sp)
+trapxx:
+	jsr	r5,prascz
+		.asciz	<15><12>"trap "
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PS="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt
+	br	.-2
+
+trap14:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz " PC="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz " PS="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	rtt
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	14(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+; print asciz string following the jsr r5 call
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	iot
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	iot
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	iot
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print decimal number
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prdcml:
+	clr	-(sp)
+100$:
+	clr	r0
+	div	#12,r0
+	add	#60,r1
+	mov	r1,-(sp)
+	mov	r0,r1
+	bne	100$
+	mov	(sp)+,r0
+200$:
+	iot
+	mov	(sp)+,r0
+	bne	200$
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	iot
+	mov	#12,r0
+	iot
+	rts	pc
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+trap20:
+	tstb	@#177564
+	bpl	trap20
+	movb	r0,@#177566
+	rti
+
+
+
+	.blkw	256.
+stktop:
+
+dr0thr:	.blkb	T.SIZE*8
+
+	.end

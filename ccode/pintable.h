@@ -34,14 +34,15 @@ struct PinDef {
 
 #define DEV_11 0
 #define DEV_BM 1
-#define DEV_KY 2
-#define DEV_DL 3
+#define DEV_DL 2
+#define DEV_DZ 3
 #define DEV_KW 4
-#define DEV_PC 5
-#define DEV_RL 6
-#define DEV_MAX 7
+#define DEV_KY 5
+#define DEV_PC 6
+#define DEV_RL 7
+#define DEV_MAX 9
 
-#define DEVIDS "11","BM","KY","DL","KW","PC","RL"
+#define DEVIDS "11","BM","DL","DZ","KW","KY","PC","RL"
 
 #include "z11util.h"
 

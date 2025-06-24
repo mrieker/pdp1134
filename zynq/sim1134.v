@@ -484,10 +484,10 @@ module sim1134 (
                         if ((memfunc == MF_RM) | (memfunc == MF_RD)) begin
                             readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
                             readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
-                            if (bus_pa_in_l & ~ bus_pb_in_l) begin
-                                state   <= S_SERVICE;
-                                trapvec <= T_PARERR;
-                            end
+                        end
+                        if (bus_pa_in_l & ~ bus_pb_in_l) begin
+                            state      <= S_SERVICE;
+                            trapvec    <= T_PARERR;
                         end
                         bus_msyn_out_l <= 1;
                         rwdelay        <= 0;

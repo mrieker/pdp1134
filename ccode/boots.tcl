@@ -6,6 +6,12 @@
 proc probedevsandmem {} {
 
     enablerealdma                   ;# make sure we can read & write unibus
+    pin set dz_enable 0             ;# disable zynq DZ-11
+    if {[rdwordtimo 0760100] < 0} { ;# check for real DZ-11
+        pin set dz_addres 0760100   ;# if not, enable zynq DZ-11
+        pin set dz_intvec 0300
+        pin set dz_enable 1
+    }
     pin set dl_enable 0             ;# disable zynq tty
     if {[rdwordtimo 0777560] < 0} { ;# see if real tty exists
         pin set dl_enable 1         ;# if not, enable zynq tty

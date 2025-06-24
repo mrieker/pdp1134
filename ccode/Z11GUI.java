@@ -150,6 +150,7 @@ public class Z11GUI extends JPanel {
     public static FModeCkBox fmckbox;
     public static MemCkBox   bmckbox;
     public static DevCkBox   dlckbox;
+    public static DZCkBox    dzckbox;
     public static KWCkBox    kwckbox;
     public static DevCkBox   kyckbox;
     public static DevCkBox   pcckbox;
@@ -264,6 +265,7 @@ public class Z11GUI extends JPanel {
                 fmckbox.update ();
                 bmckbox.update ();
                 dlckbox.update ();
+                dzckbox.update ();
                 kwckbox.update ();
                 kyckbox.update ();
                 pcckbox.update ();
@@ -632,6 +634,7 @@ public class Z11GUI extends JPanel {
             ckboxrow.add (fmckbox = new FModeCkBox ("OFF   "));
             ckboxrow.add (bmckbox = new MemCkBox   ("Mem   "));
             ckboxrow.add (dlckbox = new DevCkBox   ("DL-11   ", "dl_enable"));
+            ckboxrow.add (dzckbox = new DZCkBox    ("DZ-11   "));
             ckboxrow.add (kwckbox = new KWCkBox    ("KW-11   "));
             ckboxrow.add (kyckbox = new DevCkBox   ("KY-11   ", "ky_enable"));
             ckboxrow.add (pcckbox = new DevCkBox   ("PC-11   ", "pc_enable"));
@@ -1419,6 +1422,31 @@ public class Z11GUI extends JPanel {
             }
         }
     }
+
+    // DZ-11 terminal multiplexor enable checkbox
+    public static class DZCkBox extends DevCkBox {
+
+        public DZCkBox (String label)
+        {
+            super (label, "dz_enable");
+        }
+
+        // checkbox clicked
+        @Override   // DevCkBox
+        public void itemStateChanged (ItemEvent e)
+        {
+            boolean wasenab = GUIZynqPage.pinget (enabpinindex) > 0;
+            super.itemStateChanged (e);
+            boolean nowenab = GUIZynqPage.pinget (enabpinindex) > 0;
+            if (! wasenab & nowenab) {
+                int addrespinindex = findpin ("dz_addres");
+                int intvecpinindex = findpin ("dz_intvec");
+                GUIZynqPage.pinset (addrespinindex, 0760100);
+                GUIZynqPage.pinset (intvecpinindex, 0300);
+            }
+        }
+    }
+
 
     // KW-11 line clock enable checkbox
     public static class KWCkBox extends JCheckBox implements ItemListener {

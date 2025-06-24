@@ -163,6 +163,11 @@ PinDef const pindefs[] = {
     { "dl_xbuf",         DEV_DL, 2,    0xFFFF0000,        0, true  },
     { "dl_enable",       DEV_DL, 3,    0x80000000,        0, true  },
 
+    { "dz_enable",       DEV_DZ, 1,    0x80000000,        0, true  },
+    { "dz_intvec",       DEV_DZ, 1,    0x03FC0000,        0, true  },
+    { "dz_addres",       DEV_DZ, 1,    0x0003FFFF,        0, true  },
+    { "dz_csr",          DEV_DZ, 2,    0x0000FFFF,        1, true  },
+
     { "kw_enable",       DEV_KW, 1,    0x80000000,        0, true  },
     { "kw_fiftyhz",      DEV_KW, 1,    0x00000004,        0, true  },
 
