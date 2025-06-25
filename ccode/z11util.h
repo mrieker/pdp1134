@@ -57,8 +57,10 @@ struct Z11Page {
     void locksubdev (uint32_t volatile *start, int nwords, bool killit);
 
     uint32_t dmaread (uint32_t xba, uint16_t *data);
+    bool dmawbyte (uint32_t xba, uint8_t data);
     bool dmawrite (uint32_t xba, uint16_t data);
     uint32_t dmareadlocked (uint32_t xba, uint16_t *data);
+    bool dmawbytelocked (uint32_t xba, uint8_t data);
     bool dmawritelocked (uint32_t xba, uint16_t data);
     void dmalock ();
     void dmaunlk ();
@@ -71,7 +73,6 @@ private:
     void *zynqptr;
 
     static uint32_t mypid;
-
 };
 
 uint32_t randbits (int nbits);

@@ -1,0 +1,337 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; Test tm11.v and z11tm.cc (and dma and interrupts, etc)
+
+;   $ ../MACRO11/src/macro11 -o tmtest.obj -l tmtest.lst tmtest.mac
+;   $ ./z11ctrl
+;   > pin set fpgamode 1
+;   > pin set bm_enablo 0xFFFF
+;   > hardreset
+;   > loadlst tmtest.lst
+;       on another screen:  $ ./z11dl -cps 960
+;   > tmload 0 -readonly sometapefile.tap
+;   > flickstart 0400
+;   $ ./z11dump    to see it working
+
+	MTS   = 172520
+	MTC   = 172522
+	MTBRC = 172524
+	MTCMA = 172526
+
+	ZZ = .
+
+	.word	0,0
+	.word	trap04,0340	; bus error
+	.word	trap10,0340	; ill instr
+	.word	trap14,0340	; bpt/trace
+	.word	trap20,0340	; iot (prchar)
+	.word	start,0340	; power-on
+
+	. = ZZ + 400
+
+start:
+	mtps	#340
+	mov	#stktop,sp
+
+	jsr	r5,prascz
+		.asciz	"rewinding..."<15><12>
+		.even
+
+	mov	#017,@#MTC		; output rewind command
+	jsr	pc,chekst		; check status
+
+	clr	r3			; stop if two tape marks in a row
+rdloop:
+	mov	#-buflen,@#MTBRC	; set up byte count
+	mov	#buffer,@#MTCMA		; set up buffer address
+	mov	#003,@#MTC		; output read command
+	jsr	pc,chekst		; check status
+	bcc	gotdat
+
+	jsr	r5,prascz
+		.asciz	"read tape mark"<15><12>
+		.even
+
+	tst	r3
+	blt	100$
+	mov	#-1,r3
+	br	rdloop
+100$:
+	halt
+	br	100$
+
+gotdat:
+	jsr	r5,prascz
+		.asciz	"read length "
+		.even
+
+	mov	@#MTBRC,r4		; get length read
+	add	#buflen,r4
+	mov	r4,r1			; print it
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	"  "
+		.even
+
+	cmp	r4,#80.			; max of 80 chars
+	blos	300$
+	mov	#80.,r4
+300$:
+	mov	#buffer,r5		; point to buffer
+prloop:
+	movb	(r5)+,r0		; get a char
+	cmpb	r0,#040			; see if within range
+	blo	100$
+	cmpb	r0,#177
+	blo	200$
+100$:
+	movb	#056,r0			; if not, print a dot
+200$:
+	iot
+	sob	r4,prloop		; print the rest
+	jsr	pc,prcrlf
+
+	tst	r3			; print up to 5 records after tape mark
+	bge	300$
+	clr	r3
+300$:
+	inc	r3
+	cmp	r3,#5
+	blt	rdloop
+
+	clr	@#MTBRC			; skip until next tape mark
+	mov	#11,@#MTC
+	jsr	pc,chekst
+
+	jsr	r5,prascz
+		.asciz	"skipped "
+		.even
+
+	mov	@#MTBRC,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+
+	mov	#-1,r3
+	br	rdloop			; read another after resetting mark counter
+
+;
+; check tape status
+;
+chekst:
+	mov	@#MTC,r0		; get command register
+	bmi	100$
+	tstb	r0
+	bpl	chekst			; repeat if still bussy
+	rts	pc			; carry clear, no error
+100$:
+	mov	@#MTS,r1		; get status register
+	mov	r1,r0			; check for only tape mark error
+	bic	#000177,r0
+	cmp	r0,#040000
+	bne	200$
+	sec				; tape mark, return with carry set
+	rts	pc
+200$:
+	mov	r1,-(sp)		; print error message
+
+	jsr	r5,prascz
+		.asciz	"error status "
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt
+	br	.-2
+
+
+
+trap04:
+	mov	#4,-(sp)
+	br	trapxx
+trap10:
+	mov	#10,-(sp)
+trapxx:
+	jsr	r5,prascz
+		.asciz	<15><12>"trap"
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PS="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt
+	br	.-2
+
+trap14:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz " PC="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz " PS="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	rtt
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	14(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+; print asciz string following the jsr r5 call
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	iot
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	iot
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	iot
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print decimal number
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prdcml:
+	clr	-(sp)
+100$:
+	clr	r0
+	div	#12,r0
+	add	#60,r1
+	mov	r1,-(sp)
+	mov	r0,r1
+	bne	100$
+	mov	(sp)+,r0
+200$:
+	iot
+	mov	(sp)+,r0
+	bne	200$
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	iot
+	mov	#12,r0
+	iot
+	rts	pc
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+trap20:
+	tstb	@#177564
+	bpl	trap20
+	movb	r0,@#177566
+	rti
+
+	buflen = 140000
+buffer:	.blkb	buflen
+
+	. = ZZ + 160000
+stktop:
+
+	.end

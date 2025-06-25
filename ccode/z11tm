@@ -1,0 +1,13 @@
+#!/bin/bash
+#
+#  Start z11tm on the zturn board
+#
+dd=`dirname $0`
+$dd/loadmod.sh
+dbg=
+if [ "$1" == "-gdb" ]
+then
+    dbg='gdb --args'
+    shift
+fi
+exec $dbg $0.`uname -m` "$@"

@@ -206,6 +206,33 @@ uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
     return rc & (KY3_DMATIMO | KY3_DMAPERR);
 }
 
+// write a byte to unibus via dma
+// uses ky11.v so it works even when 11/34 is halted
+bool Z11Page::dmawbyte (uint32_t xba, uint8_t data)
+{
+    dmalock ();
+    try {
+        bool ok = dmawbytelocked (xba, data);
+        dmaunlk ();
+        return ok;
+    } catch (...) {
+        dmaunlk ();
+        throw;
+    }
+}
+
+bool Z11Page::dmawbytelocked (uint32_t xba, uint8_t data)
+{
+    ZWR(kyat[4], KY4_DMADATA0 * 0401 * data);
+    ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 3 | KY3_DMAADDR0 * xba);
+    for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
+        if (i > 100000) {
+            throw Z11DMAException ("Z11Page::dmawbyte: dma stuck");
+        }
+    }
+    return ! (ZRD(kyat[3]) & KY3_DMATIMO);
+}
+
 // write a word to unibus via dma
 // uses ky11.v so it works even when 11/34 is halted
 bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
