@@ -45,23 +45,6 @@
 
 #define TAPELEN 20000000                        // number bytes in reel of tape
 
-#define TM2_MTBRC 0x0000FFFFU
-#define TM2_MTCMA 0xFFFF0000U
-#define TM4_FAST  0x40000000U
-#define TM4_ENAB  0x80000000U
-
-#define TM5_TURS  0x000000FFU
-#define TM5_REWS  0x0000FF00U
-#define TM5_WRLS  0x00FF0000U
-#define TM5_BOTS  0xFF000000U
-#define TM6_SELS  0x000000FFU
-
-#define TM5_TURS0 (TM5_TURS & - TM5_TURS)
-#define TM5_REWS0 (TM5_REWS & - TM5_REWS)
-#define TM5_WRLS0 (TM5_WRLS & - TM5_WRLS)
-#define TM5_BOTS0 (TM5_BOTS & - TM5_BOTS)
-#define TM6_SELS0 (TM6_SELS & - TM6_SELS)
-
 #define RFLD(n,m) ((ZRD(tmat[n]) & m) / (m & - m))
 
 static char fns[8][SHMTM_FNSIZE];
@@ -488,7 +471,7 @@ static void updatelowbits ()
         if (fds[i] >= 0)                  sels |= 1U << i;
     }
     turs &= ~ rews;
-    ZWR(tmat[5], bots * TM5_BOTS0 | wrls * TM5_WRLS | rews * TM5_REWS | turs * TM5_TURS0);
+    ZWR(tmat[5], bots * TM5_BOTS0 | wrls * TM5_WRLS0 | rews * TM5_REWS0 | turs * TM5_TURS0);
     ZWR(tmat[6], sels * TM6_SELS0);
 }
 

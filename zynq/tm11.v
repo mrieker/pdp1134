@@ -140,6 +140,15 @@ module tm11
                     enable      <= armwdata[31];
                     fastio      <= armwdata[30];
                 end
+                5: begin
+                    bots <= armwdata[31:24];
+                    wrls <= armwdata[23:16];
+                    rews <= armwdata[15:08];
+                    turs <= armwdata[07:00];
+                end
+                6: begin
+                    sels <= armwdata[07:00];
+                end
             endcase
         end
 

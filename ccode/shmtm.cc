@@ -121,7 +121,7 @@ int shmtm_load (int drive, bool readonly, char const *filename)
 // get drive status
 int shmtm_stat (int drive, char *buff, int size, uint32_t *curpos_r)
 {
-    if ((drive < 0) || (drive > 3)) ABORT ();
+    if ((drive < 0) || (drive > 7)) ABORT ();
     if (tmat == NULL) {
         Z11Page *z11page = new Z11Page ();
         tmat = z11page->findev ("TM", NULL, NULL, false);
@@ -130,10 +130,10 @@ int shmtm_stat (int drive, char *buff, int size, uint32_t *curpos_r)
     if (statbits >= 0) {
         statbits = 0;
         ShmTMDrive *dr = &tmshm->drives[drive];
+        uint32_t tm5 = ZRD(tmat[5]) >> drive;
         if (dr->filename[0] != 0) statbits |= TMSTAT_LOAD;  // something loaded
         if (dr->readonly)    statbits |= TMSTAT_WRPROT;     // write protected
-//      if (rl4 & RL4_DRDY0) statbits |= TMSTAT_READY;      // ready (not seeking etc)
-//      if (rl4 & RL4_DERR0) statbits |= TMSTAT_FAULT;      // fault (drive error)
+        if (tm5 & TM5_TURS0) statbits |= TMSTAT_READY;      // ready (not skipping etc)
         statbits |= dr->fnseq * (TMSTAT_FNSEQ & - TMSTAT_FNSEQ);
         *curpos_r = dr->curpos;                             // current position (byte)
         if (size > 0) {

@@ -155,8 +155,10 @@ public class Z11GUI extends JPanel {
     public static DevCkBox   kyckbox;
     public static DevCkBox   pcckbox;
     public static DevCkBox   rlckbox;
+    public static DevCkBox   tmckbox;
 
     public static RLDrive[] rldrives = new RLDrive[4];
+    public static TMDrive[] tmdrives = new TMDrive[2];
 
     // update display with processor state - runs continuously
     // if processor is running, display current processor state
@@ -270,6 +272,7 @@ public class Z11GUI extends JPanel {
                 kyckbox.update ();
                 pcckbox.update ();
                 rlckbox.update ();
+                tmckbox.update ();
 
                 // remove lights & switches if KY-11 is disabled
                 if (lastky11enab != kyckbox.isenab) {
@@ -434,6 +437,8 @@ public class Z11GUI extends JPanel {
         add (rldrives[1] = new RLDrive (1));
         add (rldrives[2] = new RLDrive (2));
         add (rldrives[3] = new RLDrive (3));
+        add (tmdrives[0] = new TMDrive (0));
+        add (tmdrives[1] = new TMDrive (1));
     }
 
     public static JLabel lightsLabel (String label)
@@ -638,7 +643,8 @@ public class Z11GUI extends JPanel {
             ckboxrow.add (kwckbox = new KWCkBox    ("KW-11   "));
             ckboxrow.add (kyckbox = new DevCkBox   ("KY-11   ", "ky_enable"));
             ckboxrow.add (pcckbox = new DevCkBox   ("PC-11   ", "pc_enable"));
-            ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11"));
+            ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11   "));
+            ckboxrow.add (tmckbox = new TMDevCkBox ("TM-11"));
         }
 
         @Override
@@ -1556,6 +1562,40 @@ public class Z11GUI extends JPanel {
         }
     }
 
+    // TM-11 controller enable checkbox
+    public static class TMDevCkBox extends DevCkBox {
+
+        public TMDevCkBox (String label)
+        {
+            super (label, "tm_enable");
+        }
+
+        // called several times per second to update the display to match fpga & shm state
+        @Override   // DevCkBox
+        public void update ()
+        {
+            // update TM-11 checkbox to match fpga tm_enable
+            super.update ();
+
+            // if checkbox changed, update visibility of drives
+            int nowvisible = isenab ? 1 : 0;
+            if (tmdrives[0].isvisible != nowvisible) {
+                for (TMDrive tmdrive : tmdrives) {
+                    tmdrive.isvisible = nowvisible;
+                    tmdrive.setVisible (isenab);
+                }
+                mainframe.pack ();
+            }
+
+            // if checked, update the per-drive displays
+            if (isenab) {
+                for (TMDrive tmdrive : tmdrives) {
+                    tmdrive.update ();
+                }
+            }
+        }
+    }
+
     // device enable checkbox
     // - plugs/unplugs simulated circuit board from unibus
     public static class DevCkBox extends JCheckBox implements ItemListener {
@@ -1815,6 +1855,200 @@ public class Z11GUI extends JPanel {
         {
             // yes 'O' looks more like real drive logo
             rloxlbl.setText (rl01shows ? " RLO1 " : " RLO2 ");
+        }
+
+        @Override
+        protected void paintComponent (Graphics g)
+        {
+            super.paintComponent (g);
+            g.drawImage (rl02panimg, 0, 0, null);
+        }
+    }
+
+    /////////////////
+    //  TM DRIVES  //
+    /////////////////
+
+    public static File tmchooserdirectory;
+
+    public static class TMButton extends JButton {
+        public boolean ison;
+        public Color offcolor;
+        public Color oncolor;
+
+        public TMButton (String label, Color oncolor, Color offcolor)
+        {
+            super (label);
+            this.offcolor = offcolor;
+            this.oncolor  = oncolor;
+            //Dimension d = new Dimension (80, 80);
+            //setPreferredSize (d);
+            setBackground (offcolor);
+        }
+
+        public void setOn (boolean on)
+        {
+            if (ison != on) {
+                ison = on;
+                setBackground (ison ? oncolor : offcolor);
+            }
+        }
+    }
+
+    public static class TMDrive extends JPanel {
+        public int drive;
+        public int isvisible;
+        public JLabel cylnolbl;
+        public JLabel tmmessage;
+        public long blockmsgupdates;
+        public long lastcylno;
+        public long lastfnseq;
+        public long winkoutready;
+        public TMButton loadbutton;
+        public TMButton readylight;
+        public TMButton wprtswitch;
+
+        public TMDrive (int d)
+        {
+            drive = d;
+            isvisible = -1;
+            lastcylno = -1;
+            lastfnseq = -1;
+
+            setLayout (new BoxLayout (this, BoxLayout.X_AXIS));
+            setMaximumSize (rl02pandim);
+            setMinimumSize (rl02pandim);
+            setPreferredSize (rl02pandim);
+            setSize (rl02pandim);
+
+            JLabel tmoxlbl;
+
+            add (cylnolbl   = new JLabel ("             "));
+            add (loadbutton = new TMButton ("LOAD",  Color.YELLOW, Color.GRAY));
+            add (readylight = new TMButton (drive + " RDY", Color.WHITE, Color.GRAY));
+            add (wprtswitch = new TMButton ("WRPRT", Color.YELLOW, Color.GRAY));
+            add (tmoxlbl    = new JLabel (""));
+            add (tmmessage  = new JLabel (""));
+
+            Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
+            cylnolbl.setFont (lf);
+
+            Font rf = tmoxlbl.getFont ();
+            tmoxlbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
+            tmoxlbl.setText (" TU10 ");
+
+            Dimension md = new Dimension (600, 50);
+            tmmessage.setMaximumSize (md);
+            tmmessage.setMinimumSize (md);
+            tmmessage.setPreferredSize (md);
+            tmmessage.setSize (md);
+
+            // do something when LOAD button is clicked
+            loadbutton.addActionListener (new ActionListener () {
+                public void actionPerformed (ActionEvent ae)
+                {
+                    if ((GUIZynqPage.tmstat (drive) & GUIZynqPage.TMSTAT_LOAD) == 0) {
+
+                        // display chooser box to select file to load
+                        JFileChooser chooser = new JFileChooser ();
+                        chooser.setFileSelectionMode (JFileChooser.FILES_AND_DIRECTORIES);
+                        chooser.setFileFilter (
+                            new FileNameExtensionFilter (
+                                "tape image", "tap"));
+                        chooser.setDialogTitle ("Loading TM drive " + drive);
+                        while (true) {
+                            if (tmchooserdirectory != null) chooser.setCurrentDirectory (tmchooserdirectory);
+                            int rc = chooser.showOpenDialog (TMDrive.this);
+                            if (rc != JFileChooser.APPROVE_OPTION) break;
+                            File ff = chooser.getSelectedFile ();
+                            if (ff.isDirectory ()) {
+                                tmchooserdirectory = ff;
+                                continue;
+                            }
+                            tmchooserdirectory = ff.getParentFile ();
+
+                            long issize = ff.length ();
+                            long sbsize = 0;
+                            String ffname = ff.getName ();
+                            if (! ffname.endsWith (".tap")) {
+                                JOptionPane.showMessageDialog (TMDrive.this, "filename " + ffname + " must end with .tap",
+                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                                continue;
+                            }
+                            {
+                                String fn = ff.getAbsolutePath ();
+                                String er = GUIZynqPage.tmload (drive, wprtswitch.ison, fn);
+                                if (er == null) {
+                                    tmmessage.setText (fn);
+                                    loadbutton.setOn (true);
+                                    break;
+                                }
+                                JOptionPane.showMessageDialog (TMDrive.this, "error loading " + ffname + ": " + er,
+                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                            }
+                        }
+                    } else {
+
+                        // unload whatever is in there
+                        if ((GUIZynqPage.running () <= 0) ||
+                            (JOptionPane.showConfirmDialog (TMDrive.this,
+                                    "Are you sure you want to unload drive " + drive + "?",
+                                    "Unloading Drive",
+                                    JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
+                            GUIZynqPage.tmload (drive, wprtswitch.ison, "");
+                            tmmessage.setText ("");
+                            loadbutton.setOn (false);
+                        }
+                    }
+                }
+            });
+
+            // do something when WRPRT button is clicked
+            wprtswitch.addActionListener (new ActionListener () {
+                public void actionPerformed (ActionEvent ae)
+                {
+                    if (((GUIZynqPage.tmstat (drive) & GUIZynqPage.TMSTAT_LOAD) == 0) ||
+                        (GUIZynqPage.running () <= 0) ||
+                        (JOptionPane.showConfirmDialog (TMDrive.this,
+                                "Are you sure you want to write " + (wprtswitch.ison ? "enable" : "protect") +
+                                        " drive " + drive + "?",
+                                "Write Protecting Drive",
+                                JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
+                        GUIZynqPage.tmload (drive, ! wprtswitch.ison, null);
+                    }
+                }
+            });
+        }
+
+        // update buttons and text to match fpga & shared memory
+        public void update ()
+        {
+            long stat = GUIZynqPage.tmstat (drive);
+
+            // update cylinder number if it changed, blanks if drive not loaded
+            // also wink out the drive ready light
+            long thiscylno = ((stat & GUIZynqPage.TMSTAT_LOAD) == 0) ? -1 : (stat & GUIZynqPage.TMSTAT_CYLNO) / (GUIZynqPage.TMSTAT_CYLNO & - GUIZynqPage.TMSTAT_CYLNO);
+            if (lastcylno != thiscylno) {
+                lastcylno = thiscylno;
+                cylnolbl.setText ((lastcylno < 0) ? "             " : String.format ("  %09d  ", lastcylno));
+                stat &= ~ GUIZynqPage.TMSTAT_READY;
+            }
+
+            // stretch the not-ready status out so it blinks when there is a seek
+            if ((stat & GUIZynqPage.TMSTAT_READY) == 0) winkoutready = updatetimemillis + 20;
+
+            // update load, ready, write protect lights
+            loadbutton.setOn ((stat & GUIZynqPage.TMSTAT_LOAD)  != 0);
+            readylight.setOn (updatetimemillis >= winkoutready);
+            wprtswitch.setOn ((stat & GUIZynqPage.TMSTAT_WRPRT) != 0);
+
+            // update loaded filename if there was a change and if no error message is being displayed
+            long thisfnseq = stat & GUIZynqPage.TMSTAT_FNSEQ;
+            if (((blockmsgupdates == 0) && (lastfnseq != thisfnseq)) || (updatetimemillis > blockmsgupdates)) {
+                tmmessage.setText (GUIZynqPage.tmfile (drive));
+                blockmsgupdates = 0;
+                lastfnseq = thisfnseq;
+            }
         }
 
         @Override

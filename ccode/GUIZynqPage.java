@@ -51,4 +51,16 @@ public class GUIZynqPage {
     public native static int    rlstat (int drive);
     public native static String rlfile (int drive);
     public native static int    rlfast (int newflag);
+
+    public final static long TMSTAT_LOAD  = 0000000000000001L;
+    public final static long TMSTAT_WRPRT = 0000000000000002L;
+    public final static long TMSTAT_READY = 0000000000000004L;
+    public final static long TMSTAT_FAULT = 0000000000000010L;
+    public final static long TMSTAT_FNSEQ = 0000000000007760L;
+    public final static long TMSTAT_CYLNO = 0377777777770000L;
+
+    public native static String tmload (int drive, boolean readonly, String filename);
+    public native static long   tmstat (int drive);
+    public native static String tmfile (int drive);
+    public native static int    tmfast (int newflag);
 }

@@ -188,6 +188,9 @@ PinDef const pindefs[] = {
     { "pc_pbuf",         DEV_PC, 2,    0xFFFF0000,        0, true  },
     { "pc_enable",       DEV_PC, 3,    0x80000000,        0, true  },
 
+    { "tm_enable",       DEV_TM, 4,    TM4_ENAB,          0, true  },
+    { "tm_fastio",       DEV_TM, 4,    TM4_FAST,          0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 
