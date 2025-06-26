@@ -225,17 +225,19 @@ public class Z11GUI extends JPanel {
 
                 // if processor just halted, display PC,PS
                 else if ((lastrunning > 0) && lastky11enab) {
+                    int r0 = GUIZynqPage.rdmem (0777700);
                     int pc = GUIZynqPage.rdmem (0777707);
                     int ps = GUIZynqPage.rdmem (0777776);
-                    String text = "";
+                    StringBuilder sb = new StringBuilder ();
                     if (pc >= 0) {
-                        text += String.format ("stopped at PC %06o", pc);
+                        sb.append (String.format ("stopped at PC %06o", pc));
                         int pcpa = vatopa (pc, ps >> 14);
                         berrled.setOn (pcpa < 0);
                         if (pcpa < 0) {
-                            text += ", " + vatopaerr[~pcpa];
+                            sb.append (", ");
+                            sb.append (vatopaerr[~pcpa]);
                         } else if (pcpa != pc) {
-                            text += String.format (" (pa %06o)", pcpa);
+                            sb.append (String.format (" (pa %06o)", pcpa));
                         }
                         loadedaddress = pc;
                         if (ps >= 0) loadedaddress |= (ps & 0140000) << 2;
@@ -245,16 +247,21 @@ public class Z11GUI extends JPanel {
                         writeaddrleds (loadedaddress);
                     } else {
                         writeaddrleds (-1);
-                        text += "stopped at PC unknown";
+                        sb.append ("stopped at PC unknown");
                     }
                     if (ps >= 0) {
-                        writedataleds (ps);
-                        text += String.format (", PS %06o", ps);
+                        sb.append (String.format (", PS %06o", ps));
+                    } else {
+                        sb.append (", PS unknown");
+                    }
+                    if (r0 >= 0) {
+                        writedataleds (r0);
+                        sb.append (String.format (", R0 %06o", r0));
                     } else {
                         writedataleds (-1);
-                        text += ", PS unknown";
+                        sb.append (", RO unknown");
                     }
-                    messagelabel.setText (text);
+                    messagelabel.setText (sb.toString ());
                 }
 
                 // update ADDRS label with PHYS or VIRT or nothing

@@ -61,13 +61,18 @@ module tm11
     // wake up arm (ZGINT_TM) whenever go or power clear bits are set
     assign armintrq = mtc[00] | mtc[12];
 
-    // interrupt pdp whenever error or done bits are set and interrupt enable is set
+    // trigger pdp interrupt request when rewind on currently selected drive completes
+    // controller must be idle (mtc[07] set) and interrupts enabled (mtc[06] set)
+    wire rewdone = mts[01] & armwrite & (armwaddr == 5) & ~ armwdata[{2'b01,mtc[10:08]}];
+
+    // interrupt pdp whenever done bit is set and interrupt enable is set
+    // also trigger when rewind on currently selected drive completes
     // - edge triggered
     intreq mtintreq (
         .CLOCK    (CLOCK),
         .RESET    (init_in_h),
         .INTVEC   (INTVEC),
-        .rirqlevl ((mtc[15] | mtc[07]) & mtc[06]),
+        .rirqlevl (mtc[07] & mtc[06] & ~ rewdone),
         .xirqlevl (0),
         .intreq   (intreq),
         .irvec    (irvec),

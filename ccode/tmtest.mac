@@ -19,6 +19,7 @@
 ;;    http://www.gnu.org/licenses/gpl-2.0.html
 
 ; Test tm11.v and z11tm.cc (and dma and interrupts, etc)
+; Dumps out tape
 
 ;   $ ../MACRO11/src/macro11 -o tmtest.obj -l tmtest.lst tmtest.mac
 ;   $ ./z11ctrl
@@ -45,24 +46,47 @@
 	.word	trap20,0340	; iot (prchar)
 	.word	start,0340	; power-on
 
+	. = ZZ + 064
+	.word	ttintr,0200
+
+	. = ZZ + 224
+
+	.word	tmintr,0240
+
 	. = ZZ + 400
 
 start:
-	mtps	#340
 	mov	#stktop,sp
+	mtps	#0
 
 	jsr	r5,prascz
 		.asciz	"rewinding..."<15><12>
 		.even
 
-	mov	#017,@#MTC		; output rewind command
+	mov	#117,@#MTC		; output rewind command
 	jsr	pc,chekst		; check status
+
+	mtps	#240
+	bit	#2,@#MTS		; see if still rewinding
+	beq	700$
+	jsr	r5,prascz
+		.asciz	"waiting for rewind"<15><12>
+		.even
+500$:
+	mov	intctr,r0
+	mtps	#0			; wait for interrupt
+	wait
+	mtps	#240
+	bit	#2,@#MTS
+	bne	500$
+700$:
+	mtps	#0
 
 	clr	r3			; stop if two tape marks in a row
 rdloop:
 	mov	#-buflen,@#MTBRC	; set up byte count
 	mov	#buffer,@#MTCMA		; set up buffer address
-	mov	#003,@#MTC		; output read command
+	mov	#103,@#MTC		; output read command
 	jsr	pc,chekst		; check status
 	bcc	gotdat
 
@@ -75,6 +99,7 @@ rdloop:
 	mov	#-1,r3
 	br	rdloop
 100$:
+	mov	intctr,r0
 	halt
 	br	100$
 
@@ -105,7 +130,7 @@ prloop:
 100$:
 	movb	#056,r0			; if not, print a dot
 200$:
-	iot
+	jsr	pc,prchar
 	sob	r4,prloop		; print the rest
 	jsr	pc,prcrlf
 
@@ -118,7 +143,7 @@ prloop:
 	blt	rdloop
 
 	clr	@#MTBRC			; skip until next tape mark
-	mov	#11,@#MTC
+	mov	#111,@#MTC
 	jsr	pc,chekst
 
 	jsr	r5,prascz
@@ -136,20 +161,27 @@ prloop:
 ; check tape status
 ;
 chekst:
+	mtps	#240
 	mov	@#MTC,r0		; get command register
-	bmi	100$
+	bmi	200$
 	tstb	r0
-	bpl	chekst			; repeat if still bussy
-	rts	pc			; carry clear, no error
+	bmi	100$			; done, carry clear, no error
+	mov	intctr,r0
+	mtps	#0			; bussy, wait for interrupt
+	wait
+	br	chekst
 100$:
+	mtps	#0
+	rts	pc
+200$:
 	mov	@#MTS,r1		; get status register
 	mov	r1,r0			; check for only tape mark error
 	bic	#000177,r0
 	cmp	r0,#040000
-	bne	200$
-	sec				; tape mark, return with carry set
+	bne	300$
+	mtps	#1			; tape mark, return with carry set
 	rts	pc
-200$:
+300$:
 	mov	r1,-(sp)		; print error message
 
 	jsr	r5,prascz
@@ -161,8 +193,22 @@ chekst:
 	halt
 	br	.-2
 
+tmintr:
+	inc	intctr
+ttintr:
+	cmp	@(sp),#1
+	bne	100$
+	add	#2,@sp
+100$:
+	rti
+
+intctr:	.word	0
+
 
 
+trap20:
+	mov	#20,-(sp)
+	br	trapxx
 trap04:
 	mov	#4,-(sp)
 	br	trapxx
@@ -262,7 +308,7 @@ dmpreg:
 prascz:
 	movb	(r5)+,r0
 	beq	100$
-	iot
+	jsr	pc,prchar
 	br	prascz
 100$:
 	inc	r5
@@ -277,13 +323,13 @@ prascz:
 proct6:
 	mov	#30,r0
 	ashc	#1,r0
-	iot
+	jsr	pc,prchar
 	mov	r2,-(sp)
 	mov	#5,r2
 100$:
 	mov	#6,r0
 	ashc	#3,r0
-	iot
+	jsr	pc,prchar
 	sob	r2,100$
 	mov	(sp)+,r2
 	rts	pc
@@ -304,7 +350,7 @@ prdcml:
 	bne	100$
 	mov	(sp)+,r0
 200$:
-	iot
+	jsr	pc,prchar
 	mov	(sp)+,r0
 	bne	200$
 	rts	pc
@@ -314,19 +360,37 @@ prdcml:
 ;   r0
 prcrlf:
 	mov	#15,r0
-	iot
+	jsr	pc,prchar
 	mov	#12,r0
-	iot
+	jsr	pc,prchar
 	rts	pc
 
 ; print single character in r0
 ;  input:
 ;   r0 = character to print
-trap20:
+prchar:
+	tstb	@#177776
+	bmi	500$
+	mov	#100,@#177564
+100$:
+	mtps	#200
 	tstb	@#177564
-	bpl	trap20
+	bmi	400$
+	mov	r0,-(sp)
+	mov	intctr,r0
+	mtps	#0
+	wait
+	mov	(sp)+,r0
+	br	100$
+400$:
+	mtps	#0
+	br	600$
+500$:
+	tstb	@#177564
+	bpl	500$
+600$:
 	movb	r0,@#177566
-	rti
+	rts	pc
 
 	buflen = 140000
 buffer:	.blkb	buflen

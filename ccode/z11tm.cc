@@ -47,6 +47,7 @@
 
 #define RFLD(n,m) ((ZRD(tmat[n]) & m) / (m & - m))
 
+static bool unloads[8];
 static char fns[8][SHMTM_FNSIZE];
 static int debug;
 static int fds[8];
@@ -203,7 +204,7 @@ static void *tmiothread (void *dummy)
             while (rewdoneats[drivesel] != 0) {
                 int doneat = (int) rewdoneats[drivesel];
                 UNLKIT;
-                int rc = futex ((int *)&rewdoneats[drivesel], FUTEX_WAIT, (int)doneat, NULL, NULL, 0);
+                int rc = futex ((int *)&rewdoneats[drivesel], FUTEX_WAIT, doneat, NULL, NULL, 0);
                 if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
                 LOCKIT;
             }
@@ -383,8 +384,9 @@ static void *tmiothread (void *dummy)
                     break;
                 }
 
-                // off line
+                // unload
                 case 0:
+                    unloads[drivesel] = true;
                 // rewind
                 case 7: {
 
@@ -405,6 +407,7 @@ static void *tmiothread (void *dummy)
                         if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                     } else {
                         dr->curpos = 0;
+                        if (unloads[drivesel]) unloadfile (drivesel);
                     }
                     break;
                 }
@@ -507,6 +510,7 @@ static void *timerthread (void *dsptr)
             else {
                 shmtm->drives[drivesel].curpos = 0;
                 rewdoneats[drivesel] = doneat = 0;
+                if (unloads[drivesel]) unloadfile (drivesel);
                 if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                 updatelowbits ();
             }
@@ -626,6 +630,7 @@ lockit:;
     // all is good
     fprintf (stderr, "z11tm: [%u] loaded read%s file %s\n", drivesel, (readwrite ? "/write" : "-only"), filenm);
     fds[drivesel] = fd;
+    unloads[drivesel] = false;
     if (strcmp (fns[drivesel], filenm) != 0) {
         strcpy (fns[drivesel], filenm);
         dr->curpos = 0;
