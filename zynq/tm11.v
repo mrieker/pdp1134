@@ -49,7 +49,7 @@ module tm11
     reg[15:00] mts, mtc, mtbrc, mtcma, mtd, mtrd;
     reg[7:0] sels, bots, wrls, rews, turs;
 
-    assign armrdata = (armraddr == 0) ? 32'h544D2001 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h544D2002 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mtc,   mts   } :
                       (armraddr == 2) ? { mtcma, mtbrc } :
                       (armraddr == 3) ? { mtrd,  mtd   } :
@@ -120,7 +120,7 @@ module tm11
             end
 
             mts[15:07] <= 0;            // clear error bits
-            mtc[14:00] <= 15'o10000;    // power clear, arm should set controller ready very soon
+            mtc[14:00] <= 15'o10200;    // power clear, alerts arm to abandon i/o
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end
@@ -162,7 +162,8 @@ module tm11
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end else if (enable & (a_in_h[17:04] == ADDR[17:04]) & ~ ssyn_out_h) begin
-            ssyn_out_h <= 1;
+            ssyn_out_h <= (a_in_h[03:02] != 3);
+
             if (c_in_h[1]) begin
                 case (a_in_h[03:01])
 
@@ -171,9 +172,11 @@ module tm11
 
                         // power clear valid any time
                         // arm will clear it when complete
+                        // sets controller ready immediately so pdp can write new command immediately
                         if (writehi & d_in_h[12]) begin
                             mts[15:07] <= 0;
                             mtc[14:08] <= d_in_h[14:08];
+                            mtc[07]    <= 1;
                             mtc[00]    <= 0;
                             if (writelo) begin
                                 mtc[06:01] <= d_in_h[06:01];
@@ -187,8 +190,12 @@ module tm11
                             // controller idle, write upper byte
                             // error bit is calculated above with always statement
                             // - so don't write it directly here
+                            // don't allow clearing power clear bit so arm will see if was previously set
+                            // only arm should clear power clear bit
+                            // setting power clear was handled above
                             if (writehi) begin
-                                mtc[14:08] <= d_in_h[14:08];
+                                mtc[14:13] <= d_in_h[14:13];
+                                mtc[11:08] <= d_in_h[11:08];
                             end
 
                             // write lower byte

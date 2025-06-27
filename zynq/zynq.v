@@ -1311,8 +1311,43 @@ module Zynq (
         lastmsyn <= dev_syn_msyn_h;
     end
 
-    wire ilatrigr = 0; // rltrigger; // (regctlk[5:0] == 42); // rlintreq & (regctlj[23:21] == 0);
-    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // | (rlcs != lastrlcs);
+    wire ilatrigr = 0; // ((dev_a_h & 18'o777770) == 18'o760100) & dev_syn_msyn_h;
+    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // 1;
+
+    // detect 'TSTB @R5 ; BPL .-2' to edit out lineclock testing loop
+    /***
+    reg[2:0] looped1, nextlp1;
+    always @(*) begin
+                 if ((dev_d_h == 16'o105715) & (regctlk_0500 == 3)) begin
+            nextlp1[2]   = (looped1[1:0] == 3);
+            nextlp1[1:0] = 1;
+        end else if ((dev_d_h == 16'o000000) & (looped1[1:0] == 1)) begin
+            nextlp1[2]   = looped1[2];
+            nextlp1[1:0] = 2;
+        end else if ((dev_d_h == 16'o100376) & (looped1[1:0] == 2)) begin
+            nextlp1[2]   = looped1[2];
+            nextlp1[1:0] = 3;
+        end else begin
+            nextlp1[2:0] = 0;
+        end
+    end
+    ***/
+
+    // detect 'DEC R4 ; BNE .-2' to edit out delay loop
+    /***
+    reg[2:0] looped2, nextlp2;
+    always @(*) begin
+                 if ((dev_d_h == 16'o005304) & (regctlk_0500 == 3)) begin
+            nextlp2[2]   = (looped2[1:0] == 2);
+            nextlp2[1:0] = 1;
+        end else if ((dev_d_h == 16'o001376) & (looped2[1:0] == 1)) begin
+            nextlp2[2]   = looped2[2];
+            nextlp2[1:0] = 2;
+        end else begin
+            nextlp2[2:0] = 0;
+        end
+    end
+    ***/
 
     always @(*) begin
         ilacurwd = {
@@ -1335,6 +1370,8 @@ module Zynq (
             ilaafter <= 0;
             ilaarmed <= 0;
             ilaindex <= 0;
+         // looped1  <= 0;
+         // looped2  <= 0;
         end else begin
             if (armwrite & (writeaddr == 10'b0000011100)) begin
 
@@ -1351,10 +1388,14 @@ module Zynq (
 
                 // save word
                 if (ilaenabl) begin
-                    ilaarray[ilaindex[ILAADDRBITS-01:00]] <= ilacurwd;
-                    ilaoflow <= ilaoflow | (ilaindex[ILAADDRBITS-01:00] == (1 << ILAADDRBITS) - 1);
-                    ilaindex[ILAADDRBITS-01:00] <= ilaindex[ILAADDRBITS-01:00] + 1;
-                    if (~ ilaarmed) ilaafter <= ilaafter - 1;
+                 // if (~ nextlp1[2] & ~ nextlp2[2]) begin
+                        ilaarray[ilaindex[ILAADDRBITS-01:00]] <= ilacurwd;
+                        ilaoflow <= ilaoflow | (ilaindex[ILAADDRBITS-01:00] == (1 << ILAADDRBITS) - 1);
+                        ilaindex[ILAADDRBITS-01:00] <= ilaindex[ILAADDRBITS-01:00] + 1;
+                        if (~ ilaarmed) ilaafter <= ilaafter - 1;
+                 // end
+                 // looped1 <= nextlp1;
+                 // looped2 <= nextlp2;
                 end
 
                 // check trigger condition

@@ -32,6 +32,7 @@ proc helpini {} {
     puts "               steptraceloop - single step with disassembly - looped"
     puts "                     unlkdma - unlock access to dma controller"
     puts "                      vatopa - convert virtual address to physical"
+    puts "                 waitforcrlf - wait for <CR><LF> to be output to tty"
     puts "        waitforstring prompt - wait for string to be output to tty"
     puts "            wrbyte addr data - write data byte to given physical address"
     puts "            wrword addr data - write data word to given physical address"
@@ -585,6 +586,19 @@ proc vatopa {vaddr {mode cur}} {
     if {($pdr & 8) ? ($blk < $plf) : ($blk > $plf)} {error "vatopa: length error vaddr [octal $vaddr]"}
     set par [rdword [expr {$pdr0 + 040 + 2 * $page}]]
     return [expr {(($par << 6) + ($vaddr & 017777)) & 0777777}]
+}
+
+# wait for a <CR><LF>, echoing everything, including the <CR><LF>
+proc waitforcrlf {} {
+    set gotcr 0
+    set gotlf 0
+    while {! [ctrlcflag] && (! $gotcr || ! $gotlf)} {
+        set ch [readttychar 1000]
+        puts -nonewline "$ch"
+        if {$ch == ""} {flush stdout}
+        if {$ch == "\r"} {set gotcr 1}
+        if {$ch == "\n"} {set gotlf 1}
+    }
 }
 
 # wait for the given string, echoing everything, including the string, until matched

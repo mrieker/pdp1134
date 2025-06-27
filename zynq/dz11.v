@@ -44,6 +44,7 @@ module dz11 (
     output reg ssyn_out_h);
 
     wire[15:00] csr, rbr;
+    reg[10:00] clrctr;
 
     reg enable;
     reg[17:00] addres;
@@ -77,7 +78,7 @@ module dz11 (
     // this alows two processes to write to their own 16-bit half of a 32-bit word without messing with thhe other's half
     // as they must set <13> or <12> on their half, always leaving them clear on the other half.
 
-    assign armrdata = (armraddr == 0) ? 32'h445A2002 : // [31:16] = 'DZ'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h445A2003 : // [31:16] = 'DZ'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable, 5'b0, intvec, addres } :
                       (armraddr == 2) ? { rbr, csr } :
                       (armraddr == 3) ? { txenab, 7'b0, siloctr, silorem, rxenab } :
@@ -96,7 +97,7 @@ module dz11 (
     wire csr_07_rdone = siloctr != 0;
     reg  csr_06_rie;
     reg  csr_05_mse;
-    reg  csr_04_clr;
+    wire csr_04_clr = clrctr != 0;
     reg  csr_03_mai;
 
     assign csr = { csr_15_trdy, csr_14_tie, csr_13_sa, csr_12_sae, 1'b0, csr_1008_tline,
@@ -108,8 +109,20 @@ module dz11 (
     wire[2:0] armodd = { armwaddr[1:0], 1'b1 };
 
     // level-style interrupt
-    assign intreq = (csr_14_tie & csr_15_trdy) | (csr_06_rie & (csr_12_sae ? csr_13_sa : csr_07_rdone));
-    assign irvec  = intvec;
+    wire intlev = (csr_14_tie & csr_15_trdy) | (csr_06_rie & (csr_12_sae ? csr_13_sa : csr_07_rdone));
+
+    // make it edge triggered
+    intreq dzintreq (
+        .CLOCK    (CLOCK),
+        .RESET    (init_in_h),
+        .INTVEC   (intvec),
+        .rirqlevl (intlev),
+        .xirqlevl (0),
+        .intreq   (intreq),
+        .irvec    (irvec),
+        .intgnt   (intgnt),
+        .igvec    (igvec)
+    );
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin
@@ -118,11 +131,11 @@ module dz11 (
                 enable <= 0;
                 intvec <= 0;
             end
+            clrctr     <= 0;
             csr_14_tie <= 0;
             csr_12_sae <= 0;
             csr_06_rie <= 0;
             csr_05_mse <= 0;
-            csr_04_clr <= 0;
             csr_03_mai <= 0;
             kbful      <= 0;
             prful      <= 0;
@@ -206,8 +219,8 @@ module dz11 (
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
                             csr_06_rie = d_in_h[06];
                             csr_05_mse = d_in_h[05];
-                            csr_04_clr = d_in_h[04];
                             csr_03_mai = d_in_h[03];
+                            if (d_in_h[04]) clrctr = 1;
                         end
                     end
 
@@ -247,12 +260,13 @@ module dz11 (
         end
 
         // process CLR bit
+        // make it last the full 15uS so autoconfig works
         else if (csr_04_clr) begin
+            clrctr     <= (clrctr == 1500) ? 0 : clrctr + 1;
             csr_14_tie <= 0;
             csr_12_sae <= 0;
             csr_06_rie <= 0;
             csr_05_mse <= 0;
-            csr_04_clr <= 0;
             csr_03_mai <= 0;
             kbful      <= 0;
             prful      <= 0;

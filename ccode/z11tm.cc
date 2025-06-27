@@ -407,7 +407,10 @@ static void *tmiothread (void *dummy)
                         if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                     } else {
                         dr->curpos = 0;
-                        if (unloads[drivesel]) unloadfile (drivesel);
+                        if (unloads[drivesel]) {
+                            dr->filename[0] = 0;
+                            unloadfile (drivesel);
+                        }
                     }
                     break;
                 }
@@ -510,7 +513,10 @@ static void *timerthread (void *dsptr)
             else {
                 shmtm->drives[drivesel].curpos = 0;
                 rewdoneats[drivesel] = doneat = 0;
-                if (unloads[drivesel]) unloadfile (drivesel);
+                if (unloads[drivesel]) {
+                    shmtm->drives[drivesel].filename[0] = 0;
+                    unloadfile (drivesel);
+                }
                 if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                 updatelowbits ();
             }

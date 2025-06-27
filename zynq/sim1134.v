@@ -272,6 +272,21 @@ module sim1134 (
     wire[3:0] mmuprxi = { memmode[1], virtaddr[15:13] };
 
     // branch condition true
+    //  000400  BR
+    //  001000  BNE
+    //  001400  BEQ
+    //  002000  BGE
+    //  002400  BLT
+    //  003000  BGT
+    //  003400  BLE
+    //  100000  BPL
+    //  100400  BMI
+    //  101000  BHI
+    //  101400  BLOS
+    //  102000  BVC
+    //  102400  BVS
+    //  103000  BCC/BHIS
+    //  103400  BCS/BLO
     wire[2:0] brindx = { instreg[15], instreg[10:09] };
     reg brtemp, brtrue;
     always @(*) begin

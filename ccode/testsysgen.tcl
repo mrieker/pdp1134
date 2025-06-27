@@ -10,8 +10,12 @@
 #  > source testsysgen.tcl
 
 # set sim mode if fpga turned off
-if {[pin fpgamode] == 0} {
+set fm [pin fpgamode]
+if {$fm == 0} {
     pin set fpgamode 1
+} else {
+    # as close as we can come to reset without rebooting arm
+    pin set fpgamode 0 fpgamode $fm
 }
 
 # stop processor if it's babbling away
@@ -36,16 +40,18 @@ rlload 1 $home/rsx40/excprv.rl01
 after 1000
 
 # turn on RL-11 fastio mode (skip usleeps)
-# turbo only works for sim (skip msyn/ssyn deskewing)
+# turbo only works for sim (skip msyn/ssyn deskewing), ignored for real pdp
 pin set rl_fastio 1
 pin set turbo 1
 
 # make sure devices enabled and we have some memory
 pin set dl_enable 1
-pin set kw_enable 1
+pin set dz_enable 1 dz_addres 0760100 dz_intvec 0300
+pin set kw_enable 1 kw_fiftyhz 0
 pin set ky_enable 1
 pin set pc_enable 1
 pin set rl_enable 1
+pin set tm_enable 1
 enabmem
 
 # boot RL-11 drive
@@ -86,7 +92,7 @@ replytoprompt "Include support for communications products? \[Y/N\]: " "N"
 replytoprompt "Enter CDA memory dump device mnemonic (ddu:) \[S R:3-4\]: " "DL1:"
 replytoprompt "Enter CDA memory dump device CSR \[O R:160000-177700 D:174400\]: " ""
 replytoprompt "What name would you like to give your system \[D: RSX11M\] \[S R:0-6\]: " ""
-
+replytoprompt "MT controller 0 \[D: 224,172522\]              \[S\]: " "224,172522,2"
 waitforstring "End of SYSGEN phase II at"
 waitforstring ">@ <EOF>"
 replytoprompt ">" "BOO \[1,54\]RSX11M"
@@ -98,6 +104,8 @@ waitforstring "RSX-11M V4.0 BL32"
 replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
 replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
+waitforcrlf
 
+puts ""
 puts "use './z11dl -cps 960' to further access tty"
 
