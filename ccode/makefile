@@ -20,7 +20,6 @@ default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dz.$(MACH) z11dump.$(M
 	Z11GUI.jar libGUIZynqPage.$(MACH).so
 
 lib.$(MACH).a: \
-		cmd_pin.$(MACH).o \
 		disassem.$(MACH).o \
 		pintable.$(MACH).o \
 		readprompt.$(MACH).o \
