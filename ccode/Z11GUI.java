@@ -72,11 +72,13 @@ public class Z11GUI extends JPanel {
 
     public final static Dimension buttondim = new Dimension (116, 116);
     public final static ImageIcon buttonin  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
-    public final static ImageIcon buttonout = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purplecirc116.png"));
+    public final static ImageIcon buttonout = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purpleclear116.png"));
 
     public final static Dimension leddim = new Dimension (58, 58);
-    public final static ImageIcon ledon  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc58.png"));
-    public final static ImageIcon ledoff = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purplecirc58.png"));
+    public final static ImageIcon ledon  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purpleflat58.png"));
+    public final static ImageIcon ledoff = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purpleflat58.png"));
+    public final static ImageIcon swton  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc58.png"));
+    public final static ImageIcon swtoff = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("purpleclear58.png"));
 
     public final static Dimension procpandim = new Dimension (1044, 60);
     public final static Image     procpanimg = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("procpan.png")).getImage ();
@@ -87,7 +89,7 @@ public class Z11GUI extends JPanel {
     public final static Image     pdplogoimg = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("pdplogo.png")).getImage ();
 
     public final static Dimension redeyedim  = new Dimension (36, 36);
-    public final static Image     redeyeimg  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("redeyeclip36.png")).getImage ();
+    public final static Image     redeyeimg  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("redleda36.png")).getImage ();
 
     public static JFrame mainframe;
     public static Toolkit toolkit;
@@ -724,26 +726,29 @@ public class Z11GUI extends JPanel {
 
         public int dotxl, dotyt;
 
+        public ImageIcon iconon  = ledon;
+        public ImageIcon iconoff = ledoff;
+
         public LED ()
         {
             setBorder (null);
             setContentAreaFilled (false);
-            setIcon (ledoff);
+            setIcon (iconoff);
             setMaximumSize (leddim);
             setMinimumSize (leddim);
             setPreferredSize (leddim);
             setRolloverEnabled (false);
             setSize (leddim);
 
-            dotxl = (int) (leddim.getWidth  () - redeyedim.getWidth  ()) / 2 + 1;
-            dotyt = (int) (leddim.getHeight () - redeyedim.getHeight ()) / 2 - 1;
+            dotxl = (int) (leddim.getWidth  () - redeyedim.getWidth  ()) / 2;
+            dotyt = (int) (leddim.getHeight () - redeyedim.getHeight ()) / 2;
         }
 
         public void setOn (boolean on)
         {
             if (ison != on) {
                 ison = on;
-                setIcon (ison ? ledon : ledoff);
+                setIcon (ison ? iconon : iconoff);
             }
         }
 
@@ -765,6 +770,9 @@ public class Z11GUI extends JPanel {
             mask = 1 << n;
             setRolloverEnabled (true);
             addActionListener (this);
+            iconon  = swton;
+            iconoff = swtoff;
+            setIcon (iconoff);
         }
 
         @Override  // ActionListener

@@ -14,7 +14,7 @@ endif
 
 GPP    := g++ $(CFLAGS) $(TCLINC) -std=c++11 -g -Wall -fPIC
 
-GUIEXTRAS := purplecirc58.png violetcirc58.png purplecirc116.png violetcirc116.png redeyeclip36.png rl02pan.png procpan.png pdplogo.png
+GUIEXTRAS := purpleclear58.png purpleflat58.png violetcirc58.png purpleclear116.png violetcirc116.png redleda36.png rl02pan.png procpan.png pdplogo.png
 
 default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dz.$(MACH) z11dump.$(MACH) z11ila.$(MACH) z11pc.$(MACH) z11rl.$(MACH) z11tm.$(MACH) \
 	Z11GUI.jar libGUIZynqPage.$(MACH).so
