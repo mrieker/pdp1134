@@ -133,12 +133,16 @@ module Zynq (
     reg ilaarmed, ilaoflow;
 
     // arm writes these to control fpga
-    reg[31:00] regctla, regctlb, regctli, regctll, regarmintena;
-    reg regarmintreq_30;
-    wire[31:00] regctlj, regarmintreq;
-
+    reg[31:00] regctla, regctlb, regctli, regctll;
+    wire[31:00] regctlj;
     reg[23:06]  regctlk_2306;
     wire[05:00] regctlk_0500;
+
+    // fpga sends interrupt request to arm
+    reg[30:00] regarmintena;    // arm enables each interrupt source separately
+    reg regarmintreq_30;        // arm can interrupt itself with bit 30 (driver init probing int vector)
+    wire[29:00] regarmintreq;   // all other sources are from fpga devices
+    assign armintreq = (regarmintena & { regarmintreq_30, regarmintreq }) != 0;
 
     // regctla[31:30] determine overall FPGA mode
     wire[1:0] fpgamode = regctla[31:30];
@@ -534,8 +538,8 @@ module Zynq (
         (readaddr        == 10'b0000001010) ? regctlj      :
         (readaddr        == 10'b0000001011) ? { 8'b0, regctlk_2306, regctlk_0500 } :
         (readaddr        == 10'b0000001100) ? regctll      :
-        (readaddr        == 10'b0000011010) ? regarmintena :    // ZG_INTENABS in km
-        (readaddr        == 10'b0000011011) ? regarmintreq :    // ZG_INTFLAGS in km
+        (readaddr        == 10'b0000011010) ? { 1'b0, regarmintena } :                       // ZG_INTENABS in km
+        (readaddr        == 10'b0000011011) ? { armintreq, regarmintreq_30, regarmintreq } : // ZG_INTFLAGS in km
         (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
         (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
@@ -619,10 +623,10 @@ module Zynq (
                         regctll[22]    <= saxi_WDATA[22];
                     end
                     10'b0000011010: begin
-                        regarmintena[30:00] <= saxi_WDATA[30:00];
+                        regarmintena    <= saxi_WDATA[30:00];
                     end
                     10'b0000011011: begin
-                        regarmintreq_30     <= saxi_WDATA[30];
+                        regarmintreq_30 <= saxi_WDATA[30];
                     end
                     default: begin end
                 endcase
@@ -653,9 +657,6 @@ module Zynq (
     wire irq4_intr_out_h, irq5_intr_out_h, irq6_intr_out_h, irq7_intr_out_h;
     wire[7:0] irq4_d70_out_h, irq5_d70_out_h, irq6_d70_out_h, irq7_d70_out_h;
 
-    assign armintreq = (regarmintena[30:00] & regarmintreq[30:00]) != 0;
-    assign regarmintreq[31] = armintreq;
-    assign regarmintreq[30] = regarmintreq_30;
     assign regarmintreq[29:02] = 0;
 
     // big memory

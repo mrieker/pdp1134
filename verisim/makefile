@@ -6,12 +6,15 @@ VFILES := \
 	m9312.v \
 	../zynq/bigmem.v \
 	../zynq/dl11.v \
+	../zynq/dz11.v \
 	../zynq/intctl.v \
-	../zynq/kl11.v \
+	../zynq/intreq.v \
+	../zynq/kw11.v \
+	../zynq/ky11.v \
 	../zynq/pc11.v \
 	../zynq/rl11.v \
 	../zynq/sim1134.v \
-	../zynq/swlight.v \
+	../zynq/tm11.v \
 	../zynq/zynq.v
 
 

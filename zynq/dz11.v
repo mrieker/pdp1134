@@ -57,7 +57,7 @@ module dz11 (
     reg[7:0] rxenab;                        //DZ_LPR[12] receiver on
     reg[3:0] silorem;
     reg[4:0] siloctr;
-    reg[10:00] silo[3:0];
+    reg[10:00] silo[15:00];
     wire[3:0] siloins = silorem + siloctr[3:0];
     wire siloful = siloctr[4];
     wire[10:00] rbuf = silo[silorem];       //DZ_RBUF[10:00] corresponding keyboard char
@@ -78,7 +78,7 @@ module dz11 (
     // this alows two processes to write to their own 16-bit half of a 32-bit word without messing with thhe other's half
     // as they must set <13> or <12> on their half, always leaving them clear on the other half.
 
-    assign armrdata = (armraddr == 0) ? 32'h445A2003 : // [31:16] = 'DZ'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h445A2004 : // [31:16] = 'DZ'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable, 5'b0, intvec, addres } :
                       (armraddr == 2) ? { rbr, csr } :
                       (armraddr == 3) ? { txenab, 7'b0, siloctr, silorem, rxenab } :
@@ -213,14 +213,14 @@ module dz11 (
 
                     0: begin
                         if (~ c_in_h[0] |   a_in_h[00]) begin
-                            csr_14_tie = d_in_h[14];
-                            csr_12_sae = d_in_h[12];
+                            csr_14_tie <= d_in_h[14];
+                            csr_12_sae <= d_in_h[12];
                         end
                         if (~ c_in_h[0] | ~ a_in_h[00]) begin
-                            csr_06_rie = d_in_h[06];
-                            csr_05_mse = d_in_h[05];
-                            csr_03_mai = d_in_h[03];
-                            if (d_in_h[04]) clrctr = 1;
+                            csr_06_rie <= d_in_h[06];
+                            csr_05_mse <= d_in_h[05];
+                            csr_03_mai <= d_in_h[03];
+                            if (d_in_h[04]) clrctr <= 1;
                         end
                     end
 

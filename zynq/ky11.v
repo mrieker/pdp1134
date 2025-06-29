@@ -81,7 +81,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B592011 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592012 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -259,11 +259,11 @@ module ky11 (
 
         // single stepper
         // - stop requesting processor to halt
-        // - as soon as it starts back up (fetches something), request halt
+        // - as soon as it starts back up (not halted), request halt
         if (~ RESET & ~ armwrite & stepreq) begin
             if (halted) begin
                 haltreq <= 0;
-            end else if (syn_msyn_in_h) begin
+            end else begin
                 haltreq <= 1;
                 stepreq <= 0;
             end

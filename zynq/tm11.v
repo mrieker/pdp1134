@@ -49,7 +49,7 @@ module tm11
     reg[15:00] mts, mtc, mtbrc, mtcma, mtd, mtrd;
     reg[7:0] sels, bots, wrls, rews, turs;
 
-    assign armrdata = (armraddr == 0) ? 32'h544D2002 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h544D2003 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mtc,   mts   } :
                       (armraddr == 2) ? { mtcma, mtbrc } :
                       (armraddr == 3) ? { mtrd,  mtd   } :
@@ -139,7 +139,7 @@ module tm11
                 end
                 3: begin
                     mtd         <= armwdata[31:16];
-                    mtrd[14:00] <= armwdata[15:00];
+                    mtrd[14:00] <= armwdata[14:00];
                 end
                 4: begin
                     enable      <= armwdata[31];
@@ -210,12 +210,12 @@ module tm11
                                     // clear controller ready
                                     mtc[07] <= 0;
 
-                                    // clear error bits if starting any command
-                                    // this allows mtc[15] to clear immediately
+                                    // clear error bits
+                                    // this clears mtc[15] immediately
                                     mts[15:07] <= 0;
 
                                     // clear tape unit ready
-                                    turs[writehi?d_in_h[14:08]:mtc[14:08]] <= 0;
+                                    turs[writehi?d_in_h[10:08]:mtc[10:08]] <= 0;
                                 end
                             end
                         end

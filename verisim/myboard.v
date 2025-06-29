@@ -111,8 +111,9 @@ module MyBoard (
     end
 ***/
 
-    wire[15:00] sim_pcout, sim_psout;
+    wire[15:00] sim_r0out, sim_pcout, sim_psout;
     wire[5:0] sim_stout;
+    wire sim_waiting;
 
     // fillin for the real pdp
     sim1134 fakeinst (
@@ -122,6 +123,11 @@ module MyBoard (
         .pcout (sim_pcout),
         .psout (sim_psout),
         .stout (sim_stout),
+        .waiting (sim_waiting),
+        .r0out (sim_r0out),
+        .turbo (1),
+        .bus_pa_in_l (1),
+        .bus_pb_in_l (1),
 
         .bus_ac_lo_in_l   (bus_ac_lo_l),        //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (bus_bbsy_l),         //<< some device telling cpu it is using the bus as master
@@ -168,6 +174,7 @@ module MyBoard (
     reg[17:00]  extmemdin;
     wire        extmemenab;
     wire[1:0]   extmemwena;
+    wire        armintreq;
 
     Zynq zynq (
         .CLOCK        (CLOCK),               // 100MHz clock
@@ -250,7 +257,9 @@ module MyBoard (
         .saxi_RVALID  (saxi_RVALID),
         .saxi_WDATA   (saxi_WDATA),
         .saxi_WREADY  (saxi_WREADY),
-        .saxi_WVALID  (saxi_WVALID)
+        .saxi_WVALID  (saxi_WVALID),
+
+        .armintreq (armintreq)
     );
 
     // fpga block memory

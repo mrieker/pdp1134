@@ -46,9 +46,9 @@ module pc11
 
     reg enable, lastrenab;
     reg[15:00] rcsr, rbuf, xcsr, xbuf;
-    wire pulseirq;
+    wire pulserirq;
 
-    assign armrdata = (armraddr == 0) ? 32'h50431003 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h50431004 : // [31:16] = 'PC'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rbuf, rcsr } :
                       (armraddr == 2) ? { xbuf, xcsr } :
                       { enable, 5'b0, INTVEC, ADDR };
@@ -57,7 +57,7 @@ module pc11
         .CLOCK    (CLOCK),
         .RESET    (init_in_h),
         .INTVEC   (INTVEC),
-        .rirqlevl ((rcsr[15] | rcsr[07]) & rcsr[06] & ~ pulseirq),
+        .rirqlevl ((rcsr[15] | rcsr[07]) & rcsr[06] & ~ pulserirq),
         .xirqlevl ((xcsr[15] | xcsr[07]) & xcsr[06]),
         .intreq   (intreq),
         .irvec    (irvec),
