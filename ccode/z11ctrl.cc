@@ -37,8 +37,7 @@
 #include "disassem.h"
 #include "pintable.h"
 #include "readprompt.h"
-#include "shmrl.h"
-#include "shmtm.h"
+#include "shmms.h"
 #include "tclmain.h"
 #include "z11util.h"
 
@@ -504,7 +503,7 @@ static int cmd_rlload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
         Tcl_SetResultF (interp, "missing drive and/or filename");
         return TCL_ERROR;
     }
-    int rc = shmrl_load (drive, readonly, filename);
+    int rc = shmms_load (SHMMS_CTLID_RL, drive, readonly, filename);
     if (rc < 0) {
         Tcl_SetResultF (interp, "%s", strerror (- rc));
         return TCL_ERROR;
@@ -532,8 +531,9 @@ static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
             return TCL_ERROR;
         }
 
-        char fnbuf[SHMRL_FNSIZE];
-        rc = shmrl_stat (drive, fnbuf, sizeof fnbuf);
+        char fnbuf[SHMMS_FNSIZE];
+        uint32_t curpos;
+        rc = shmms_stat (SHMMS_CTLID_RL, drive, fnbuf, sizeof fnbuf, &curpos);
         if (rc < 0) {
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;
@@ -544,12 +544,11 @@ static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
         for (int i = 1; ++ i < objc;) {
             char const *stri = Tcl_GetString (objv[i]);
             if (strcasecmp (stri, "cylinder") == 0) {
-                int val = (rc & RLSTAT_CYLNO) / (RLSTAT_CYLNO & - RLSTAT_CYLNO);
-                vals[nvals++] = Tcl_NewIntObj (val);
+                vals[nvals++] = Tcl_NewIntObj (curpos / 128);
                 continue;
             }
             if (strcasecmp (stri, "fault") == 0) {
-                int val = (rc & RLSTAT_FAULT) / RLSTAT_FAULT;
+                int val = (rc & MSSTAT_FAULT) / MSSTAT_FAULT;
                 vals[nvals++] = Tcl_NewIntObj (val);
                 continue;
             }
@@ -558,17 +557,17 @@ static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
                 continue;
             }
             if (strcasecmp (stri, "readonly") == 0) {
-                int val = (rc & RLSTAT_WRPROT) / RLSTAT_WRPROT;
+                int val = (rc & MSSTAT_WRPROT) / MSSTAT_WRPROT;
                 vals[nvals++] = Tcl_NewIntObj (val);
                 continue;
             }
             if (strcasecmp (stri, "ready") == 0) {
-                int val = (rc & RLSTAT_READY) / RLSTAT_READY;
+                int val = (rc & MSSTAT_READY) / MSSTAT_READY;
                 vals[nvals++] = Tcl_NewIntObj (val);
                 continue;
             }
             if (strcasecmp (stri, "type") == 0) {
-                vals[nvals++] = Tcl_NewStringObj ((rc & RLSTAT_RL01) ? "RL01" : "RL02", -1);
+                vals[nvals++] = Tcl_NewStringObj ((rc & MSSTAT_RL01) ? "RL01" : "RL02", -1);
                 continue;
             }
             Tcl_SetResultF (interp, "unknown keyword %s", stri);
@@ -606,7 +605,7 @@ static int cmd_rlunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
             return TCL_ERROR;
         }
 
-        rc = shmrl_load (drive, false, "");
+        rc = shmms_load (SHMMS_CTLID_RL, drive, false, "");
         if (rc < 0) {
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;
@@ -660,7 +659,7 @@ static int cmd_tmload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
         Tcl_SetResultF (interp, "missing drive and/or filename");
         return TCL_ERROR;
     }
-    int rc = shmtm_load (drive, readonly, filename);
+    int rc = shmms_load (SHMMS_CTLID_TM, drive, readonly, filename);
     if (rc < 0) {
         Tcl_SetResultF (interp, "%s", strerror (- rc));
         return TCL_ERROR;
@@ -688,9 +687,9 @@ static int cmd_tmstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
             return TCL_ERROR;
         }
 
-        char fnbuf[SHMTM_FNSIZE];
+        char fnbuf[SHMMS_FNSIZE];
         uint32_t curpos;
-        rc = shmtm_stat (drive, fnbuf, sizeof fnbuf, &curpos);
+        rc = shmms_stat (SHMMS_CTLID_TM, drive, fnbuf, sizeof fnbuf, &curpos);
         if (rc < 0) {
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;
@@ -710,12 +709,12 @@ static int cmd_tmstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
                 continue;
             }
             if (strcasecmp (stri, "readonly") == 0) {
-                int val = (rc & TMSTAT_WRPROT) / RLSTAT_WRPROT;
+                int val = (rc & MSSTAT_WRPROT) / MSSTAT_WRPROT;
                 vals[nvals++] = Tcl_NewIntObj (val);
                 continue;
             }
             if (strcasecmp (stri, "ready") == 0) {
-                int val = (rc & TMSTAT_READY) / RLSTAT_READY;
+                int val = (rc & MSSTAT_READY) / MSSTAT_READY;
                 vals[nvals++] = Tcl_NewIntObj (val);
                 continue;
             }
@@ -754,7 +753,7 @@ static int cmd_tmunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
             return TCL_ERROR;
         }
 
-        rc = shmtm_load (drive, false, "");
+        rc = shmms_load (SHMMS_CTLID_TM, drive, false, "");
         if (rc < 0) {
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;

@@ -3,11 +3,11 @@
 #  Run Z11GUI program
 #
 dir=`dirname $0`
+dir=`realpath $dir`
 unm=`uname -m`
 $dir/loadmod.sh
 export CLASSPATH=$dir/Z11GUI.jar
-export Z11RLEXE=$dir/z11rl
-export Z11TMEXE=$dir/z11tm
+export Z11HOME=$dir
 export LD_LIBRARY_PATH=$dir
 dbg=
 if [ "$1" == "-gdb" ]

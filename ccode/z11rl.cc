@@ -41,7 +41,7 @@
 #include <unistd.h>
 
 #include "futex.h"
-#include "shmrl.h"
+#include "shmms.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -70,55 +70,28 @@
 #define RFLD(n,m) ((ZRD(rlat[n]) & m) / (m & - m))
 
 static bool vcs[4];
-static char fns[4][SHMRL_FNSIZE];
+static char fns[4][SHMMS_FNSIZE];
 static int debug;
 static int fds[4];
 static uint64_t seekdoneats[4];
 
-#define LOCKIT mutexlock()
-#define UNLKIT mutexunlk()
+#define LOCKIT shmms_svr_mutexlock(shmms)
+#define UNLKIT shmms_svr_mutexunlk(shmms)
 
-static bool volatile exiting;
-static int mypid;
-static ShmRL *shmrl;
+static ShmMS *shmms;
 static uint32_t volatile *rlat;
 static Z11Page *z11p;
 
-static void mutexlock ()
-{
-    int newfutex = mypid;
-    int tmpfutex = 0;
-    while (true) {
-        if (atomic_compare_exchange (&shmrl->rlfutex, &tmpfutex, newfutex)) break;
-        if ((kill (tmpfutex, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "z11rl: locker %d dead\n", tmpfutex);
-        } else {
-            int rc = futex (&shmrl->rlfutex, FUTEX_WAIT, tmpfutex, NULL, NULL, 0);
-            if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
-            tmpfutex = 0;
-        }
-    }
-}
-
-static void mutexunlk ()
-{
-    int newfutex = 0;
-    int tmpfutex = mypid;
-    if (! atomic_compare_exchange (&shmrl->rlfutex, &tmpfutex, newfutex)) ABORT ();
-    if (futex (&shmrl->rlfutex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-}
-
 static void *rliothread (void *dummy);
+static int setdrivetype (void *param, int drivesel);
+static int fileloaded (void *param, int drivesel, int fd);
 static void *timerthread (void *dsptr);
-static void procommands ();
-static int loadfile (uint16_t drivesel);
-static void unloadfile (uint16_t drivesel);
+static void unloadfile (void *param, int drivesel);
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func);
 
 int main (int argc, char **argv)
 {
     memset (fds, -1, sizeof fds);
-    mypid = getpid ();
 
     bool resetit = (argc > 1) && (strcasecmp (argv[1], "-reset") == 0);
 
@@ -127,45 +100,10 @@ int main (int argc, char **argv)
     z11p = new Z11Page ();
     rlat = z11p->findev ("RL", NULL, NULL, true, false);
 
-    // open shared memory, create if not there
-    int shmfd = shm_open (SHMRL_NAME, O_RDWR | O_CREAT, 0666);
-    if (shmfd < 0) {
-        fprintf (stderr, "z11rl: error creating %s: %m\n", SHMRL_NAME);
-        return 1;
-    }
-    if (ftruncate (shmfd, sizeof *shmrl) < 0) {
-        fprintf (stderr, "z11rl: error extending %s: %m\n", SHMRL_NAME);
-        return 1;
-    }
-    shmrl = (ShmRL *) mmap (NULL, sizeof *shmrl, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
-    if (shmrl == MAP_FAILED) {
-        fprintf (stderr, "z11rl: error mmapping %s: %m\n", SHMRL_NAME);
-        return 1;
-    }
-    if (resetit) memset (shmrl, 0, sizeof *shmrl);
+    // initialize shared memory - contains filenames and load/unload info
+    shmms = shmms_svr_initialize (resetit, SHMMS_NAME_RL, "z11rl");
+    shmms->ndrives = 4;
 
-    // put our pid in there in case we die when something is waiting for us to do something
-    // exit if there is another one of us already running
-    LOCKIT;
-    int oldpid = shmrl->svrpid;
-    if ((oldpid != 0) && (oldpid != mypid)) {
-        if (kill (oldpid, 0) >= 0) {
-            UNLKIT;
-            fprintf (stderr, "z11rl: duplicate z11rl process %d\n", oldpid);
-            return 0;
-        }
-        if (errno != ESRCH) ABORT ();
-    }
-    fprintf (stderr, "z11rl: new z11rl process %d\n", mypid);
-    shmrl->svrpid = mypid;
-
-    // we don't know about any loaded files so say drives are empty
-    // ...unless there is an outstanding load request for a drive
-    for (int i = 0; i < 4; i ++) {
-        if (shmrl->command != SHMRLCMD_LOAD + i) {
-            shmrl->drives[i].filename[0] = 0;
-        }
-    }
     // ...and no drives are ready or faulted
     ZWR(rlat[4], 0);
     UNLKIT;
@@ -184,7 +122,8 @@ int main (int argc, char **argv)
         rc = pthread_create (&rltid, NULL, timerthread, (void *)(long)i);
         if (rc != 0) ABORT ();
     }
-    procommands ();
+
+    shmms_svr_proccmds (shmms, "z11rl", setdrivetype, fileloaded, unloadfile, NULL);
 
     return 0;
 }
@@ -228,7 +167,7 @@ static void *rliothread (void *dummy)
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];
             ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
-            ShmRLDrive *dr = &shmrl->drives[drivesel];
+            ShmMSDrive *dr = &shmms->drives[drivesel];
 
             struct timespec nowts;
             if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
@@ -256,8 +195,8 @@ static void *rliothread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   writecheck wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
 
-                    if (dr->lastposn != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->lastposn, rlda);
+                    if (dr->curposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->curposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -313,7 +252,7 @@ static void *rliothread (void *dummy)
                     if (! dr->rl01) rlmp |= 0x0080U;    // is an RL02
                     if (dr->readonly) rlmp |= 0x2000U;  // write locked
                     if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
-                    rlmp |= dr->lastposn & 0x0040U;     // head select
+                    rlmp |= dr->curposn & 0x0040U;     // head select
                     if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk
                     if (seekdelay > 0) rlmp |= 0x0004U; // seeking
                     else if (fd >= 0)  rlmp |= 0x0005U; // 'lock on'
@@ -326,14 +265,14 @@ static void *rliothread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   seek da=%06o\n", drivesel, rlda);
 
-                    int32_t newcyl = dr->lastposn >> 7;
+                    int32_t newcyl = dr->curposn >> 7;
                     if (rlda & 4) newcyl += rlda >> 7;
                              else newcyl -= rlda >> 7;
                     if (debug > 1) fprintf (stderr, "z11rl: [%u]       newcyl=%d\n", drivesel, newcyl);
                     if (newcyl < 0) newcyl = 0;
                     if (newcyl > NCYLS - 1) newcyl = NCYLS - 1;
 
-                    dr->lastposn = (newcyl << 7) | ((rlda << 2) & 0x40);
+                    dr->curposn = (newcyl << 7) | ((rlda << 2) & 0x40);
 
                     if (! fastio) {
                         int oldsdaint = (int) seekdoneats[drivesel];
@@ -349,7 +288,7 @@ static void *rliothread (void *dummy)
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   readheader\n", drivesel);
                     if (! fastio) usleep (seekdelay);
                     nowus += seekdelay;
-                    rlmp   = dr->lastposn | SECUNDERHEAD;
+                    rlmp   = dr->curposn | SECUNDERHEAD;
                     rlmp2  = 0;
                     rlmp3  = 0;
                     goto rhddone;
@@ -361,8 +300,8 @@ static void *rliothread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   writedata wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
 
-                    if (dr->lastposn != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->lastposn, rlda);
+                    if (dr->curposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->curposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -430,8 +369,8 @@ static void *rliothread (void *dummy)
 
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   readdata wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
 
-                    if (dr->lastposn != (rlda & 0xFFC0U)) {
-                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->lastposn, rlda);
+                    if (dr->curposn != (rlda & 0xFFC0U)) {
+                        if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->curposn, rlda);
                         goto hnferr;
                     }
                     uint16_t trk = (rlda >> 6) & 1;
@@ -574,73 +513,9 @@ static void *timerthread (void *dsptr)
     }
 }
 
-// process load/unload commands
-static void procommands ()
+static int setdrivetype (void *param, int drivesel)
 {
-    while (true) {
-
-        // check for load/unload commands in shared memory waiting to be processed
-        LOCKIT;
-        int cmd = shmrl->command;
-        switch (cmd) {
-
-            // something requesting file be loaded
-            case SHMRLCMD_LOAD+0 ... SHMRLCMD_LOAD+3: {
-                int driveno = cmd - SHMRLCMD_LOAD;
-                ShmRLDrive *dr = &shmrl->drives[driveno];
-                ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << driveno));
-                UNLKIT;
-                unloadfile (driveno);
-                int rc = loadfile (driveno);
-                LOCKIT;
-                if (rc >= 0) {
-                    shmrl->negerr = 0;
-                    ZWR(rlat[4], ZRD(rlat[4]) | (RL4_DRDY0 << driveno));
-                } else {
-                    dr->filename[0] = 0;
-                    shmrl->negerr = rc;
-                }
-                shmrl->command = SHMRLCMD_DONE;
-                if (futex (&shmrl->command, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-                break;
-            }
-
-            // something requesting file be unloaded
-            case SHMRLCMD_UNLD+0 ... SHMRLCMD_UNLD+3: {
-                int driveno = cmd - SHMRLCMD_UNLD;
-                ShmRLDrive *dr = &shmrl->drives[driveno];
-                dr->filename[0] = 0;
-                if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
-                fns[driveno][0] = 0;
-                ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << driveno));
-                unloadfile (driveno);
-                shmrl->command = SHMRLCMD_DONE;
-                if (futex (&shmrl->command, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-                break;
-            }
-
-            // nothing to do, wait
-            default: {
-                UNLKIT;
-                int rc = futex (&shmrl->command, FUTEX_WAIT, cmd, NULL, NULL, 0);
-                if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
-                LOCKIT;
-            }
-        }
-        UNLKIT;
-    }
-}
-
-// load file in a drive
-//  input:
-//   diskno = disk number 0..3
-//  output:
-//   returns < 0: errno
-//          else: successful
-static int loadfile (uint16_t drivesel)
-{
-    ShmRLDrive *dr = &shmrl->drives[drivesel];
-    bool readwrite = ! dr->readonly;
+    ShmMSDrive *dr = &shmms->drives[drivesel];
     char const *filenm = dr->filename;
 
     int fnlen = strlen (filenm);
@@ -651,56 +526,31 @@ static int loadfile (uint16_t drivesel)
         return -EBADF;
     }
 
-    int fd = open (filenm, readwrite ? O_RDWR | O_CREAT : O_RDONLY, 0666);
-    if (fd < 0) {
-        fd = - errno;
-        fprintf (stderr, "z11rl: [%u] error opening %s: %m\n", drivesel, filenm);
-        return fd;
-    }
+    return 0;
+}
 
-    // don't let it be put in more than one drive if either is write-enabled
-    struct flock flockit;
-lockit:;
-    memset (&flockit, 0, sizeof flockit);
-    flockit.l_type   = readwrite ? F_WRLCK : F_RDLCK;
-    flockit.l_whence = SEEK_SET;
-    flockit.l_len    = 4096;
-    if (fcntl (fd, F_OFD_SETLK, &flockit) < 0) {
-        int rc = - errno;
-        ASSERT (rc < 0);
-        if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_GETLK, &flockit) >= 0)) {
-            if (flockit.l_type == F_UNLCK) goto lockit;
-            fprintf (stderr, "z11rl: [%u] error locking %s: locked by pid %d\n", drivesel, filenm, (int) flockit.l_pid);
-        } else {
-            fprintf (stderr, "z11rl: [%u] error locking %s: %m\n", drivesel, filenm);
-        }
-        close (fd);
-        return rc;
-    }
-
-    // extend it to full size
-    if (readwrite && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) {
-        int rc = - errno;
-        ASSERT (rc < 0);
-        fprintf (stderr, "z11rl: [%u] error extending %s: %m\n", drivesel, filenm);
-        close (fd);
-        return rc;
-    }
-
-    // all is good
-    fprintf (stderr, "z11rl: [%u] loaded read%s file %s\n", drivesel, (readwrite ? "/write" : "-only"), filenm);
+// file was successfully opened
+// save the fd and mark drive online
+static int fileloaded (void *param, int drivesel, int fd)
+{
+    ShmMSDrive *dr = &shmms->drives[drivesel];
+    if (! dr->readonly && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) return -1;
     fds[drivesel] = fd;
-    if (strcmp (fns[drivesel], filenm) != 0) {
-        strcpy (fns[drivesel], filenm);
+    if (strcmp (fns[drivesel], dr->filename) != 0) {
+        strcpy (fns[drivesel], dr->filename);
         vcs[drivesel] = true;
-        dr->lastposn  = 0;
+        dr->curposn = 0;
     }
-    return fd;
+    ZWR(rlat[4], ZRD(rlat[4]) | (RL4_DRDY0 << drivesel));
+    return 0;
 }
 
 // close file loaded on a disk drive
-static void unloadfile (uint16_t drivesel)
+// mark drive offline
+static void unloadfile (void *param, int drivesel)
 {
+    fns[drivesel][0] = 0;
+    ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));
     close (fds[drivesel]);
     fds[drivesel] = -1;
 }

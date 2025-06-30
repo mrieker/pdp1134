@@ -1645,56 +1645,15 @@ public class Z11GUI extends JPanel {
         }
     }
 
-    /////////////////
-    //  RL DRIVES  //
-    /////////////////
+    ///////////////////////////
+    //  MASS STORAGE DRIVES  //
+    ///////////////////////////
 
-    public static File rlchooserdirectory;
+    public static class RLDrive extends MSDrive {
+        private final static int RL01DISKSIZE = 256*2*40*256;  // bytes in RL01 disk file
+        private final static int RL02DISKSIZE = 512*2*40*256;  // bytes in RL02 disk file
 
-    public static class RLButton extends JButton {
-        public boolean ison;
-        public Color offcolor;
-        public Color oncolor;
-
-        public RLButton (String label, Color oncolor, Color offcolor)
-        {
-            super (label);
-            this.offcolor = offcolor;
-            this.oncolor  = oncolor;
-            //Dimension d = new Dimension (80, 80);
-            //setPreferredSize (d);
-            setBackground (offcolor);
-        }
-
-        public void setOn (boolean on)
-        {
-            if (ison != on) {
-                ison = on;
-                setBackground (ison ? oncolor : offcolor);
-            }
-        }
-    }
-
-    public static class RLDrive extends JPanel {
-        public boolean rl01shows;
-        public int drive;
-        public int isvisible;
-        public int lastcylno;
-        public int lastfnseq;
-        public JLabel cylnolbl;
-        public JLabel rlmessage;
-        public JLabel rloxlbl;
-        public long blockmsgupdates;
-        public long winkoutready;
-        public RLButton loadbutton;
-        public RLButton readylight;
-        public RLButton faultlight;
-        public RLButton wprtswitch;
-
-        public final static int RL01DISKSIZE = 256*2*40*256;  // bytes in RL01 disk file
-        public final static int RL02DISKSIZE = 512*2*40*256;  // bytes in RL02 disk file
-
-        public final static FileFilter rlfilefilter = new FileFilter () {
+        private final static FileFilter rlfilefilter = new FileFilter () {
             @Override   // FileFilter
             public boolean accept (File ff)
             {
@@ -1709,197 +1668,87 @@ public class Z11GUI extends JPanel {
             }
         };
 
-        public RLDrive (int d)
+        protected int getCtrlrID () { return GUIZynqPage.MSCTLID_RL; }
+        protected String getCtlName () { return "RL"; }
+        protected FileFilter getFileFilter () { return rlfilefilter; }
+        protected boolean verifyFile (File ff)
         {
-            drive = d;
-            isvisible = -1;
-            lastcylno = -1;
-            lastfnseq = -1;
-
-            setLayout (new BoxLayout (this, BoxLayout.X_AXIS));
-            setMaximumSize (rl02pandim);
-            setMinimumSize (rl02pandim);
-            setPreferredSize (rl02pandim);
-            setSize (rl02pandim);
-
-            add (cylnolbl   = new JLabel ("       "));
-            add (loadbutton = new RLButton ("LOAD",  Color.YELLOW, Color.GRAY));
-            add (readylight = new RLButton (drive + " RDY", Color.WHITE, Color.GRAY));
-            add (faultlight = new RLButton ("FAULT", Color.RED,    Color.GRAY));
-            add (wprtswitch = new RLButton ("WRPRT", Color.YELLOW, Color.GRAY));
-            add (rloxlbl    = new JLabel (""));
-            add (rlmessage  = new JLabel (""));
-
-            Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
-            cylnolbl.setFont (lf);
-
-            updateLabel ();
-            Font rf = rloxlbl.getFont ();
-            rloxlbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
-
-            Dimension md = new Dimension (600, 50);
-            rlmessage.setMaximumSize (md);
-            rlmessage.setMinimumSize (md);
-            rlmessage.setPreferredSize (md);
-            rlmessage.setSize (md);
-
-            // do something when LOAD button is clicked
-            loadbutton.addActionListener (new ActionListener () {
-                public void actionPerformed (ActionEvent ae)
-                {
-                    if ((GUIZynqPage.rlstat (drive) & GUIZynqPage.RLSTAT_LOAD) == 0) {
-
-                        // display chooser box to select file to load
-                        JFileChooser chooser = new JFileChooser ();
-                        chooser.setFileSelectionMode (JFileChooser.FILES_AND_DIRECTORIES);
-                        chooser.setFileFilter (rlfilefilter);
-                        chooser.setDialogTitle ("Loading RL drive " + drive);
-                        while (true) {
-                            if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
-                            int rc = chooser.showOpenDialog (RLDrive.this);
-                            if (rc != JFileChooser.APPROVE_OPTION) break;
-                            File ff = chooser.getSelectedFile ();
-                            if (ff.isDirectory ()) {
-                                rlchooserdirectory = ff;
-                                continue;
-                            }
-                            rlchooserdirectory = ff.getParentFile ();
-
-                            long issize = ff.length ();
-                            long sbsize = 0;
-                            String ffname = ff.getName ();
-                            if (ffname.toUpperCase ().endsWith (".RL01")) {
-                                rl01shows = true;
-                                sbsize    = RL01DISKSIZE;
-                            }
-                            if (ffname.toUpperCase ().endsWith (".RL02")) {
-                                rl01shows = false;
-                                sbsize    = RL02DISKSIZE;
-                            }
-                            updateLabel ();
-                            if (sbsize == 0) {
-                                JOptionPane.showMessageDialog (RLDrive.this, "filename " + ffname + " must end with .rl01 or .rl02",
-                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
-                                continue;
-                            }
-                            if ((issize == sbsize) || (JOptionPane.showConfirmDialog (RLDrive.this,
-                                    ffname + " size " + issize + " is not " + sbsize + "\nAre you sure you want to load it?",
-                                    "Loading Drive", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
-                                String fn = ff.getAbsolutePath ();
-                                String er = GUIZynqPage.rlload (drive, wprtswitch.ison, fn);
-                                if (er == null) {
-                                    rlmessage.setText (fn);
-                                    loadbutton.setOn (true);
-                                    break;
-                                }
-                                JOptionPane.showMessageDialog (RLDrive.this, "error loading " + ffname + ": " + er,
-                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
-                            }
-                        }
-                    } else {
-
-                        // unload whatever is in there
-                        if ((GUIZynqPage.running () <= 0) ||
-                            (JOptionPane.showConfirmDialog (RLDrive.this,
-                                    "Are you sure you want to unload drive " + drive + "?",
-                                    "Unloading Drive",
-                                    JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
-                            GUIZynqPage.rlload (drive, wprtswitch.ison, "");
-                            rlmessage.setText ("");
-                            loadbutton.setOn (false);
-                        }
-                    }
-                }
-            });
-
-            // do something when WRPRT button is clicked
-            wprtswitch.addActionListener (new ActionListener () {
-                public void actionPerformed (ActionEvent ae)
-                {
-                    if (((GUIZynqPage.rlstat (drive) & GUIZynqPage.RLSTAT_LOAD) == 0) ||
-                        (GUIZynqPage.running () <= 0) ||
-                        (JOptionPane.showConfirmDialog (RLDrive.this,
-                                "Are you sure you want to write " + (wprtswitch.ison ? "enable" : "protect") +
-                                        " drive " + drive + "?",
-                                "Write Protecting Drive",
-                                JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
-                        GUIZynqPage.rlload (drive, ! wprtswitch.ison, null);
-                    }
-                }
-            });
+            long issize = ff.length ();
+            long sbsize = 0;
+            String ffname = ff.getName ();
+            if (ffname.toUpperCase ().endsWith (".RL01")) {
+                sbsize = RL01DISKSIZE;
+            }
+            if (ffname.toUpperCase ().endsWith (".RL02")) {
+                sbsize = RL02DISKSIZE;
+            }
+            if (sbsize == 0) {
+                JOptionPane.showMessageDialog (RLDrive.this, "filename " + ffname + " must end with .rl01 or .rl02",
+                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+            return (issize == sbsize) || (JOptionPane.showConfirmDialog (RLDrive.this,
+                    ffname + " size " + issize + " is not " + sbsize + "\nAre you sure you want to load it?",
+                    "Loading Drive", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION);
+        }
+        protected String fmtCylNo (long cylno) { return (cylno < 0) ? "       " : String.format ("  %03d  ", cylno); }
+        protected boolean hasFaultLt () { return true; }
+        protected String getDriveLbl ()
+        {
+            boolean rl01 = (GUIZynqPage.msstat (getCtrlrID (), drive) & GUIZynqPage.MSSTAT_RL01) != 0;
+            return rl01 ? " RLO1 " : " RLO2 ";  // yes 'O' looks more like real drive logo
         }
 
-        // update buttons and text to match fpga & shared memory
         public void update ()
         {
-            int stat = GUIZynqPage.rlstat (drive);
-
-            // update cylinder number if it changed, blanks if drive not loaded
-            // also wink out the drive ready light
-            int thiscylno = ((stat & GUIZynqPage.RLSTAT_LOAD) == 0) ? -1 : (stat & GUIZynqPage.RLSTAT_CYLNO) / (GUIZynqPage.RLSTAT_CYLNO & - GUIZynqPage.RLSTAT_CYLNO);
-            if (lastcylno != thiscylno) {
-                lastcylno = thiscylno;
-                cylnolbl.setText ((lastcylno < 0) ? "       " : String.format ("  %03d  ", lastcylno));
-                stat &= ~ GUIZynqPage.RLSTAT_READY;
-            }
-
-            // stretch the not-ready status out so it blinks when there is a seek
-            if ((stat & GUIZynqPage.RLSTAT_READY) == 0) winkoutready = updatetimemillis + 20;
-
-            // update load, ready, fault, write protect lights
-            loadbutton.setOn ((stat & GUIZynqPage.RLSTAT_LOAD)  != 0);
-            readylight.setOn (updatetimemillis >= winkoutready);
-            faultlight.setOn ((stat & GUIZynqPage.RLSTAT_FAULT) != 0);
-            wprtswitch.setOn ((stat & GUIZynqPage.RLSTAT_WRPRT) != 0);
-
-            // update drive type label
-            boolean rl01loaded = (stat & GUIZynqPage.RLSTAT_RL01) != 0;
-            if (rl01shows != rl01loaded) {
-                rl01shows  = rl01loaded;
-                updateLabel ();
-            }
-
-            // update loaded filename if there was a change and if no error message is being displayed
-            int thisfnseq = stat & GUIZynqPage.RLSTAT_FNSEQ;
-            if (((blockmsgupdates == 0) && (lastfnseq != thisfnseq)) || (updatetimemillis > blockmsgupdates)) {
-                rlmessage.setText (GUIZynqPage.rlfile (drive));
-                blockmsgupdates = 0;
-                lastfnseq = thisfnseq;
-            }
+            update (GUIZynqPage.msposn (getCtrlrID (), drive) / 128);
         }
 
-        private void updateLabel ()
+        public RLDrive (int d)
         {
-            // yes 'O' looks more like real drive logo
-            rloxlbl.setText (rl01shows ? " RLO1 " : " RLO2 ");
-        }
-
-        @Override
-        protected void paintComponent (Graphics g)
-        {
-            super.paintComponent (g);
-            g.drawImage (rl02panimg, 0, 0, null);
+            super (d);
         }
     }
 
-    /////////////////
-    //  TM DRIVES  //
-    /////////////////
+    public static class TMDrive extends MSDrive {
+        protected int getCtrlrID () { return GUIZynqPage.MSCTLID_TM; }
+        protected String getCtlName () { return "TM"; }
+        protected FileFilter getFileFilter () { return new FileNameExtensionFilter ("tape image", "tap"); }
+        protected boolean verifyFile (File ff)
+        {
+            String ffname = ff.getName ();
+            if (ffname.toUpperCase ().endsWith (".TAP")) return true;
+            JOptionPane.showMessageDialog (TMDrive.this, "filename " + ffname + " must end with .tap",
+                "Loading Drive", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        protected String fmtCylNo (long cylno) { return (cylno < 0) ? "             " : String.format ("  %09d  ", cylno); }
+        protected boolean hasFaultLt () { return false; }
+        protected String getDriveLbl () { return " TU10 "; }
 
-    public static File tmchooserdirectory;
+        public void update ()
+        {
+            update (GUIZynqPage.msposn (getCtrlrID (), drive));
+        }
 
-    public static class TMButton extends JButton {
-        public boolean ison;
-        public Color offcolor;
-        public Color oncolor;
+        public TMDrive (int d)
+        {
+            super (d);
+        }
+    }
 
-        public TMButton (String label, Color oncolor, Color offcolor)
+    public static File mschooserdirectory;
+
+    public static class MSButton extends JButton {
+        private boolean ison;
+        private Color offcolor;
+        private Color oncolor;
+
+        public MSButton (String label, Color oncolor, Color offcolor)
         {
             super (label);
             this.offcolor = offcolor;
             this.oncolor  = oncolor;
-            //Dimension d = new Dimension (80, 80);
-            //setPreferredSize (d);
             setBackground (offcolor);
         }
 
@@ -1912,20 +1761,33 @@ public class Z11GUI extends JPanel {
         }
     }
 
-    public static class TMDrive extends JPanel {
-        public int drive;
+    public static abstract class MSDrive extends JPanel {
         public int isvisible;
-        public JLabel cylnolbl;
-        public JLabel tmmessage;
-        public long blockmsgupdates;
-        public long lastcylno;
-        public long lastfnseq;
-        public long winkoutready;
-        public TMButton loadbutton;
-        public TMButton readylight;
-        public TMButton wprtswitch;
 
-        public TMDrive (int d)
+        protected int drive;
+
+        private File drivechooserdirectory;
+        private int lastfnseq;
+        private JLabel cylnolbl;
+        private JLabel msmessage;
+        private JLabel msoxlbl;
+        private long lastcylno;
+        private long winkoutready;
+        private MSButton loadbutton;
+        private MSButton readylight;
+        private MSButton faultlight;
+        private MSButton wprtswitch;
+        private String lastdrvlbl;
+
+        protected abstract int getCtrlrID ();   // MSRL or MSTM
+        protected abstract String getCtlName (); // "RL" or "TM"
+        protected abstract FileFilter getFileFilter ();
+        protected abstract boolean verifyFile (File ff);
+        protected abstract String fmtCylNo (long cylno);
+        protected abstract boolean hasFaultLt ();
+        protected abstract String getDriveLbl ();
+
+        public MSDrive (int d)
         {
             drive = d;
             isvisible = -1;
@@ -1938,82 +1800,76 @@ public class Z11GUI extends JPanel {
             setPreferredSize (rl02pandim);
             setSize (rl02pandim);
 
-            JLabel tmoxlbl;
-
-            add (cylnolbl   = new JLabel ("             "));
-            add (loadbutton = new TMButton ("LOAD",  Color.YELLOW, Color.GRAY));
-            add (readylight = new TMButton (drive + " RDY", Color.WHITE, Color.GRAY));
-            add (wprtswitch = new TMButton ("WRPRT", Color.YELLOW, Color.GRAY));
-            add (tmoxlbl    = new JLabel (""));
-            add (tmmessage  = new JLabel (""));
+            add (cylnolbl   = new JLabel (fmtCylNo (-1)));
+            add (loadbutton = new MSButton ("LOAD",  Color.YELLOW, Color.GRAY));
+            add (readylight = new MSButton (drive + " RDY", Color.WHITE, Color.GRAY));
+            if (hasFaultLt ()) {
+                add (faultlight = new MSButton ("FAULT", Color.RED,    Color.GRAY));
+            }
+            add (wprtswitch = new MSButton ("WRPRT", Color.YELLOW, Color.GRAY));
+            add (msoxlbl    = new JLabel (""));
+            add (msmessage  = new JLabel (""));
 
             Font lf = new Font ("Monospaced", Font.PLAIN, cylnolbl.getFont ().getSize ());
             cylnolbl.setFont (lf);
 
-            Font rf = tmoxlbl.getFont ();
-            tmoxlbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
-            tmoxlbl.setText (" TU10 ");
+            updateLabel ();
+            Font rf = msoxlbl.getFont ();
+            msoxlbl.setFont (rf.deriveFont (Font.BOLD, rf.getSize () * 2));
 
             Dimension md = new Dimension (600, 50);
-            tmmessage.setMaximumSize (md);
-            tmmessage.setMinimumSize (md);
-            tmmessage.setPreferredSize (md);
-            tmmessage.setSize (md);
+            msmessage.setMaximumSize (md);
+            msmessage.setMinimumSize (md);
+            msmessage.setPreferredSize (md);
+            msmessage.setSize (md);
 
             // do something when LOAD button is clicked
             loadbutton.addActionListener (new ActionListener () {
                 public void actionPerformed (ActionEvent ae)
                 {
-                    if ((GUIZynqPage.tmstat (drive) & GUIZynqPage.TMSTAT_LOAD) == 0) {
+                    if ((GUIZynqPage.msstat (getCtrlrID (), drive) & GUIZynqPage.MSSTAT_LOAD) == 0) {
 
                         // display chooser box to select file to load
                         JFileChooser chooser = new JFileChooser ();
                         chooser.setFileSelectionMode (JFileChooser.FILES_AND_DIRECTORIES);
-                        chooser.setFileFilter (
-                            new FileNameExtensionFilter (
-                                "tape image", "tap"));
-                        chooser.setDialogTitle ("Loading TM drive " + drive);
+                        chooser.setFileFilter (getFileFilter ());
+                        chooser.setDialogTitle ("Loading " + getCtlName () + " drive " + drive);
                         while (true) {
-                            if (tmchooserdirectory != null) chooser.setCurrentDirectory (tmchooserdirectory);
-                            int rc = chooser.showOpenDialog (TMDrive.this);
+                            if (drivechooserdirectory != null) chooser.setCurrentDirectory (drivechooserdirectory);
+                            else if (mschooserdirectory != null) chooser.setCurrentDirectory (mschooserdirectory);
+                            int rc = chooser.showOpenDialog (MSDrive.this);
                             if (rc != JFileChooser.APPROVE_OPTION) break;
                             File ff = chooser.getSelectedFile ();
                             if (ff.isDirectory ()) {
-                                tmchooserdirectory = ff;
+                                drivechooserdirectory = ff;
+                                mschooserdirectory = ff;
                                 continue;
                             }
-                            tmchooserdirectory = ff.getParentFile ();
+                            drivechooserdirectory = ff.getParentFile ();
+                            mschooserdirectory = ff.getParentFile ();
 
-                            long issize = ff.length ();
-                            long sbsize = 0;
-                            String ffname = ff.getName ();
-                            if (! ffname.endsWith (".tap")) {
-                                JOptionPane.showMessageDialog (TMDrive.this, "filename " + ffname + " must end with .tap",
-                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
-                                continue;
+                            if (! verifyFile (ff)) continue;
+                            String fn = ff.getAbsolutePath ();
+                            String er = GUIZynqPage.msload (getCtrlrID (), drive, wprtswitch.ison, fn);
+                            if (er == null) {
+                                msmessage.setText (fn);
+                                loadbutton.setOn (true);
+                                updateLabel ();
+                                break;
                             }
-                            {
-                                String fn = ff.getAbsolutePath ();
-                                String er = GUIZynqPage.tmload (drive, wprtswitch.ison, fn);
-                                if (er == null) {
-                                    tmmessage.setText (fn);
-                                    loadbutton.setOn (true);
-                                    break;
-                                }
-                                JOptionPane.showMessageDialog (TMDrive.this, "error loading " + ffname + ": " + er,
-                                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
-                            }
+                            JOptionPane.showMessageDialog (MSDrive.this, "error loading " + ff.getName () + ": " + er,
+                                "Loading Drive", JOptionPane.ERROR_MESSAGE);
                         }
                     } else {
 
                         // unload whatever is in there
                         if ((GUIZynqPage.running () <= 0) ||
-                            (JOptionPane.showConfirmDialog (TMDrive.this,
-                                    "Are you sure you want to unload drive " + drive + "?",
+                            (JOptionPane.showConfirmDialog (MSDrive.this,
+                                    "Are you sure you want to unload " + getCtlName () + " drive " + drive + "?",
                                     "Unloading Drive",
                                     JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
-                            GUIZynqPage.tmload (drive, wprtswitch.ison, "");
-                            tmmessage.setText ("");
+                            GUIZynqPage.msload (getCtrlrID (), drive, wprtswitch.ison, "");
+                            msmessage.setText ("");
                             loadbutton.setOn (false);
                         }
                     }
@@ -2024,47 +1880,60 @@ public class Z11GUI extends JPanel {
             wprtswitch.addActionListener (new ActionListener () {
                 public void actionPerformed (ActionEvent ae)
                 {
-                    if (((GUIZynqPage.tmstat (drive) & GUIZynqPage.TMSTAT_LOAD) == 0) ||
+                    if (((GUIZynqPage.msstat (getCtrlrID (), drive) & GUIZynqPage.MSSTAT_LOAD) == 0) ||
                         (GUIZynqPage.running () <= 0) ||
-                        (JOptionPane.showConfirmDialog (TMDrive.this,
+                        (JOptionPane.showConfirmDialog (MSDrive.this,
                                 "Are you sure you want to write " + (wprtswitch.ison ? "enable" : "protect") +
-                                        " drive " + drive + "?",
+                                        " " + getCtlName () + " drive " + drive + "?",
                                 "Write Protecting Drive",
                                 JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
-                        GUIZynqPage.tmload (drive, ! wprtswitch.ison, null);
+                        GUIZynqPage.msload (getCtrlrID (), drive, ! wprtswitch.ison, null);
                     }
                 }
             });
         }
 
         // update buttons and text to match fpga & shared memory
-        public void update ()
+        protected void update (long thiscylno)
         {
-            long stat = GUIZynqPage.tmstat (drive);
+            int stat = GUIZynqPage.msstat (getCtrlrID (), drive);
 
             // update cylinder number if it changed, blanks if drive not loaded
             // also wink out the drive ready light
-            long thiscylno = ((stat & GUIZynqPage.TMSTAT_LOAD) == 0) ? -1 : (stat & GUIZynqPage.TMSTAT_CYLNO) / (GUIZynqPage.TMSTAT_CYLNO & - GUIZynqPage.TMSTAT_CYLNO);
             if (lastcylno != thiscylno) {
                 lastcylno = thiscylno;
-                cylnolbl.setText ((lastcylno < 0) ? "             " : String.format ("  %09d  ", lastcylno));
-                stat &= ~ GUIZynqPage.TMSTAT_READY;
+                cylnolbl.setText (fmtCylNo (lastcylno));
+                stat &= ~ GUIZynqPage.MSSTAT_READY;
             }
 
             // stretch the not-ready status out so it blinks when there is a seek
-            if ((stat & GUIZynqPage.TMSTAT_READY) == 0) winkoutready = updatetimemillis + 20;
+            if ((stat & GUIZynqPage.MSSTAT_READY) == 0) winkoutready = updatetimemillis + 20;
 
-            // update load, ready, write protect lights
-            loadbutton.setOn ((stat & GUIZynqPage.TMSTAT_LOAD)  != 0);
+            // update load, ready, fault, write protect lights
+            loadbutton.setOn ((stat & GUIZynqPage.MSSTAT_LOAD)  != 0);
             readylight.setOn (updatetimemillis >= winkoutready);
-            wprtswitch.setOn ((stat & GUIZynqPage.TMSTAT_WRPRT) != 0);
+            if (faultlight != null) {
+                faultlight.setOn ((stat & GUIZynqPage.MSSTAT_FAULT) != 0);
+            }
+            wprtswitch.setOn ((stat & GUIZynqPage.MSSTAT_WRPRT) != 0);
 
-            // update loaded filename if there was a change and if no error message is being displayed
-            long thisfnseq = stat & GUIZynqPage.TMSTAT_FNSEQ;
-            if (((blockmsgupdates == 0) && (lastfnseq != thisfnseq)) || (updatetimemillis > blockmsgupdates)) {
-                tmmessage.setText (GUIZynqPage.tmfile (drive));
-                blockmsgupdates = 0;
+            // update drive type label
+            updateLabel ();
+
+            // update loaded filename if there was a change
+            int thisfnseq = stat & GUIZynqPage.MSSTAT_FNSEQ;
+            if (lastfnseq != thisfnseq) {
+                msmessage.setText (GUIZynqPage.msfile (getCtrlrID (), drive));
                 lastfnseq = thisfnseq;
+            }
+        }
+
+        private void updateLabel ()
+        {
+            String lbl = getDriveLbl ();
+            if (lastdrvlbl != lbl) {
+                lastdrvlbl = lbl;
+                msoxlbl.setText (lastdrvlbl);
             }
         }
 

@@ -32,8 +32,7 @@
 
 #include "futex.h"
 #include "pintable.h"
-#include "shmrl.h"
-#include "shmtm.h"
+#include "shmms.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -45,8 +44,6 @@ static int maxpinidx;
 static int mypid;
 static uint32_t volatile *pdpat;
 static uint32_t volatile *kyat;
-static uint32_t volatile *rlat;
-static uint32_t volatile *tmat;
 
 /*
  * Class:     GUIZynqPage
@@ -281,166 +278,99 @@ JNIEXPORT jboolean JNICALL Java_GUIZynqPage_pinset
     return true;
 }
 
-/////////////////
-//  RL ACCESS  //
-/////////////////
+////////////////////////////
+//  MASS STORAGE DEVICES  //
+////////////////////////////
 
 static char const *rlfileutfstrings[4];
-static jstring rlfilejavstrings[4];
-
-/*
- * Class:     GUIZynqPage
- * Method:    rlload
- * Signature: (IZLjava/lang/String;)Ljava/lang/String;
- *
- *  1) if filename empty, unload any existing file
- *  2) set/clear readonly bit for the drive
- *  3) if filename given, load in drive
- */
-JNIEXPORT jstring JNICALL Java_GUIZynqPage_rlload
-  (JNIEnv *env, jclass klass, jint drive, jboolean readonly, jstring filename)
-{
-    char const *fnutf = (filename == NULL) ? NULL : EXCKR (env->GetStringUTFChars (filename, NULL));
-    int rc = shmrl_load (drive, readonly, fnutf);
-    if (filename != NULL) env->ReleaseStringUTFChars (filename, fnutf);
-    return (rc >= 0) ? NULL : env->NewStringUTF (strerror (- rc));
-}
-
-/*
- * Class:     GUIZynqPage
- * Method:    rlstat
- * Signature: (I)I
- */
-JNIEXPORT jint JNICALL Java_GUIZynqPage_rlstat
-  (JNIEnv *env, jclass klass, jint drive)
-{
-    return shmrl_stat (drive, NULL, 0);
-}
-
-/*
- * Class:     GUIZynqPage
- * Method:    rlfile
- * Signature: (I)Ljava/lang/String;
- */
-JNIEXPORT jstring JNICALL Java_GUIZynqPage_rlfile
-  (JNIEnv *env, jclass klass, jint drive)
-{
-    char fnbuf[SHMRL_FNSIZE];
-    int rc = shmrl_stat (drive, fnbuf, sizeof fnbuf);
-    if (rc < 0) return NULL;
-
-    // see if we have a string from last call
-    if (rlfilejavstrings[drive] != NULL) {
-
-        // see if it matches what is currently loaded in drive
-        // if so, just return same string from last call
-        if (strcmp (rlfileutfstrings[drive], fnbuf) == 0) {
-            return rlfilejavstrings[drive];
-        }
-
-        // something different, free off the old string
-        env->ReleaseStringUTFChars (rlfilejavstrings[drive], rlfileutfstrings[drive]);
-        env->DeleteGlobalRef (rlfilejavstrings[drive]);
-        rlfilejavstrings[drive] = NULL;
-        rlfileutfstrings[drive] = NULL;
-    }
-
-    // make a new java string from filename in shared memory
-    jstring fn = env->NewStringUTF (fnbuf);
-
-    // lock that string and save corresponding C string
-    fn = (jstring) EXCKR (env->NewGlobalRef (fn));
-    rlfileutfstrings[drive] = EXCKR (env->GetStringUTFChars (fn, NULL));
-    rlfilejavstrings[drive] = fn;
-    return fn;
-}
-
-/*
- * Class:     GUIZynqPage
- * Method:    rlfast
- * Signature: (I)I
- */
-JNIEXPORT jint JNICALL Java_GUIZynqPage_rlfast
-  (JNIEnv *env, jclass klass, jint newflag)
-{
-    if (rlat == NULL) {
-        rlat = z11page->findev ("RL", NULL, NULL, false, false);
-    }
-    int was = (rlat[5] / RL5_FAST) & 1;
-    if (newflag >= 0) {
-        rlat[5] = (rlat[5] & ~ RL5_FAST) | ((newflag & 1) * RL5_FAST);
-    }
-    return was;
-}
-
-/////////////////
-//  TM ACCESS  //
-/////////////////
-
 static char const *tmfileutfstrings[8];
+static jstring rlfilejavstrings[4];
 static jstring tmfilejavstrings[8];
 
 /*
  * Class:     GUIZynqPage
- * Method:    tmload
+ * Method:    msload
  * Signature: (IZLjava/lang/String;)Ljava/lang/String;
  *
  *  1) if filename empty, unload any existing file
  *  2) set/clear readonly bit for the drive
  *  3) if filename given, load in drive
  */
-JNIEXPORT jstring JNICALL Java_GUIZynqPage_tmload
-  (JNIEnv *env, jclass klass, jint drive, jboolean readonly, jstring filename)
+JNIEXPORT jstring JNICALL Java_GUIZynqPage_msload
+  (JNIEnv *env, jclass klass, jint ctlid, jint drive, jboolean readonly, jstring filename)
 {
     char const *fnutf = (filename == NULL) ? NULL : EXCKR (env->GetStringUTFChars (filename, NULL));
-    int rc = shmtm_load (drive, readonly, fnutf);
+    int rc = shmms_load (ctlid, drive, readonly, fnutf);
     if (filename != NULL) env->ReleaseStringUTFChars (filename, fnutf);
     return (rc >= 0) ? NULL : env->NewStringUTF (strerror (- rc));
 }
 
 /*
  * Class:     GUIZynqPage
- * Method:    tmstat
+ * Method:    msstat
  * Signature: (I)I
  */
-JNIEXPORT jlong JNICALL Java_GUIZynqPage_tmstat
-  (JNIEnv *env, jclass klass, jint drive)
+JNIEXPORT jint JNICALL Java_GUIZynqPage_msstat
+  (JNIEnv *env, jclass klass, jint ctlid, jint drive)
 {
     uint32_t curpos;
-    jlong rc = shmtm_stat (drive, NULL, 0, &curpos);
-    if (rc >= 0) {
-        rc |= ((jlong) curpos) << 12;
-    }
-    return rc;
+    return shmms_stat (ctlid, drive, NULL, 0, &curpos);
 }
 
 /*
  * Class:     GUIZynqPage
- * Method:    tmfile
+ * Method:    msposn
+ * Signature: (II)J
+ */
+JNIEXPORT jlong JNICALL Java_GUIZynqPage_msposn
+  (JNIEnv *env, jclass klass, jint ctlid, jint drive)
+{
+    uint32_t curpos;
+    int rc = shmms_stat (ctlid, drive, NULL, 0, &curpos);
+    if (rc < 0) return rc;
+    return (uint64_t) curpos;
+}
+
+/*
+ * Class:     GUIZynqPage
+ * Method:    msfile
  * Signature: (I)Ljava/lang/String;
  */
-JNIEXPORT jstring JNICALL Java_GUIZynqPage_tmfile
-  (JNIEnv *env, jclass klass, jint drive)
+JNIEXPORT jstring JNICALL Java_GUIZynqPage_msfile
+  (JNIEnv *env, jclass klass, jint ctlid, jint drive)
 {
-    char fnbuf[SHMTM_FNSIZE];
+    char fnbuf[SHMMS_FNSIZE];
     uint32_t curpos;
-    int rc = shmtm_stat (drive, fnbuf, sizeof fnbuf, &curpos);
+    int rc = shmms_stat (ctlid, drive, fnbuf, sizeof fnbuf, &curpos);
     if (rc < 0) return NULL;
 
+    char const **msfileutfstrings = NULL;
+    jstring *msfilejavstrings = NULL;
+    if (ctlid == SHMMS_CTLID_RL) {
+        ASSERT ((drive >= 0) && (drive <= 3));
+        msfileutfstrings = rlfileutfstrings;
+        msfilejavstrings = rlfilejavstrings;
+    }
+    if (ctlid == SHMMS_CTLID_TM) {
+        ASSERT ((drive >= 0) && (drive <= 7));
+        msfileutfstrings = tmfileutfstrings;
+        msfilejavstrings = tmfilejavstrings;
+    }
+
     // see if we have a string from last call
-    if (tmfilejavstrings[drive] != NULL) {
+    if (msfilejavstrings[drive] != NULL) {
 
         // see if it matches what is currently loaded in drive
         // if so, just return same string from last call
-        if (strcmp (tmfileutfstrings[drive], fnbuf) == 0) {
-            return tmfilejavstrings[drive];
+        if (strcmp (msfileutfstrings[drive], fnbuf) == 0) {
+            return msfilejavstrings[drive];
         }
 
         // something different, free off the old string
-        env->ReleaseStringUTFChars (tmfilejavstrings[drive], tmfileutfstrings[drive]);
-        env->DeleteGlobalRef (tmfilejavstrings[drive]);
-        tmfilejavstrings[drive] = NULL;
-        tmfileutfstrings[drive] = NULL;
+        env->ReleaseStringUTFChars (msfilejavstrings[drive], msfileutfstrings[drive]);
+        env->DeleteGlobalRef (msfilejavstrings[drive]);
+        msfilejavstrings[drive] = NULL;
+        msfileutfstrings[drive] = NULL;
     }
 
     // make a new java string from filename in shared memory
@@ -448,25 +378,7 @@ JNIEXPORT jstring JNICALL Java_GUIZynqPage_tmfile
 
     // lock that string and save corresponding C string
     fn = (jstring) EXCKR (env->NewGlobalRef (fn));
-    tmfileutfstrings[drive] = EXCKR (env->GetStringUTFChars (fn, NULL));
-    tmfilejavstrings[drive] = fn;
+    msfileutfstrings[drive] = EXCKR (env->GetStringUTFChars (fn, NULL));
+    msfilejavstrings[drive] = fn;
     return fn;
-}
-
-/*
- * Class:     GUIZynqPage
- * Method:    tmfast
- * Signature: (I)I
- */
-JNIEXPORT jint JNICALL Java_GUIZynqPage_tmfast
-  (JNIEnv *env, jclass klass, jint newflag)
-{
-    if (tmat == NULL) {
-        tmat = z11page->findev ("TM", NULL, NULL, false, false);
-    }
-    int was = (tmat[4] / TM4_FAST) & 1;
-    if (newflag >= 0) {
-        tmat[4] = (tmat[4] & ~ TM4_FAST) | ((newflag & 1) * TM4_FAST);
-    }
-    return was;
 }

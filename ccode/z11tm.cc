@@ -39,7 +39,7 @@
 #include <unistd.h>
 
 #include "futex.h"
-#include "shmtm.h"
+#include "shmms.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -48,49 +48,25 @@
 #define RFLD(n,m) ((ZRD(tmat[n]) & m) / (m & - m))
 
 static bool unloads[8];
-static char fns[8][SHMTM_FNSIZE];
+static char fns[8][SHMMS_FNSIZE];
 static int debug;
 static int fds[8];
 static uint64_t rewdoneats[8];
 
-#define LOCKIT mutexlock()
-#define UNLKIT mutexunlk()
+#define LOCKIT shmms_svr_mutexlock(shmms)
+#define UNLKIT shmms_svr_mutexunlk(shmms)
 
 static int mypid;
-static ShmTM *shmtm;
+static ShmMS *shmms;
 static uint32_t volatile *tmat;
 static Z11Page *z11p;
-
-static void mutexlock ()
-{
-    int newfutex = mypid;
-    int tmpfutex = 0;
-    while (true) {
-        if (atomic_compare_exchange (&shmtm->tmfutex, &tmpfutex, newfutex)) break;
-        if ((kill (tmpfutex, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "z11tm: locker %d dead\n", tmpfutex);
-        } else {
-            int rc = futex (&shmtm->tmfutex, FUTEX_WAIT, tmpfutex, NULL, NULL, 0);
-            if ((rc != 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
-            tmpfutex = 0;
-        }
-    }
-}
-
-static void mutexunlk ()
-{
-    int newfutex = 0;
-    int tmpfutex = mypid;
-    if (! atomic_compare_exchange (&shmtm->tmfutex, &tmpfutex, newfutex)) ABORT ();
-    if (futex (&shmtm->tmfutex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-}
 
 static void *tmiothread (void *dummy);
 static void updatelowbits ();
 static void *timerthread (void *dsptr);
-static void procommands ();
-static int loadfile (uint16_t drivesel);
-static void unloadfile (uint16_t drivesel);
+static int setdrivetype (void *param, int drivesel);
+static int fileloaded (void *param, int drivesel, int fd);
+static void unloadfile (void *param, int drivesel);
 
 int main (int argc, char **argv)
 {
@@ -105,44 +81,7 @@ int main (int argc, char **argv)
     tmat = z11p->findev ("TM", NULL, NULL, true, false);
 
     // open shared memory, create if not there
-    int shmfd = shm_open (SHMTM_NAME, O_RDWR | O_CREAT, 0666);
-    if (shmfd < 0) {
-        fprintf (stderr, "z11tm: error creating %s: %m\n", SHMTM_NAME);
-        return 1;
-    }
-    if (ftruncate (shmfd, sizeof *shmtm) < 0) {
-        fprintf (stderr, "z11tm: error extending %s: %m\n", SHMTM_NAME);
-        return 1;
-    }
-    shmtm = (ShmTM *) mmap (NULL, sizeof *shmtm, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
-    if (shmtm == MAP_FAILED) {
-        fprintf (stderr, "z11tm: error mmapping %s: %m\n", SHMTM_NAME);
-        return 1;
-    }
-    if (resetit) memset (shmtm, 0, sizeof *shmtm);
-
-    // put our pid in there in case we die when something is waiting for us to do something
-    // exit if there is another one of us already running
-    LOCKIT;
-    int oldpid = shmtm->svrpid;
-    if ((oldpid != 0) && (oldpid != mypid)) {
-        if (kill (oldpid, 0) >= 0) {
-            UNLKIT;
-            fprintf (stderr, "z11tm: duplicate z11tm process %d\n", oldpid);
-            return 0;
-        }
-        if (errno != ESRCH) ABORT ();
-    }
-    fprintf (stderr, "z11tm: new z11tm process %d\n", mypid);
-    shmtm->svrpid = mypid;
-
-    // we don't know about any loaded files so say drives are empty
-    // ...unless there is an outstanding load request for a drive
-    for (int i = 0; i < 8; i ++) {
-        if (shmtm->command != SHMTMCMD_LOAD + i) {
-            shmtm->drives[i].filename[0] = 0;
-        }
-    }
+    shmms = shmms_svr_initialize (resetit, SHMMS_NAME_TM, "z11tm");
     UNLKIT;
 
     // enable board to process io instructions
@@ -159,7 +98,8 @@ int main (int argc, char **argv)
         rc = pthread_create (&tmtid, NULL, timerthread, (void *)(long)i);
         if (rc != 0) ABORT ();
     }
-    procommands ();
+
+    shmms_svr_proccmds (shmms, "z11tm", setdrivetype, fileloaded, unloadfile, NULL);
 
     return 0;
 }
@@ -183,7 +123,7 @@ static void *tmiothread (void *dummy)
         uint32_t mtcmtsat = tmat[1];
 
         uint32_t drivesel = (mtcmtsat & 0x07000000) >> 24;
-        ShmTMDrive *dr = &shmtm->drives[drivesel];
+        ShmMSDrive *dr = &shmms->drives[drivesel];
 
         uint32_t mtcmts = mtcmtsat & 0x6F7E0000;
 
@@ -228,9 +168,9 @@ static void *tmiothread (void *dummy)
 
                     // read record length before data
                     uint32_t reclen, reclen2;
-                    rc = pread (fd, &reclen, sizeof reclen, dr->curpos);
+                    rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
                     if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
-                    dr->curpos += sizeof reclen;
+                    dr->curposn += sizeof reclen;
 
                     // if zero, hit a tape mark
                     if (reclen == 0) {
@@ -239,18 +179,18 @@ static void *tmiothread (void *dummy)
 
                         // read data
                         nbytes = (reclen > sizeof buf) ? sizeof buf : reclen;
-                        rc = pread (fd, buf, nbytes, dr->curpos);
+                        rc = pread (fd, buf, nbytes, dr->curposn);
                         if (rc != (int) nbytes) goto readerror;
-                        dr->curpos += (reclen + 1) & -2;
+                        dr->curposn += (reclen + 1) & -2;
 
                         // read record length after data, should match length before data
-                        rc = pread (fd, &reclen2, sizeof reclen2, dr->curpos);
+                        rc = pread (fd, &reclen2, sizeof reclen2, dr->curposn);
                         if (rc != (int) sizeof reclen2) { nbytes = sizeof reclen2; goto readerror; }
                         if (reclen2 != reclen) {
-                            fprintf (stderr, "z11tm: [%u] reclen %u, reclen2 %u at %u\n", drivesel, reclen, reclen2, dr->curpos);
+                            fprintf (stderr, "z11tm: [%u] reclen %u, reclen2 %u at %u\n", drivesel, reclen, reclen2, dr->curposn);
                             goto readerror2;
                         }
-                        dr->curpos += sizeof reclen2;
+                        dr->curposn += sizeof reclen2;
 
                         // write data to dma buffer
                         uint32_t i = 0;
@@ -305,19 +245,19 @@ static void *tmiothread (void *dummy)
                         } while (mtbrc != 0);
 
                         // write record length before data
-                        rc = pwrite (fd, &reclen, sizeof reclen, dr->curpos);
+                        rc = pwrite (fd, &reclen, sizeof reclen, dr->curposn);
                         if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto writerror; }
-                        dr->curpos += sizeof reclen;
+                        dr->curposn += sizeof reclen;
 
                         // write data
-                        rc = pwrite (fd, buf, reclen, dr->curpos);
+                        rc = pwrite (fd, buf, reclen, dr->curposn);
                         if (rc != (int) reclen) { nbytes = reclen; goto writerror; }
-                        dr->curpos += (reclen + 1) & -2;
+                        dr->curposn += (reclen + 1) & -2;
 
                         // write record length after data
-                        rc = pwrite (fd, &reclen, sizeof reclen, dr->curpos);
+                        rc = pwrite (fd, &reclen, sizeof reclen, dr->curposn);
                         if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto writerror; }
-                        dr->curpos += sizeof reclen;
+                        dr->curposn += sizeof reclen;
                     }
                     break;
                 }
@@ -330,9 +270,9 @@ static void *tmiothread (void *dummy)
 
                         // write a zero length for a tape mark
                         uint32_t mark = 0;
-                        rc = pwrite (fd, &mark, sizeof mark, dr->curpos);
+                        rc = pwrite (fd, &mark, sizeof mark, dr->curposn);
                         if (rc != (int) sizeof mark) { nbytes = sizeof mark; goto writerror; }
-                        dr->curpos += sizeof mark;
+                        dr->curposn += sizeof mark;
                     }
                     break;
                 }
@@ -343,9 +283,9 @@ static void *tmiothread (void *dummy)
 
                         // get record length being skipped
                         uint32_t reclen;
-                        rc = pread (fd, &reclen, sizeof reclen, dr->curpos);
+                        rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
                         if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
-                        dr->curpos += sizeof reclen;
+                        dr->curposn += sizeof reclen;
 
                         // check for tape mark
                         if (reclen == 0) {
@@ -354,7 +294,7 @@ static void *tmiothread (void *dummy)
                         }
 
                         // increment over the data and length after data
-                        dr->curpos += ((reclen + 1) & -2) + sizeof reclen;
+                        dr->curposn += ((reclen + 1) & -2) + sizeof reclen;
                     } while (++ mtbrc != 0);
                     break;
                 }
@@ -364,12 +304,12 @@ static void *tmiothread (void *dummy)
                     do {
 
                         // check for beginning of tape
-                        if (dr->curpos == 0) break;
+                        if (dr->curposn == 0) break;
 
                         // read record length in reverse
                         uint32_t reclen;
-                        dr->curpos -= sizeof reclen;
-                        rc = pread (fd, &reclen, sizeof reclen, dr->curpos);
+                        dr->curposn -= sizeof reclen;
+                        rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
                         if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
 
                         // check for tape mark
@@ -379,7 +319,7 @@ static void *tmiothread (void *dummy)
                         }
 
                         // decrement over the data and length before data
-                        dr->curpos -= ((reclen + 1) & -2) + sizeof reclen;
+                        dr->curposn -= ((reclen + 1) & -2) + sizeof reclen;
                     } while (++ mtbrc != 0);
                     break;
                 }
@@ -390,7 +330,7 @@ static void *tmiothread (void *dummy)
                 // rewind
                 case 7: {
 
-                    if ((dr->curpos != 0) && ! fastio) {  // if already at beginning of tape, immediate completion
+                    if ((dr->curposn != 0) && ! fastio) {  // if already at beginning of tape, immediate completion
 
                         // start a timer which will cause rewind in progress to set and tape unit ready to clear
                         struct timespec nowts;
@@ -398,7 +338,7 @@ static void *tmiothread (void *dummy)
                         uint64_t nowns = (nowts.tv_sec * 1000000000ULL) + nowts.tv_nsec;
 
                         // rewind:  (150 inch / second) * (800 chars / inch) = 120,000 chars / second = 8.33uS / char
-                        uint64_t rewns = dr->curpos * 8333ULL;
+                        uint64_t rewns = dr->curposn * 8333ULL;
                         if (rewns > 5000000000ULL) rewns = 5000000000ULL;
 
                         int oldsdaint = (int) rewdoneats[drivesel];
@@ -406,10 +346,10 @@ static void *tmiothread (void *dummy)
                         if ((int) rewdoneats[drivesel] == oldsdaint) rewdoneats[drivesel] ++;
                         if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                     } else {
-                        dr->curpos = 0;
+                        dr->curposn = 0;
                         if (unloads[drivesel]) {
                             dr->filename[0] = 0;
-                            unloadfile (drivesel);
+                            unloadfile (NULL, drivesel);
                         }
                     }
                     break;
@@ -421,9 +361,9 @@ static void *tmiothread (void *dummy)
 
         readerror:
             if (rc < 0) {
-                fprintf (stderr, "z11tm: [%u] error reading tape at %u: %m\n", drivesel, dr->curpos);
+                fprintf (stderr, "z11tm: [%u] error reading tape at %u: %m\n", drivesel, dr->curposn);
             } else {
-                fprintf (stderr, "z11tm: [%u] only read %d of %u bytes at %u\n", drivesel, rc, nbytes, dr->curpos);
+                fprintf (stderr, "z11tm: [%u] only read %d of %u bytes at %u\n", drivesel, rc, nbytes, dr->curposn);
             }
         readerror2:
             mtcmts |= 0x2000;   // crc error
@@ -431,9 +371,9 @@ static void *tmiothread (void *dummy)
 
         writerror:
             if (rc < 0) {
-                fprintf (stderr, "z11tm: [%u] error writing tape at %u: %m\n", drivesel, dr->curpos);
+                fprintf (stderr, "z11tm: [%u] error writing tape at %u: %m\n", drivesel, dr->curposn);
             } else {
-                fprintf (stderr, "z11tm: [%u] only wrote %d of %u bytes at %u\n", drivesel, rc, nbytes, dr->curpos);
+                fprintf (stderr, "z11tm: [%u] only wrote %d of %u bytes at %u\n", drivesel, rc, nbytes, dr->curposn);
             }
             mtcmts |= 0x2000;   // crc error
             goto done;
@@ -447,7 +387,7 @@ static void *tmiothread (void *dummy)
             updatelowbits ();       // update low status bits [06:00]
 
             mtcmts &= ~02000;       // update end-of-tape
-            if (dr->curpos > TAPELEN) mtcmts |= 02000;
+            if (dr->curposn > TAPELEN) mtcmts |= 02000;
 
             mtcmts = (mtcmts & ~ 0x300000) | 0x800000 | ((mtcma << 4) & 0x300000);
 
@@ -470,11 +410,11 @@ static void updatelowbits ()
     uint32_t bots = 0;                      // figure out which drives are at beg of tape
     uint32_t sels = 0;                      // figure out which drives are selected
     for (int i = 0; i < 8; i ++) {
-        if (fds[i] >= 0)                  turs |= 1U << i;
-        if (rewdoneats[i] != 0)           rews |= 1U << i;
-        if (shmtm->drives[i].readonly)    wrls |= 1U << i;
-        if (shmtm->drives[i].curpos == 0) bots |= 1U << i;
-        if (fds[i] >= 0)                  sels |= 1U << i;
+        if (fds[i] >= 0)                    turs |= 1U << i;
+        if (rewdoneats[i] != 0)             rews |= 1U << i;
+        if (shmms->drives[i].readonly)      wrls |= 1U << i;
+        if (shmms->drives[i].curposn == 0) bots |= 1U << i;
+        if (fds[i] >= 0)                    sels |= 1U << i;
     }
     turs &= ~ rews;
     ZWR(tmat[5], bots * TM5_BOTS0 | wrls * TM5_WRLS0 | rews * TM5_REWS0 | turs * TM5_TURS0);
@@ -511,11 +451,11 @@ static void *timerthread (void *dsptr)
             // rewind complete, mark drive rewound and ready
             // then leave tsptr NULL to wait indefinitely for next rewind to begin
             else {
-                shmtm->drives[drivesel].curpos = 0;
+                shmms->drives[drivesel].curposn = 0;
                 rewdoneats[drivesel] = doneat = 0;
                 if (unloads[drivesel]) {
-                    shmtm->drives[drivesel].filename[0] = 0;
-                    unloadfile (drivesel);
+                    shmms->drives[drivesel].filename[0] = 0;
+                    unloadfile (NULL, drivesel);
                 }
                 if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                 updatelowbits ();
@@ -529,124 +469,38 @@ static void *timerthread (void *dsptr)
     }
 }
 
-// process load/unload commands
-static void procommands ()
+// check that file about to be loaded is ok
+static int setdrivetype (void *param, int drivesel)
 {
-    while (true) {
-
-        // check for load/unload commands in shared memory waiting to be processed
-        LOCKIT;
-        int cmd = shmtm->command;
-        switch (cmd) {
-
-            // something requesting file be loaded
-            case SHMTMCMD_LOAD+0 ... SHMTMCMD_LOAD+7: {
-                int driveno = cmd - SHMTMCMD_LOAD;
-                ShmTMDrive *dr = &shmtm->drives[driveno];
-                dr->curpos = 0;
-                UNLKIT;
-                unloadfile (driveno);
-                int rc = loadfile (driveno);
-                LOCKIT;
-                if (rc >= 0) {
-                    shmtm->negerr = 0;
-                } else {
-                    dr->filename[0] = 0;
-                    shmtm->negerr = rc;
-                }
-                shmtm->command = SHMTMCMD_DONE;
-                if (futex (&shmtm->command, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-                break;
-            }
-
-            // something requesting file be unloaded
-            case SHMTMCMD_UNLD+0 ... SHMTMCMD_UNLD+7: {
-                int driveno = cmd - SHMTMCMD_UNLD;
-                ShmTMDrive *dr = &shmtm->drives[driveno];
-                dr->curpos = 0;
-                dr->filename[0] = 0;
-                if (++ dr->fnseq == 0) ++ dr->fnseq; // 0 reserved for initial condition
-                fns[driveno][0] = 0;
-                unloadfile (driveno);
-                shmtm->command = SHMTMCMD_DONE;
-                if (futex (&shmtm->command, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-                break;
-            }
-
-            // nothing to do, wait
-            default: {
-                UNLKIT;
-                int rc = futex (&shmtm->command, FUTEX_WAIT, cmd, NULL, NULL, 0);
-                if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
-                LOCKIT;
-            }
-        }
-
-        // update low status bits [06:00]
-        updatelowbits ();
-        UNLKIT;
-    }
-}
-
-// load file in a drive
-//  input:
-//   drivesel = drive number 0..7
-//  output:
-//   returns < 0: errno
-//          else: successful
-static int loadfile (uint16_t drivesel)
-{
-    ShmTMDrive *dr = &shmtm->drives[drivesel];
-    bool readwrite = ! dr->readonly;
+    ShmMSDrive *dr = &shmms->drives[drivesel];
     char const *filenm = dr->filename;
-
     int fnlen = strlen (filenm);
     if ((fnlen < 5) || (strcasecmp (filenm + fnlen - 4, ".tap") != 0)) {
         fprintf (stderr, "z11tm: [%u] error decoding %s: name does not end with .tap\n", drivesel, filenm);
         return -EBADF;
     }
+    return 0;
+}
 
-    int fd = open (filenm, readwrite ? O_RDWR | O_CREAT : O_RDONLY, 0666);
-    if (fd < 0) {
-        fd = - errno;
-        fprintf (stderr, "z11tm: [%u] error opening %s: %m\n", drivesel, filenm);
-        return fd;
-    }
-
-    // don't let it be put in more than one drive if either is write-enabled
-    struct flock flockit;
-lockit:;
-    memset (&flockit, 0, sizeof flockit);
-    flockit.l_type   = readwrite ? F_WRLCK : F_RDLCK;
-    flockit.l_whence = SEEK_SET;
-    flockit.l_len    = 4096;
-    if (fcntl (fd, F_OFD_SETLK, &flockit) < 0) {
-        int rc = - errno;
-        ASSERT (rc < 0);
-        if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_GETLK, &flockit) >= 0)) {
-            if (flockit.l_type == F_UNLCK) goto lockit;
-            fprintf (stderr, "z11tm: [%u] error locking %s: locked by pid %d\n", drivesel, filenm, (int) flockit.l_pid);
-        } else {
-            fprintf (stderr, "z11tm: [%u] error locking %s: %m\n", drivesel, filenm);
-        }
-        close (fd);
-        return rc;
-    }
-
-    // all is good
-    fprintf (stderr, "z11tm: [%u] loaded read%s file %s\n", drivesel, (readwrite ? "/write" : "-only"), filenm);
+// file successfully loaded, save fd and mark drive online
+static int fileloaded (void *param, int drivesel, int fd)
+{
+    ShmMSDrive *dr = &shmms->drives[drivesel];
+    char const *filenm = dr->filename;
     fds[drivesel] = fd;
-    unloads[drivesel] = false;
     if (strcmp (fns[drivesel], filenm) != 0) {
         strcpy (fns[drivesel], filenm);
-        dr->curpos = 0;
+        dr->curposn = 0;
     }
+    updatelowbits ();
     return fd;
 }
 
 // close file loaded on a tape drive
-static void unloadfile (uint16_t drivesel)
+static void unloadfile (void *param, int drivesel)
 {
+    fns[drivesel][0] = 0;
     close (fds[drivesel]);
     fds[drivesel] = -1;
+    updatelowbits ();
 }

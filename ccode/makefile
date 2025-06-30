@@ -23,8 +23,7 @@ lib.$(MACH).a: \
 		disassem.$(MACH).o \
 		pintable.$(MACH).o \
 		readprompt.$(MACH).o \
-		shmrl.$(MACH).o \
-		shmtm.$(MACH).o \
+		shmms.$(MACH).o \
 		strprintf.$(MACH).o \
 		tclmain.$(MACH).o \
 		z11util.$(MACH).o

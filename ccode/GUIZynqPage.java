@@ -39,28 +39,18 @@ public class GUIZynqPage {
     public native static int pinget (int index);
     public native static boolean pinset (int index, int value);
 
-    public final static int RLSTAT_LOAD  = 000000001;
-    public final static int RLSTAT_WRPRT = 000000002;
-    public final static int RLSTAT_READY = 000000004;
-    public final static int RLSTAT_FAULT = 000000010;
-    public final static int RLSTAT_FNSEQ = 000007760;
-    public final static int RLSTAT_CYLNO = 007770000;
-    public final static int RLSTAT_RL01  = 010000000;
+    public final static int MSCTLID_RL = ('R' << 8) | 'L'; 
+    public final static int MSCTLID_TM = ('T' << 8) | 'M'; 
 
-    public native static String rlload (int drive, boolean readonly, String filename);
-    public native static int    rlstat (int drive);
-    public native static String rlfile (int drive);
-    public native static int    rlfast (int newflag);
+    public final static int MSSTAT_LOAD  = 000000001;
+    public final static int MSSTAT_WRPRT = 000000002;
+    public final static int MSSTAT_READY = 000000004;
+    public final static int MSSTAT_FAULT = 000000010;
+    public final static int MSSTAT_FNSEQ = 000007760;
+    public final static int MSSTAT_RL01  = 000010000;
 
-    public final static long TMSTAT_LOAD  = 0000000000000001L;
-    public final static long TMSTAT_WRPRT = 0000000000000002L;
-    public final static long TMSTAT_READY = 0000000000000004L;
-    public final static long TMSTAT_FAULT = 0000000000000010L;
-    public final static long TMSTAT_FNSEQ = 0000000000007760L;
-    public final static long TMSTAT_CYLNO = 0377777777770000L;
-
-    public native static String tmload (int drive, boolean readonly, String filename);
-    public native static long   tmstat (int drive);
-    public native static String tmfile (int drive);
-    public native static int    tmfast (int newflag);
+    public native static String msload (int msctlid, int drive, boolean readonly, String filename);
+    public native static int    msstat (int msctlid, int drive);
+    public native static long   msposn (int msctlid, int drive);
+    public native static String msfile (int msctlid, int drive);
 }
