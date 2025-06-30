@@ -64,6 +64,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.BevelBorder;
 import javax.swing.border.Border;
+import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class Z11GUI extends JPanel {
@@ -1693,6 +1694,21 @@ public class Z11GUI extends JPanel {
         public final static int RL01DISKSIZE = 256*2*40*256;  // bytes in RL01 disk file
         public final static int RL02DISKSIZE = 512*2*40*256;  // bytes in RL02 disk file
 
+        public final static FileFilter rlfilefilter = new FileFilter () {
+            @Override   // FileFilter
+            public boolean accept (File ff)
+            {
+                if (ff.isDirectory ()) return true;
+                String ffname = ff.getName ().toUpperCase ();
+                return ffname.endsWith (".RL01") || ffname.endsWith (".RL02");
+            }
+            @Override   // FileFilter
+            public String getDescription ()
+            {
+                return "RL01/RL02 disk image";
+            }
+        };
+
         public RLDrive (int d)
         {
             drive = d;
@@ -1736,21 +1752,7 @@ public class Z11GUI extends JPanel {
                         // display chooser box to select file to load
                         JFileChooser chooser = new JFileChooser ();
                         chooser.setFileSelectionMode (JFileChooser.FILES_AND_DIRECTORIES);
-                        if (rl01shows) {
-                            chooser.setFileFilter (
-                                new FileNameExtensionFilter (
-                                    "RL01 disk image", "rl01"));
-                            chooser.addChoosableFileFilter (
-                                new FileNameExtensionFilter (
-                                    "RL02 disk image", "rl02"));
-                        } else {
-                            chooser.setFileFilter (
-                                new FileNameExtensionFilter (
-                                    "RL02 disk image", "rl02"));
-                            chooser.addChoosableFileFilter (
-                                new FileNameExtensionFilter (
-                                    "RL01 disk image", "rl01"));
-                        }
+                        chooser.setFileFilter (rlfilefilter);
                         chooser.setDialogTitle ("Loading RL drive " + drive);
                         while (true) {
                             if (rlchooserdirectory != null) chooser.setCurrentDirectory (rlchooserdirectory);
