@@ -69,11 +69,13 @@ module ky11 (
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmaperr, dmatimo, enable, halted, haltins, haltreq, stepreq;
+    reg dmaperr, dmatimo, enable, halted, haltins, haltreq, stepreq, snapreq, snapwrt;
     reg[1:0] dmactrl;
     reg[2:0] dmastate, haltstate;
+    reg[3:0] snapctr;
     reg[9:0] dmadelay;
     reg[15:00] dmadata, lights, switches;
+    reg[15:00] snapreg, snapregs[15:00];
     reg[17:00] dmaaddr;
     reg[31:00] dmalock;
     reg[17:16] sr1716;
@@ -81,7 +83,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B592012 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592013 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -90,14 +92,15 @@ module ky11 (
                             haltreq,        //30 rw request processor to halt
                             halted,         //29 ro processor is halted
                             stepreq,        //28 rw step processor one cycle (self clearing, then wait for halted)
-                            4'b0,           //24
+                            snapctr,        //24 rw number of registers to snapshot - 1
                             sr1716,         //22 rw GUI switch register 17:16 bits
                             haltstate,      //19 ro ky11.v internal debug (normally 0 when runnung; 3 when halted)
                             hltrq_out_h,    //18 ro ky11.v is asserting the HLTRQ line going to processor
                             haltins,        //17 ro processor has executed an HALT instr, ACLO/DCLO reset required to get it going
                             irqlev,         //14 rw arm can request interrupt at this level 4,5,6,7 (NOT self-clearing)
                             irqvec,         //08 rw vector to be sent when interrupt granted
-                            8'b0 } :        //00
+                            snapreq,        //07 rw request snapshot of registers while processor running
+                            7'b0 } :        //00
                       (armraddr == 3) ? {
                             dmastate,       //29 rw 0=idle; arm sets to 1 to start a dma cycle, ky11.v sets back to 0 when done
                             dmatimo,        //28 ro dma cycle timed out
@@ -106,7 +109,7 @@ module ky11 (
                             7'b0,           //18
                             dmaaddr } :     //00 rw 18-bit address
                       (armraddr == 4) ? {
-                            16'b0,          //16
+                            snapreg,        //16 ro selected snap register contents
                             dmadata } :     //00 rw 16-bit data
                       (armraddr == 5) ? {
                             dmalock } :     //00 rw 0=dma circuitry not in use; else 32-bit pid of process using dma circuitry
@@ -124,6 +127,7 @@ module ky11 (
                 haltstate   <= 0;
                 haltreq     <= 0;
                 hltrq_out_h <= 0;
+                snapreq     <= 0;
                 stepreq     <= 0;
             end
             a_out_h     <= 0;
@@ -150,9 +154,12 @@ module ky11 (
                     enable   <= armwdata[31];
                     haltreq  <= armwdata[30];
                     stepreq  <= armwdata[28];
+                    snapctr  <= armwdata[27:24];
                     sr1716   <= armwdata[23:22];
                     irqlev   <= armwdata[16:14];
                     irqvec   <= armwdata[13:08];
+                    snapreq  <= armwdata[07];
+                    snapreg  <= snapregs[armwdata[27:24]];
                 end
                 3: if (dmastate == 0) begin
                     dmaaddr  <= armwdata[17:00];
@@ -232,6 +239,49 @@ module ky11 (
                 if (~ haltreq) begin
                     haltstate   <= 0;
                     sack_out_h  <= 0;
+                end else if (snapreq) begin
+
+                    // do register snapshot
+                    //  arm processor must:
+                    //   1) use dmalock to lock dma so nothing else is using dma circuit
+                    //   2) set dmaaddr = 777700, dmactrl = 0, ie, start by reading R0
+                    //   3) set haltreq = 1, snapctr = 15, snapreq = 1, ie, do this procedure upon halting
+                    //   4) wait for snapreq = 0, ie, this procedure complete
+                    //      haltreq self clearing so processor resumes asap
+                    //   5) retrieve registers from snapregs[], indexing with snapctr
+                    //   6) release dmalock
+                    case (dmastate)
+
+                        // dma idle, start reading register from processor
+                        // assume processor is halted
+                        // assume dmaaddr is set up with 777700..777717
+                        0: begin
+                            if (~ dmatimo) begin
+                                dmastate <= 2;
+                                dmatimo  <= 1;
+                                snapwrt  <= 1;
+                            end else begin
+                                haltreq  <= 0;
+                                snapreq  <= 0;
+                            end
+                        end
+
+                        // dma just clocked register contents into dmadata
+                        // save it then either set up for next or say we're done
+                        6: begin
+                            if (snapwrt) begin
+                                snapregs[snapctr] <= dmadata;
+                                snapwrt           <= 0;
+                                if (~ dmaperr & (snapctr != 0)) begin
+                                    dmaaddr[4:0]  <= dmaaddr[4:0] + ((dmaaddr[12:04] == 9'o774) ? 1 : 2);
+                                    snapctr       <= snapctr - 1;
+                                end else begin
+                                    haltreq <= 0;
+                                    snapreq <= 0;
+                                end
+                            end
+                        end
+                    endcase
                 end
             end
         endcase

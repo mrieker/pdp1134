@@ -164,18 +164,21 @@
 #define KY2_HALTREQ   0x40000000U   // request processor to halt
 #define KY2_HALTED    0x20000000U   // processor has halted
 #define KY2_STEPREQ   0x10000000U   // single-step processor
+#define KY2_SNAPCTR   0x0F000000U   // snapshot counter
 #define KY2_SR1716    0x00C00000U   // GUI SR<17:16> bits
 #define KY2_HALTSTATE 0x00380000U
 #define KY2_HLTRQOUTH 0x00040000U   // ky11.v is requesting processor to halt
 #define KY2_HALTINS   0x00020000U   // processor has HALT instr in its IR
 #define KY2_IRQLEV    0x0001C000U   // interrupt request level 4..7
 #define KY2_IRQVEC    0x00003FC0U   // interrupt request vector[7:0]
+#define KY2_SNAPREQ   0x00000080U   // initiate snapshot request
 
 #define KY3_DMASTATE  0xE0000000U
 #define KY3_DMATIMO   0x10000000U
 #define KY3_DMACTRL   0x0C000000U
 #define KY3_DMAPERR   0x02000000U
 #define KY3_DMAADDR   0x0003FFFFU
+#define KY4_SNAPREG   0xFFFF0000U
 #define KY4_DMADATA   0x0000FFFFU
 #define KY5_DMALOCK   0xFFFFFFFFU
 

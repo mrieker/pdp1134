@@ -30,6 +30,7 @@ proc helpini {} {
     puts "              sendttychar ch - send char to pdp via tty keyboard"
     puts "                   steptrace - single step with disassembly"
     puts "               steptraceloop - single step with disassembly - looped"
+    puts "                    snapregs - snapshot registers R0..R17"
     puts "                     unlkdma - unlock access to dma controller"
     puts "                      vatopa - convert virtual address to physical"
     puts "                 waitforcrlf - wait for <CR><LF> to be output to tty"
@@ -380,7 +381,20 @@ proc lockdma {} {
 
 # convert given number to 6-digit octal string
 proc octal {x} {
-    return [format "%06o" $x]
+    set len [llength $x]
+    switch {$len} {
+        1 {return [format "%06o" $x]}
+        2 {return [format "%06o %06o" [lindex $x 0] [lindex $x 1]}
+        3 {return [format "%06o %06o %06o" [lindex $x 0] [lindex $x 1] [lindex $x 2]}
+        4 {return [format "%06o %06o %06o %06o" [lindex $x 0] [lindex $x 1] [lindex $x 2] [lindex $x 3]}
+        default {
+            set y [format "%06o" [lindex $x 0]]
+            for {set i 1} {$i < $len} {incr i} {
+                lappend y [format "%06o" [lindex $x $i]]
+            }
+            return $y
+        }
+    }
 }
 
 # read character printed by PDP
@@ -526,6 +540,65 @@ proc sendttychar {ch} {
     }
     scan $ch "%c" by
     pin set dl_rbuf $by dl_rcsr 0200
+}
+
+# snapshot registers R0..R17, even while running
+#  snapregs           - read R0..R17
+#  snapregs 0777700 7 - read R0..R7
+#  snapregs 0777716 0 - read USP (R16)
+#  snapregs 0777572 2 - read MMR0..2
+#  snapregs 0777776 0 - read PS
+# input:
+#  start = start address (some CPU register)
+#          only bits [04:00] increment
+#  count = number of registers - 1
+#          4-bit counter
+proc snapregs {{start 0777700} {count 15}} {
+    set snap ""
+    lockdma
+    if {($start < 0760000) || [pin ky_halted]} {
+        for {set i 0} {$i <= $count} {incr i} {
+            pin set ky_dmaaddr $start ky_dmactrl 0 ky_dmastate 1
+            for {set j 0} {[set dmastate [pin ky_dmastate]] != 0} {incr j} {
+                if {$j > 1000} {
+                    unlkdma
+                    error "snapregs: dmastate stuck at $dmastate"
+                }
+            }
+            if {[pin ky_dmatimo]} {
+                unlkdma
+                error "snapregs: timeout reading [octal $start]"
+            }
+            if {[pin ky_dmaperr]} {
+                unlkdma
+                error "snapregs: parity error reading [octal $start]"
+            }
+            lappend snap [pin ky_dmadata]
+            incr start [expr {(($start & 0777760) == 0777700) ? 1 : 2}]
+        }
+    } else {
+        pin set ky_dmaaddr $start ky_dmactrl 0 ky_snapctr $count ky_snapreq 1 ky_haltreq 1
+        for {set j 0} {[pin ky_snapreq]} {incr j} {
+            if {$j > 1000} {
+                unlkdma
+                error "snapregs: failed to complete snapshot"
+            }
+        }
+        if {[pin ky_dmatimo]} {
+            unlkdma
+            error "snapregs: timeout reading [octal [pin ky_dmaaddr]]"
+        }
+        if {[pin ky_dmaperr]} {
+            unlkdma
+            error "snapregs: parity error reading [octal [pin ky_dmaaddr]]"
+        }
+        for {set i $count} {$i >= 0} {incr i -1} {
+            pin set ky_snapctr $i
+            lappend snap [pin get ky_snapreg]
+        }
+    }
+    unlkdma
+    return $snap
 }
 
 # step, printing disassembly
