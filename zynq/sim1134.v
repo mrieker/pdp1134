@@ -1407,7 +1407,10 @@ module sim1134 (
         //  SLAVE REGISTERS  //
         ///////////////////////
 
-        if (~ resetting) begin
+        // halted access only to simulate real pdp behavior
+        // can't be resetting because that would overwrite any writes done
+
+        if (~ resetting & (halted | ~ bus_bbsy_out_l)) begin
 
             // kernel descriptor registers 772300..16  111 111 010 011 00_ __0
             // kernel address registers    772340..56  111 111 010 011 10_ __0
@@ -1472,8 +1475,8 @@ module sim1134 (
                 end
             end
 
-            // register access via 7777rr
-            if (halted & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
+            // register access via 777700..777717
+            if (((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
                 if (bus_msyn_in_l) begin
                     gpr_d_out_l    <= 16'o177777;
                     bus_ssyn_out_l <= 1;

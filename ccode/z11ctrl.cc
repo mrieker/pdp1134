@@ -51,6 +51,7 @@ static Tcl_ObjCmdProc cmd_readchar;
 static Tcl_ObjCmdProc cmd_rlload;
 static Tcl_ObjCmdProc cmd_rlstat;
 static Tcl_ObjCmdProc cmd_rlunload;
+static Tcl_ObjCmdProc cmd_snapregs;
 static Tcl_ObjCmdProc cmd_tmload;
 static Tcl_ObjCmdProc cmd_tmstat;
 static Tcl_ObjCmdProc cmd_tmunload;
@@ -64,6 +65,7 @@ static TclFunDef const fundefs[] = {
     { cmd_rlload,   "rlload",   "load file in RL drive" },
     { cmd_rlstat,   "rlstat",   "get RL drive status" },
     { cmd_rlunload, "rlunload", "unload file from RL drive" },
+    { cmd_snapregs, "snapregs", "snapshot registers while running" },
     { cmd_tmload,   "tmload",   "load file in TM drive" },
     { cmd_tmstat,   "tmstat",   "get TM drive status" },
     { cmd_tmunload, "tmunload", "unload file from TM drive" },
@@ -613,6 +615,76 @@ static int cmd_rlunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
         return TCL_OK;
     }
     Tcl_SetResultF (interp, "bad number args");
+    return TCL_ERROR;
+}
+
+// snapshot registers [addrs [count]]
+static int cmd_snapregs (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    // get command line arguments
+    int addrs = -1;
+    int count = -1;
+    for (int i = 0; ++ i < objc;) {
+        char const *stri = Tcl_GetString (objv[i]);
+        if ((i == 1) && (strcasecmp (stri, "help") == 0)) {
+            puts ("");
+            puts ("  Snapshot registers while running");
+            puts ("");
+            puts ("    snapregs [addrs [count]]");
+            puts ("");
+            puts ("      addrs = starting address, default 0777700");
+            puts ("      count = number registers - 1, default 15");
+            puts ("");
+            return TCL_OK;
+        }
+
+        if (addrs < 0) {
+            int rc = Tcl_GetIntFromObj (interp, objv[i], &addrs);
+            if (rc != TCL_OK) return rc;
+            if ((addrs < 0760000) || (addrs > 0777776)) {
+                Tcl_SetResultF (interp, "address 0%o must be in range 0760000..0777776", addrs);
+                return TCL_ERROR;
+            }
+            continue;
+        }
+
+        if (count < 0) {
+            int rc = Tcl_GetIntFromObj (interp, objv[i], &count);
+            if (rc != TCL_OK) return rc;
+            if ((count < 0) || (count > 15)) {
+                Tcl_SetResultF (interp, "count %d must be in range 0..15", count);
+                return TCL_ERROR;
+            }
+            continue;
+        }
+
+        Tcl_SetResultF (interp, "unknown argument %s", stri);
+        return TCL_ERROR;
+    }
+
+    if (addrs < 0) addrs = 0777700;
+    if (count < 0) count = 15;
+
+    // take snapshot of registers
+    uint16_t regs[16];
+    int rc = z11page->snapregs (addrs, count, regs);
+    count = rc & 0xFFFFU;
+    rc >>= 16;
+
+    // if we got any registers, return the values in a list
+    // could get a short list if there's a timeout
+    // also return empty list if first read timed out
+    if ((count != 0) || (rc == -3)) {
+        Tcl_Obj *gotvals[count];
+        for (int i = 0; i < count; i ++) {
+            gotvals[i] = Tcl_NewIntObj (regs[i]);
+        }
+        Tcl_SetObjResult (interp, Tcl_NewListObj (count, gotvals));
+        return TCL_OK;
+    }
+
+    // some error that didn't return any registers
+    Tcl_SetResultF (interp, "error %d snapping registers", rc);
     return TCL_ERROR;
 }
 

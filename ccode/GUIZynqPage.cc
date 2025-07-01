@@ -68,7 +68,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_open
 JNIEXPORT jint JNICALL Java_GUIZynqPage_step
   (JNIEnv *env, jclass klass)
 {
-    kyat[2] |= KY2_STEPREQ;
+    z11page->stepreq ();
     return 0;
 }
 
@@ -80,7 +80,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_step
 JNIEXPORT jint JNICALL Java_GUIZynqPage_cont
   (JNIEnv *env, jclass klass)
 {
-    kyat[2] &= ~ KY2_HALTREQ;
+    z11page->contreq ();
     return 0;
 }
 
@@ -92,7 +92,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_cont
 JNIEXPORT jint JNICALL Java_GUIZynqPage_halt
   (JNIEnv *env, jclass klass)
 {
-    kyat[2] |= KY2_HALTREQ;
+    z11page->haltreq ();
     return 0;
 }
 
@@ -104,12 +104,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_halt
 JNIEXPORT jint JNICALL Java_GUIZynqPage_reset
   (JNIEnv *env, jclass klass)
 {
-    kyat[2] |= KY2_HALTREQ;     // so it halts when started back up
-    pdpat[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
-    usleep (200000);
-    pdpat[Z_RA] &= ~ a_man_dc_lo_out_h;
-    usleep (1000);
-    pdpat[Z_RA] &= ~ a_man_ac_lo_out_h;
+    z11page->resetit ();
     return 0;
 }
 
@@ -166,8 +161,11 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_getsr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_running
   (JNIEnv *env, jclass klass)
 {
-    if (! (kyat[2] & KY2_HALTED)) return 1;     //  1 = running
-    return (kyat[2] & KY2_HALTINS) ? -1 : 0;    // -1 = halt instr; 0 = requested halt
+    z11page->dmalock ();                    // make sure snapregs not running
+    uint32_t ky2 = kyat[2];                 // get halted state flags
+    z11page->dmaunlk ();                    // allow snapregs to run
+    if (! (ky2 & KY2_HALTED)) return 1;     //  1 = running
+    return (ky2 & KY2_HALTINS) ? -1 : 0;    // -1 = halt instr; 0 = requested halt
 }
 
 /*
@@ -179,8 +177,10 @@ JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
   (JNIEnv *env, jclass klass, jint data)
 {
     data &= 0777777;
+    z11page->dmalock ();                    // make sure snapregs not running
     kyat[1] = (kyat[1] & ~ KY_SWITCHES) | (data & 0177777) * (KY_SWITCHES & - KY_SWITCHES);
     kyat[2] = (kyat[2] & ~ KY2_SR1716)  | (data >> 16) * (KY2_SR1716 & - KY2_SR1716);
+    z11page->dmaunlk ();                    // allow snapregs to run
 }
 
 /*

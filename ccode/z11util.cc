@@ -311,6 +311,119 @@ void Z11Page::waitint (uint32_t mask)
     }
 }
 
+// read registers when processor is running
+// halts processor momentarily to read registers
+//  input:
+//   addr  = starting address of registers to read
+//   count = number of registers to read - 1
+//  output:
+//   returns [31:16] = 0 : success
+//                    -1 : processor is halted
+//                    -2 : stuck doing snapshot
+//                    -3 : timed out
+//                    -4 : parity error
+//           [15:00] = number of registers read
+//   *regs = filled in with contents of registers
+int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
+{
+    if ((addr < 0760000) || (addr > 0777776)) ABORT ();
+    if ((count < 0) || (count > 15)) ABORT ();
+
+    // keep out other things from using dma registers
+    dmalock ();
+
+    // processor must be running for this to work
+    // ...because snapshot leaves processor running
+    uint32_t ky2 = ZRD(kyat[2]);
+    if (ky2 & KY2_HALTED) {
+        dmaunlk ();
+        return -1 << 16;
+    }
+
+    ky2 &= KY2_ENABLE | KY2_SR1716;
+
+    // tell ky11.v to do the snapshot
+    // it halts the processor, does dma requests to read registers, resumes processor
+    ZWR(kyat[3], KY3_DMAADDR0 * addr);
+    ZWR(kyat[2], ky2 | KY2_HALTREQ | KY2_SNAPCTR0 * count | KY2_SNAPREQ);
+
+    // wait for snapshot to complete, should be 15-20uS
+    for (int i = 0; ((ky2 = ZRD(kyat[2])) & KY2_SNAPREQ) != 0; i ++) {
+        if (i > 100000) {
+            dmaunlk ();
+            return -2 << 16;
+        }
+    }
+
+    // get number of registers successfully read
+    int rc = count - (ky2 & KY2_SNAPCTR) / KY2_SNAPCTR0;
+
+    // check for success
+    uint32_t ky3 = ZRD(kyat[3]);
+         if (ky3 & KY3_DMATIMO) rc |= -3 << 16;
+    else if (ky3 & KY3_DMAPERR) rc |= -4 << 16;
+                           else rc ++;
+
+    ky2 &= KY2_ENABLE | KY2_SR1716;
+
+    // get snapshot values
+    for (int i = count; i >= 0; -- i) {
+        ZWR(kyat[2], ky2 | i * KY2_SNAPCTR0);
+        *(regs ++) = (ZRD(kyat[4]) & KY4_SNAPREG) / KY4_SNAPREG0;
+    }
+
+    // allow other dma now
+    dmaunlk ();
+
+    return rc;
+}
+
+// halt the processor
+void Z11Page::haltreq ()
+{
+    // make sure something else isn't using ky registers
+    // ...such as snapregs()
+    dmalock ();
+
+    // tell processor to halt at end of instruction
+    ZWR(kyat[2], ZRD(kyat[2]) | KY2_HALTREQ);
+
+    // we're done with dma registers
+    dmaunlk ();
+}
+
+// single-step processor
+void Z11Page::stepreq ()
+{
+    dmalock ();
+    ZWR(kyat[2], ZRD(kyat[2]) | KY2_STEPREQ);
+    dmaunlk ();
+}
+
+// tell processor to resume processing instructions
+void Z11Page::contreq ()
+{
+    dmalock ();
+    ZWR(kyat[2], ZRD(kyat[2]) & ~ KY2_HALTREQ);
+    dmaunlk ();
+}
+
+// reset processor no matter what
+// leave it halted on return
+// processor will have loaded power-on vector (024 026)
+void Z11Page::resetit ()
+{
+    dmalock ();
+    kyat[2] |= KY2_HALTREQ;     // so it halts when started back up
+    uint32_t volatile *pdpat = findev ("11", NULL, NULL, false);
+    pdpat[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
+    usleep (200000);
+    pdpat[Z_RA] &= ~ a_man_dc_lo_out_h;
+    usleep (1000);
+    pdpat[Z_RA] &= ~ a_man_ac_lo_out_h;
+    dmaunlk ();
+}
+
 // generate a random number
 uint32_t randbits (int nbits)
 {

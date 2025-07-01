@@ -65,6 +65,11 @@ struct Z11Page {
     void dmalock ();
     void dmaunlk ();
     void waitint (uint32_t mask);
+    int snapregs (uint32_t addr, int count, uint16_t *regs);
+    void haltreq ();
+    void stepreq ();
+    void contreq ();
+    void resetit ();
 
 private:
     int zynqfd;
