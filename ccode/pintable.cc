@@ -150,6 +150,7 @@ PinDef const pindefs[] = {
     { "ky_haltins",      DEV_KY, 2,    0x00020000,        0, false },
     { "ky_irqlev",       DEV_KY, 2,    KY2_IRQLEV,        0, true  },
     { "ky_irqvec",       DEV_KY, 2,    KY2_IRQVEC,        2, true  },
+    { "ky_snaphlt",      DEV_KY, 2,    KY2_SNAPHLT,       0, true  },
     { "ky_snapreq",      DEV_KY, 2,    KY2_SNAPREQ,       0, true  },
     { "ky_dmastate",     DEV_KY, 3,    0xE0000000,        0, true  },
     { "ky_dmatimo",      DEV_KY, 3,    KY3_DMATIMO,       0, false },

@@ -69,7 +69,7 @@ module ky11 (
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmaperr, dmatimo, enable, halted, haltins, haltreq, stepreq, snapreq, snapwrt;
+    reg dmaperr, dmatimo, enable, halted, haltins, haltreq, stepreq, snaphlt, snapreq, snapwrt;
     reg[1:0] dmactrl;
     reg[2:0] dmastate, haltstate;
     reg[3:0] snapctr;
@@ -83,7 +83,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B592013 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592014 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -99,8 +99,9 @@ module ky11 (
                             haltins,        //17 ro processor has executed an HALT instr, ACLO/DCLO reset required to get it going
                             irqlev,         //14 rw arm can request interrupt at this level 4,5,6,7 (NOT self-clearing)
                             irqvec,         //08 rw vector to be sent when interrupt granted
-                            snapreq,        //07 rw request snapshot of registers while processor running
-                            7'b0 } :        //00
+                            6'b0,           //02
+                            snaphlt,        //01 rw halt on completion of snapshot (0=continue; 1=halt)
+                            snapreq } :     //00 rw request snapshot of registers while processor running
                       (armraddr == 3) ? {
                             dmastate,       //29 rw 0=idle; arm sets to 1 to start a dma cycle, ky11.v sets back to 0 when done
                             dmatimo,        //28 ro dma cycle timed out
@@ -158,7 +159,8 @@ module ky11 (
                     sr1716   <= armwdata[23:22];
                     irqlev   <= armwdata[16:14];
                     irqvec   <= armwdata[13:08];
-                    snapreq  <= armwdata[07];
+                    snaphlt  <= armwdata[01];
+                    snapreq  <= armwdata[00];
                     snapreg  <= snapregs[armwdata[27:24]];
                 end
                 3: if (dmastate == 0) begin
@@ -276,7 +278,7 @@ module ky11 (
                                     dmaaddr[4:0]  <= dmaaddr[4:0] + ((dmaaddr[12:04] == 9'o774) ? 1 : 2);
                                     snapctr       <= snapctr - 1;
                                 end else begin
-                                    haltreq <= 0;
+                                    haltreq <= snaphlt;
                                     snapreq <= 0;
                                 end
                             end

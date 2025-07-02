@@ -171,7 +171,8 @@
 #define KY2_HALTINS   0x00020000U   // processor has HALT instr in its IR
 #define KY2_IRQLEV    0x0001C000U   // interrupt request level 4..7
 #define KY2_IRQVEC    0x00003FC0U   // interrupt request vector[7:0]
-#define KY2_SNAPREQ   0x00000080U   // initiate snapshot request
+#define KY2_SNAPHLT   0x00000002U   // halt on completion of snapshot
+#define KY2_SNAPREQ   0x00000001U   // initiate snapshot request
 
 #define KY2_SNAPCTR0  (KY2_SNAPCTR & - KY2_SNAPCTR)
 

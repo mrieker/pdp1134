@@ -318,10 +318,9 @@ void Z11Page::waitint (uint32_t mask)
 //   count = number of registers to read - 1
 //  output:
 //   returns [31:16] = 0 : success
-//                    -1 : processor is halted
 //                    -2 : stuck doing snapshot
-//                    -3 : timed out
-//                    -4 : parity error
+//                    -3 : timed out reading register
+//                    -4 : parity error reading register
 //           [15:00] = number of registers read
 //   *regs = filled in with contents of registers
 int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
@@ -332,15 +331,11 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
     // keep out other things from using dma registers
     dmalock ();
 
-    // processor must be running for this to work
-    // ...because snapshot leaves processor running
+    // see if already requesting halt
+    // if so, set up to restore when snapshot completes
     uint32_t ky2 = ZRD(kyat[2]);
-    if (ky2 & KY2_HALTED) {
-        dmaunlk ();
-        return -1 << 16;
-    }
 
-    ky2 &= KY2_ENABLE | KY2_SR1716;
+    ky2 = (ky2 & (KY2_ENABLE | KY2_SR1716)) | ((ky2 & KY2_HALTREQ) ? KY2_SNAPHLT : 0);
 
     // tell ky11.v to do the snapshot
     // it halts the processor, does dma requests to read registers, resumes processor
@@ -364,7 +359,7 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
     else if (ky3 & KY3_DMAPERR) rc |= -4 << 16;
                            else rc ++;
 
-    ky2 &= KY2_ENABLE | KY2_SR1716;
+    ky2 &= KY2_ENABLE | KY2_SR1716 | KY2_HALTREQ;
 
     // get snapshot values
     for (int i = count; i >= 0; -- i) {
