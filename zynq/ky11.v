@@ -27,7 +27,7 @@
 //   ...reverting to examine/deposit when halted (ie, doesn't bother with npr/npg like real KY11)
 
 module ky11 (
-    input CLOCK, RESET,
+    input CLOCK, powerup, fpgaoff,
 
     input armwrite,
     input[2:0] armraddr, armwaddr,
@@ -83,7 +83,7 @@ module ky11 (
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B592014 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592015 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -121,8 +121,10 @@ module ky11 (
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin
-            if (RESET) begin
-                dmalock     <= 0;
+            if (fpgaoff) begin
+                if (powerup) begin
+                    dmalock <= 0;
+                end
                 enable      <= 0;
                 halted      <= 0;
                 haltstate   <= 0;
@@ -301,7 +303,7 @@ module ky11 (
         // - it may drop the grant but remains halted until request and sack are dropped
         // - if processor executes an HALT instruction, it jams the HLTRQ line asserted
         //   (and thus HLTGR asserts) until processor is reset via ACLO/DCLO
-        if (~ RESET) begin
+        if (~ fpgaoff) begin
             if (~ hltgr_in_l) begin
                 halted <= 1;
             end else if (~ hltrq_in_h & ~ sack_in_h) begin
@@ -312,7 +314,7 @@ module ky11 (
         // single stepper
         // - stop requesting processor to halt
         // - as soon as it starts back up (not halted), request halt
-        if (~ RESET & ~ armwrite & stepreq) begin
+        if (~ fpgaoff & ~ armwrite & stepreq) begin
             if (halted) begin
                 haltreq <= 0;
             end else begin

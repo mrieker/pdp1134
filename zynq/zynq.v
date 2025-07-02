@@ -798,7 +798,8 @@ module Zynq (
 
     ky11 kyinst (
         .CLOCK (CLOCK),
-        .RESET (fpgaoff),
+        .powerup (powerup),
+        .fpgaoff (fpgaoff),
 
         .armraddr (readaddr[4:2]),
         .armrdata (kyarmrdata),

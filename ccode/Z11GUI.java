@@ -1236,7 +1236,7 @@ public class Z11GUI extends JPanel {
             isenabled = enable;
             if (enable) {
                 setForeground (Color.WHITE);
-                setIcon (buttonout);
+                setIcon (pressedinarea ? buttonin : buttonout);
             } else {
                 setForeground (Color.DARK_GRAY);
                 setIcon (null);
