@@ -30,6 +30,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "z11defs.h"
@@ -47,6 +48,9 @@
 #define DL3_PORT  0x0003FFFFU
 #define DL3_PORT0 0x00000001U
 
+static char const rsxdtpmt[] = "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) [S]: ";
+static char const monthnames[12][4] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+
 static bool nokb;
 static bool upcase;
 static bool volatile ctrlcflag;
@@ -60,6 +64,7 @@ static void sigrunhand (int signum);
 int main (int argc, char **argv)
 {
     bool killit = false;
+    bool rsxdt = true;
     char const *logname = NULL;
     int port = 0777560;
     char *p;
@@ -68,12 +73,13 @@ int main (int argc, char **argv)
             puts ("");
             puts ("     Access DL-11 TTY controller");
             puts ("");
-            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-upcase]");
-            puts ("     -cps    : set chars per second, default 10");
-            puts ("     -killit : kill other process that is processing this port");
-            puts ("     -log    : log output to given file");
-            puts ("     -nokb   : do not pass stdin keyboard to pdp");
-            puts ("     -upcase : convert all keyboard to upper case");
+            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-norsxdt] [-upcase]");
+            puts ("     -cps     : set chars per second, default 10");
+            puts ("     -killit  : kill other process that is processing this port");
+            puts ("     -log     : log output to given file");
+            puts ("     -nokb    : do not pass stdin keyboard to pdp");
+            puts ("     -norsxdt : do not answer RSX-11 format date/time prompt");
+            puts ("     -upcase  : convert all keyboard input to upper case");
             puts ("");
             return 0;
         }
@@ -103,6 +109,10 @@ int main (int argc, char **argv)
         }
         if (strcasecmp (argv[i], "-nokb") == 0) {
             nokb = true;
+            continue;
+        }
+        if (strcasecmp (argv[i], "-norsxdt") == 0) {
+            rsxdt = false;
             continue;
         }
         if (strcasecmp (argv[i], "-upcase") == 0) {
@@ -165,6 +175,10 @@ int main (int argc, char **argv)
     readnextprat = nowus + 1111111 / cps;
     readnextkbat = nokb ? 0xFFFFFFFFFFFFFFFFULL : readnextprat;
 
+    char rsxdtrep[24];  // rsx date/time reply string 'hh:mm:ss dd-mmm-yy\r'
+    int rsxdtech = -1;  // number of characters sent and echoed
+    int rsxdtmat = 0;   // number of characters received that match
+
     // keep processing until control-backslash
     // control-C is recognized only if -nokb mode
     while (! ctrlcflag) {
@@ -195,6 +209,31 @@ int main (int argc, char **argv)
 
                 // check for another char to print after 1000000/cps usec
                 readnextprat = nowus + 1000000 / cps;
+
+                // check for rsx date/time prompt
+                if (rsxdt) {
+                    if (rsxdtech >= 0) {
+                        // already sending reply, check for echo of character just sent
+                        // if mismatch or reached the end, clear all search state
+                        if ((rsxdtrep[rsxdtech] != prchar) ||
+                            (rsxdtrep[++rsxdtech] == 0)) {
+                            rsxdtech = -1;
+                            rsxdtmat = 0;
+                        }
+                    } else {
+                        // check for prompt string character
+                        // if everything matched, get date/time and set up reply string
+                        if (rsxdtpmt[rsxdtmat] != prchar) rsxdtmat = 0;
+                        else if (rsxdtpmt[++rsxdtmat] == 0) {
+                            time_t nowbin = time (NULL) + 12;    // we take ~12 sec to send it out
+                            struct tm nowtm = *localtime (&nowbin);
+                            sprintf (rsxdtrep, "%02d:%02d:%02d %02d-%3s-%2d\r",
+                                nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec, nowtm.tm_mday, monthnames[nowtm.tm_mon], nowtm.tm_year % 100);
+                            rsxdtech = 0;
+                            readnextkbat = nowus + 1000000;     // one second until sending first reply character
+                        }
+                    }
+                }
             }
         }
 
@@ -215,6 +254,13 @@ int main (int argc, char **argv)
                 if (upcase && (kbchar >= 'a') && (kbchar <= 'z')) kbchar -= 'a' - 'A';
                 ZWR(dlat[1], (ZRD(dlat[1]) & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar);
                 readnextkbat = nowus + 1000000 / cps;
+            }
+
+            // maybe send next char of rsx date/time reply
+            else if (rsxdt && (rsxdtech >= 0)) {
+                uint8_t kbchar = rsxdtrep[rsxdtech];
+                ZWR(dlat[1], (ZRD(dlat[1]) & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar);
+                readnextkbat = nowus + 500000;
             }
         }
     }

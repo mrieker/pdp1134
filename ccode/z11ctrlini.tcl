@@ -525,9 +525,9 @@ proc replytoprompt {prompt reply} {
     sendttychar "\r"
 }
 
-# get current date/time hh:mm:ss dd-mmm-99 suitable for RSX TIM command
+# get current date/time hh:mm:ss dd-mmm-yy suitable for RSX TIM command
 proc rsxdatetime {} {
-    return [string toupper [clock format [clock seconds] -format "%H:%M:%S %d-%b-99"]]
+    return [string toupper [clock format [clock seconds] -format "%H:%M:%S %d-%b-%y"]]
 }
 
 # send keyboard character to PDP
