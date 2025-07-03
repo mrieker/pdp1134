@@ -24,6 +24,7 @@
 #include <signal.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -350,7 +351,23 @@ static int forkserver (ShmMS *shmms)
     // create process for the server
     int pid = fork ();
 
-    if (pid > 0) return pid;
+    if (pid > 0) {
+        // the daemon() call below does a fork() & exit()
+        // so swallow the exited pid so it doesn't zombie
+        int rc, wstatus;
+        do rc = waitpid (pid, &wstatus, 0);
+        while ((rc < 0) && (errno == EINTR));
+        if (rc < 0) {
+            int rc = - errno;
+            fprintf (stderr, "mslock: error waiting for daemon: %m\n");
+            return rc;
+        }
+        if (wstatus != 0) {
+            fprintf (stderr, "mslock: daemon process exit status 0x%X\n", wstatus);
+            return -999;
+        }
+        return 0;
+    }
 
     if (pid < 0) {
         int rc = - errno;
