@@ -25,6 +25,7 @@
 
 struct TclFunDef {
     Tcl_ObjCmdProc *func;
+    ClientData cdat;
     char const *name;
     char const *help;
 };

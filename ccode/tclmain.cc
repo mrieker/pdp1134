@@ -102,7 +102,7 @@ int tclmain (
 
     fundefs = tclfundefs;
     for (int i = 0; tclfundefs[i].name != NULL; i ++) {
-        if (Tcl_CreateObjCommand (interp, tclfundefs[i].name, tclfundefs[i].func, NULL, NULL) == NULL) ABORT ();
+        if (Tcl_CreateObjCommand (interp, tclfundefs[i].name, tclfundefs[i].func, tclfundefs[i].cdat, NULL) == NULL) ABORT ();
     }
     if (Tcl_CreateObjCommand (interp, "atexit", cmd_atexit, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "ctrlcflag", cmd_ctrlcflag, NULL, NULL) == NULL) ABORT ();

@@ -43,34 +43,48 @@
 
 extern Z11Page *z11page;
 
+struct MSCDat {
+    char const *lcid;
+    int ndrvm1;
+    int ctlid;
+    char const *sthelp;
+    char const *poskw;
+    uint32_t posdiv;
+};
+
+static MSCDat const ctlidrl = { "rl", 3, SHMMS_CTLID_RL,
+    "[cylinder] [fault] [file] [readonly] [ready] [type]",
+    "cylinder", 128 };  // curpos is 0000.0000.0000.0000.cccc.cccc.chss.ssss
+
+static MSCDat const ctlidtm = { "tm", 7, SHMMS_CTLID_TM,
+    "[kbytes] [file] [readonly] [ready]",
+    "kbytes", 1024 };
+
 // internal TCL commands
 static Tcl_ObjCmdProc cmd_disasop;
 static Tcl_ObjCmdProc cmd_gettod;
+static Tcl_ObjCmdProc cmd_msload;
+static Tcl_ObjCmdProc cmd_msstat;
+static Tcl_ObjCmdProc cmd_msunload;
 static Tcl_ObjCmdProc cmd_pin;
 static Tcl_ObjCmdProc cmd_readchar;
-static Tcl_ObjCmdProc cmd_rlload;
-static Tcl_ObjCmdProc cmd_rlstat;
-static Tcl_ObjCmdProc cmd_rlunload;
 static Tcl_ObjCmdProc cmd_snapregs;
-static Tcl_ObjCmdProc cmd_tmload;
-static Tcl_ObjCmdProc cmd_tmstat;
-static Tcl_ObjCmdProc cmd_tmunload;
 static Tcl_ObjCmdProc cmd_waitint;
 
 static TclFunDef const fundefs[] = {
-    { cmd_disasop,  "disasop",  "disassemble instruction" },
-    { cmd_gettod,   "gettod",   "get current time in us precision" },
-    { cmd_pin,      "pin",      "direct access to signals on zynq page" },
-    { cmd_readchar, "readchar", "read character with timeout" },
-    { cmd_rlload,   "rlload",   "load file in RL drive" },
-    { cmd_rlstat,   "rlstat",   "get RL drive status" },
-    { cmd_rlunload, "rlunload", "unload file from RL drive" },
-    { cmd_snapregs, "snapregs", "snapshot registers while running" },
-    { cmd_tmload,   "tmload",   "load file in TM drive" },
-    { cmd_tmstat,   "tmstat",   "get TM drive status" },
-    { cmd_tmunload, "tmunload", "unload file from TM drive" },
-    { cmd_waitint,  "waitint",  "wait for interrupt" },
-    { NULL, NULL, NULL }
+    { cmd_disasop,  NULL, "disasop",  "disassemble instruction" },
+    { cmd_gettod,   NULL, "gettod",   "get current time in us precision" },
+    { cmd_pin,      NULL, "pin",      "direct access to signals on zynq page" },
+    { cmd_readchar, NULL, "readchar", "read character with timeout" },
+    { cmd_msload,   (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
+    { cmd_msstat,   (ClientData) &ctlidrl, "rlstat",   "get RL drive status" },
+    { cmd_msunload, (ClientData) &ctlidrl, "rlunload", "unload file from RL drive" },
+    { cmd_snapregs, NULL, "snapregs", "snapshot registers while running" },
+    { cmd_msload,   (ClientData) &ctlidtm, "tmload",   "load file in TM drive" },
+    { cmd_msstat,   (ClientData) &ctlidtm, "tmstat",   "get TM drive status" },
+    { cmd_msunload, (ClientData) &ctlidtm, "tmunload", "unload file from TM drive" },
+    { cmd_waitint,  NULL, "waitint",  "wait for interrupt" },
+    { NULL, NULL, NULL, NULL }
 };
 
 
@@ -294,6 +308,173 @@ static int cmd_gettod (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
     return TCL_OK;
 }
 
+// mass storage load file in drive
+static int cmd_msload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    MSCDat const *mscdat = (MSCDat const *) clientdata;
+
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            printf ("  %sload [-readonly] <drive> <filename>\n", mscdat->lcid);
+            puts ("");
+            return TCL_OK;
+        }
+    }
+    bool readonly = false;
+    char const *filename = NULL;
+    int drive = -1;
+    for (int i = 0; ++ i < objc;) {
+        char const *stri = Tcl_GetString (objv[i]);
+        if (strcasecmp (stri, "-readonly") == 0) {
+            readonly = true;
+            continue;
+        }
+        if (stri[0] == '-') {
+            Tcl_SetResultF (interp, "unknown option %s", stri);
+            return TCL_ERROR;
+        }
+        if (drive < 0) {
+            int rc = Tcl_GetIntFromObj (interp, objv[i], &drive);
+            if (rc != TCL_OK) return rc;
+            if ((drive < 0) || (drive > mscdat->ndrvm1)) {
+                Tcl_SetResultF (interp, "drive number %d out of range 0..%d", drive, mscdat->ndrvm1);
+                return TCL_ERROR;
+            }
+            continue;
+        }
+        if (filename != NULL) {
+            Tcl_SetResultF (interp, "unknown argument %s", stri);
+            return TCL_ERROR;
+        }
+        filename = stri;
+    }
+    if (filename == NULL) {
+        Tcl_SetResultF (interp, "missing drive and/or filename");
+        return TCL_ERROR;
+    }
+    int rc = shmms_load (mscdat->ctlid, drive, readonly, filename);
+    if (rc < 0) {
+        Tcl_SetResultF (interp, "%s", strerror (- rc));
+        return TCL_ERROR;
+    }
+    return TCL_OK;
+}
+
+// mass storage drive status
+static int cmd_msstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    MSCDat const *mscdat = (MSCDat const *) clientdata;
+
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            puts ("  Get drive status");
+            puts ("");
+            printf ("  %sstat <drive> %s\n", mscdat->lcid, mscdat->sthelp);
+            puts ("");
+            return TCL_OK;
+        }
+    }
+    if (objc > 1) {
+        int drive = -1;
+        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
+        if (rc != TCL_OK) return rc;
+        if ((drive < 0) || (drive > mscdat->ndrvm1)) {
+            Tcl_SetResultF (interp, "drive number %d out of range 0..%d\n", drive, mscdat->ndrvm1);
+            return TCL_ERROR;
+        }
+
+        char fnbuf[SHMMS_FNSIZE];
+        uint32_t curpos;
+        rc = shmms_stat (SHMMS_CTLID_RL, drive, fnbuf, sizeof fnbuf, &curpos);
+        if (rc < 0) {
+            Tcl_SetResultF (interp, "%s", strerror (- rc));
+            return TCL_ERROR;
+        }
+
+        int nvals = 0;
+        Tcl_Obj *vals[objc];
+        for (int i = 1; ++ i < objc;) {
+            char const *stri = Tcl_GetString (objv[i]);
+            if (strcasecmp (stri, mscdat->poskw) == 0) {
+                vals[nvals++] = Tcl_NewIntObj (curpos / mscdat->posdiv);
+                continue;
+            }
+            if (strcasecmp (stri, "fault") == 0) {
+                int val = (rc & MSSTAT_FAULT) / MSSTAT_FAULT;
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if (strcasecmp (stri, "file") == 0) {
+                vals[nvals++] = Tcl_NewStringObj (fnbuf, -1);
+                continue;
+            }
+            if (strcasecmp (stri, "readonly") == 0) {
+                int val = (rc & MSSTAT_WRPROT) / MSSTAT_WRPROT;
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if (strcasecmp (stri, "ready") == 0) {
+                int val = (rc & MSSTAT_READY) / MSSTAT_READY;
+                vals[nvals++] = Tcl_NewIntObj (val);
+                continue;
+            }
+            if ((mscdat->ctlid == SHMMS_CTLID_RL) && (strcasecmp (stri, "type") == 0)) {
+                vals[nvals++] = Tcl_NewStringObj ((rc & MSSTAT_RL01) ? "RL01" : "RL02", -1);
+                continue;
+            }
+            Tcl_SetResultF (interp, "unknown keyword %s", stri);
+            return TCL_ERROR;
+        }
+        if (nvals > 0) {
+            if (nvals < 2) {
+                Tcl_SetObjResult (interp, vals[0]);
+            } else {
+                Tcl_SetObjResult (interp, Tcl_NewListObj (nvals, vals));
+            }
+        }
+        return TCL_OK;
+    }
+    Tcl_SetResultF (interp, "bad number args");
+    return TCL_ERROR;
+}
+
+// mass storage unload file from drive
+static int cmd_msunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    MSCDat const *mscdat = (MSCDat const *) clientdata;
+
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            printf ("  %sunload <drive>\n", mscdat->lcid);
+            puts ("");
+            return TCL_OK;
+        }
+
+        int drive = -1;
+        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
+        if (rc != TCL_OK) return rc;
+        if ((drive < 0) || (drive > mscdat->ndrvm1)) {
+            Tcl_SetResultF (interp, "drive number %d out of range 0..%d", drive, mscdat->ndrvm1);
+            return TCL_ERROR;
+        }
+
+        rc = shmms_load (mscdat->ctlid, drive, false, "");
+        if (rc < 0) {
+            Tcl_SetResultF (interp, "%s", strerror (- rc));
+            return TCL_ERROR;
+        }
+        return TCL_OK;
+    }
+    Tcl_SetResultF (interp, "bad number args");
+    return TCL_ERROR;
+}
+
 // direct access to signals on the zynq page
 int cmd_pin (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
@@ -462,162 +643,6 @@ static int cmd_readchar (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
     return TCL_ERROR;
 }
 
-static int cmd_rlload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        char const *stri = Tcl_GetString (objv[1]);
-        if (strcasecmp (stri, "help") == 0) {
-            puts ("");
-            puts ("  rlload [-readonly] <drive> <filename>");
-            puts ("");
-            return TCL_OK;
-        }
-    }
-    bool readonly = false;
-    char const *filename = NULL;
-    int drive = -1;
-    for (int i = 0; ++ i < objc;) {
-        char const *stri = Tcl_GetString (objv[i]);
-        if (strcasecmp (stri, "-readonly") == 0) {
-            readonly = true;
-            continue;
-        }
-        if (stri[0] == '-') {
-            Tcl_SetResultF (interp, "unknown option %s", stri);
-            return TCL_ERROR;
-        }
-        if (drive < 0) {
-            int rc = Tcl_GetIntFromObj (interp, objv[i], &drive);
-            if (rc != TCL_OK) return rc;
-            if ((drive < 0) || (drive > 3)) {
-                Tcl_SetResultF (interp, "drive number %d out of range 0..3", drive);
-                return TCL_ERROR;
-            }
-            continue;
-        }
-        if (filename != NULL) {
-            Tcl_SetResultF (interp, "unknown argument %s", stri);
-            return TCL_ERROR;
-        }
-        filename = stri;
-    }
-    if (filename == NULL) {
-        Tcl_SetResultF (interp, "missing drive and/or filename");
-        return TCL_ERROR;
-    }
-    int rc = shmms_load (SHMMS_CTLID_RL, drive, readonly, filename);
-    if (rc < 0) {
-        Tcl_SetResultF (interp, "%s", strerror (- rc));
-        return TCL_ERROR;
-    }
-    return TCL_OK;
-}
-
-static int cmd_rlstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        char const *stri = Tcl_GetString (objv[1]);
-        if (strcasecmp (stri, "help") == 0) {
-            puts ("");
-            puts ("  rlstat <drive> [cylinder] [fault] [file] [readonly] [ready] [type]");
-            puts ("");
-            return TCL_OK;
-        }
-    }
-    if (objc > 1) {
-        int drive = -1;
-        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
-        if (rc != TCL_OK) return rc;
-        if ((drive < 0) || (drive > 3)) {
-            Tcl_SetResultF (interp, "drive number %d out of range 0..3", drive);
-            return TCL_ERROR;
-        }
-
-        char fnbuf[SHMMS_FNSIZE];
-        uint32_t curpos;
-        rc = shmms_stat (SHMMS_CTLID_RL, drive, fnbuf, sizeof fnbuf, &curpos);
-        if (rc < 0) {
-            Tcl_SetResultF (interp, "%s", strerror (- rc));
-            return TCL_ERROR;
-        }
-
-        int nvals = 0;
-        Tcl_Obj *vals[objc];
-        for (int i = 1; ++ i < objc;) {
-            char const *stri = Tcl_GetString (objv[i]);
-            if (strcasecmp (stri, "cylinder") == 0) {
-                vals[nvals++] = Tcl_NewIntObj (curpos / 128);
-                continue;
-            }
-            if (strcasecmp (stri, "fault") == 0) {
-                int val = (rc & MSSTAT_FAULT) / MSSTAT_FAULT;
-                vals[nvals++] = Tcl_NewIntObj (val);
-                continue;
-            }
-            if (strcasecmp (stri, "file") == 0) {
-                vals[nvals++] = Tcl_NewStringObj (fnbuf, -1);
-                continue;
-            }
-            if (strcasecmp (stri, "readonly") == 0) {
-                int val = (rc & MSSTAT_WRPROT) / MSSTAT_WRPROT;
-                vals[nvals++] = Tcl_NewIntObj (val);
-                continue;
-            }
-            if (strcasecmp (stri, "ready") == 0) {
-                int val = (rc & MSSTAT_READY) / MSSTAT_READY;
-                vals[nvals++] = Tcl_NewIntObj (val);
-                continue;
-            }
-            if (strcasecmp (stri, "type") == 0) {
-                vals[nvals++] = Tcl_NewStringObj ((rc & MSSTAT_RL01) ? "RL01" : "RL02", -1);
-                continue;
-            }
-            Tcl_SetResultF (interp, "unknown keyword %s", stri);
-            return TCL_ERROR;
-        }
-        if (nvals > 0) {
-            if (nvals < 2) {
-                Tcl_SetObjResult (interp, vals[0]);
-            } else {
-                Tcl_SetObjResult (interp, Tcl_NewListObj (nvals, vals));
-            }
-        }
-        return TCL_OK;
-    }
-    Tcl_SetResultF (interp, "bad number args");
-    return TCL_ERROR;
-}
-
-static int cmd_rlunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        char const *stri = Tcl_GetString (objv[1]);
-        if (strcasecmp (stri, "help") == 0) {
-            puts ("");
-            puts ("  rlunload <drive>");
-            puts ("");
-            return TCL_OK;
-        }
-
-        int drive = -1;
-        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
-        if (rc != TCL_OK) return rc;
-        if ((drive < 0) || (drive > 3)) {
-            Tcl_SetResultF (interp, "drive number %d out of range 0..3", drive);
-            return TCL_ERROR;
-        }
-
-        rc = shmms_load (SHMMS_CTLID_RL, drive, false, "");
-        if (rc < 0) {
-            Tcl_SetResultF (interp, "%s", strerror (- rc));
-            return TCL_ERROR;
-        }
-        return TCL_OK;
-    }
-    Tcl_SetResultF (interp, "bad number args");
-    return TCL_ERROR;
-}
-
 // snapshot registers [addrs [count]]
 static int cmd_snapregs (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
@@ -628,12 +653,17 @@ static int cmd_snapregs (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
         char const *stri = Tcl_GetString (objv[i]);
         if ((i == 1) && (strcasecmp (stri, "help") == 0)) {
             puts ("");
-            puts ("  Snapshot registers while running");
+            puts ("  Snapshot registers while running (or not)");
             puts ("");
             puts ("    snapregs [addrs [count]]");
             puts ("");
             puts ("      addrs = starting address, default 0777700");
             puts ("      count = number registers - 1, default 15");
+            puts ("");
+            puts ("    octal [snapregs]           - R0..R17");
+            puts ("    octal [snapregs 0777700 7] - R0..R7");
+            puts ("    octal [snapregs 0777776 0] - PS");
+            puts ("    octal [snapregs 0777572 2] - MMR0..2");
             puts ("");
             return TCL_OK;
         }
@@ -688,161 +718,18 @@ static int cmd_snapregs (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
     return TCL_ERROR;
 }
 
-static int cmd_tmload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        char const *stri = Tcl_GetString (objv[1]);
-        if (strcasecmp (stri, "help") == 0) {
-            puts ("");
-            puts ("  tmload [-readonly] <drive> <filename>");
-            puts ("");
-            return TCL_OK;
-        }
-    }
-    bool readonly = false;
-    char const *filename = NULL;
-    int drive = -1;
-    for (int i = 0; ++ i < objc;) {
-        char const *stri = Tcl_GetString (objv[i]);
-        if (strcasecmp (stri, "-readonly") == 0) {
-            readonly = true;
-            continue;
-        }
-        if (stri[0] == '-') {
-            Tcl_SetResultF (interp, "unknown option %s", stri);
-            return TCL_ERROR;
-        }
-        if (drive < 0) {
-            int rc = Tcl_GetIntFromObj (interp, objv[i], &drive);
-            if (rc != TCL_OK) return rc;
-            if ((drive < 0) || (drive > 7)) {
-                Tcl_SetResultF (interp, "drive number %d out of range 0..7", drive);
-                return TCL_ERROR;
-            }
-            continue;
-        }
-        if (filename != NULL) {
-            Tcl_SetResultF (interp, "unknown argument %s", stri);
-            return TCL_ERROR;
-        }
-        filename = stri;
-    }
-    if (filename == NULL) {
-        Tcl_SetResultF (interp, "missing drive and/or filename");
-        return TCL_ERROR;
-    }
-    int rc = shmms_load (SHMMS_CTLID_TM, drive, readonly, filename);
-    if (rc < 0) {
-        Tcl_SetResultF (interp, "%s", strerror (- rc));
-        return TCL_ERROR;
-    }
-    return TCL_OK;
-}
-
-static int cmd_tmstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        char const *stri = Tcl_GetString (objv[1]);
-        if (strcasecmp (stri, "help") == 0) {
-            puts ("");
-            puts ("  tmstat <drive> [kbytes] [file] [readonly] [ready]");
-            puts ("");
-            return TCL_OK;
-        }
-    }
-    if (objc > 1) {
-        int drive = -1;
-        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
-        if (rc != TCL_OK) return rc;
-        if ((drive < 0) || (drive > 7)) {
-            Tcl_SetResultF (interp, "drive number %d out of range 0..7", drive);
-            return TCL_ERROR;
-        }
-
-        char fnbuf[SHMMS_FNSIZE];
-        uint32_t curpos;
-        rc = shmms_stat (SHMMS_CTLID_TM, drive, fnbuf, sizeof fnbuf, &curpos);
-        if (rc < 0) {
-            Tcl_SetResultF (interp, "%s", strerror (- rc));
-            return TCL_ERROR;
-        }
-
-        int nvals = 0;
-        Tcl_Obj *vals[objc];
-        for (int i = 1; ++ i < objc;) {
-            char const *stri = Tcl_GetString (objv[i]);
-            if (strcasecmp (stri, "kbytes") == 0) {
-                int val = (curpos + 1023) / 1024;
-                vals[nvals++] = Tcl_NewIntObj (val);
-                continue;
-            }
-            if (strcasecmp (stri, "file") == 0) {
-                vals[nvals++] = Tcl_NewStringObj (fnbuf, -1);
-                continue;
-            }
-            if (strcasecmp (stri, "readonly") == 0) {
-                int val = (rc & MSSTAT_WRPROT) / MSSTAT_WRPROT;
-                vals[nvals++] = Tcl_NewIntObj (val);
-                continue;
-            }
-            if (strcasecmp (stri, "ready") == 0) {
-                int val = (rc & MSSTAT_READY) / MSSTAT_READY;
-                vals[nvals++] = Tcl_NewIntObj (val);
-                continue;
-            }
-            Tcl_SetResultF (interp, "unknown keyword %s", stri);
-            return TCL_ERROR;
-        }
-        if (nvals > 0) {
-            if (nvals < 2) {
-                Tcl_SetObjResult (interp, vals[0]);
-            } else {
-                Tcl_SetObjResult (interp, Tcl_NewListObj (nvals, vals));
-            }
-        }
-        return TCL_OK;
-    }
-    Tcl_SetResultF (interp, "bad number args");
-    return TCL_ERROR;
-}
-
-static int cmd_tmunload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
-{
-    if (objc == 2) {
-        char const *stri = Tcl_GetString (objv[1]);
-        if (strcasecmp (stri, "help") == 0) {
-            puts ("");
-            puts ("  tmunload <drive>");
-            puts ("");
-            return TCL_OK;
-        }
-
-        int drive = -1;
-        int rc = Tcl_GetIntFromObj (interp, objv[1], &drive);
-        if (rc != TCL_OK) return rc;
-        if ((drive < 0) || (drive > 7)) {
-            Tcl_SetResultF (interp, "drive number %d out of range 0..7", drive);
-            return TCL_ERROR;
-        }
-
-        rc = shmms_load (SHMMS_CTLID_TM, drive, false, "");
-        if (rc < 0) {
-            Tcl_SetResultF (interp, "%s", strerror (- rc));
-            return TCL_ERROR;
-        }
-        return TCL_OK;
-    }
-    Tcl_SetResultF (interp, "bad number args");
-    return TCL_ERROR;
-}
-
+// wait for interrupt from fpga
 static int cmd_waitint (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     if (objc == 2) {
         char const *stri = Tcl_GetString (objv[1]);
         if (strcasecmp (stri, "help") == 0) {
             puts ("");
-            puts ("  waitint <mask>");
+            puts ("  Wait for interrupt from FPGA");
+            puts ("");
+            puts ("    waitint <mask>");
+            puts ("");
+            puts ("  see zynq.v regarmintreq or bits");
             puts ("");
             return TCL_OK;
         }
