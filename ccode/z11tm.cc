@@ -167,9 +167,12 @@ static void *tmiothread (void *dummy)
                 case 1: {
 
                     // read record length before data
-                    uint32_t reclen, reclen2;
+                    uint32_t reclen  = 0;
+                    uint32_t reclen2 = 0;
                     rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
                     if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] read %5u bytes at %10u => %10u\n", drivesel, reclen, dr->curposn,
+                        (reclen == 0) ? (dr->curposn + 4) : ((dr->curposn + 8 + reclen + 1) & -2));
                     dr->curposn += sizeof reclen;
 
                     // if zero, hit a tape mark
@@ -285,7 +288,12 @@ static void *tmiothread (void *dummy)
                         uint32_t reclen;
                         rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
                         if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
+                        if (debug > 1) fprintf (stderr, "z11tm: [%u] skfw %5u bytes at %10u => %10u\n", drivesel, reclen, dr->curposn,
+                            (reclen == 0) ? (dr->curposn + 4) : ((dr->curposn + 8 + reclen + 1) & -2));
                         dr->curposn += sizeof reclen;
+
+                        // one more record skipped (including mark)
+                        mtbrc ++;
 
                         // check for tape mark
                         if (reclen == 0) {
@@ -295,7 +303,7 @@ static void *tmiothread (void *dummy)
 
                         // increment over the data and length after data
                         dr->curposn += ((reclen + 1) & -2) + sizeof reclen;
-                    } while (++ mtbrc != 0);
+                    } while (mtbrc != 0);
                     break;
                 }
 
@@ -311,6 +319,11 @@ static void *tmiothread (void *dummy)
                         dr->curposn -= sizeof reclen;
                         rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
                         if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
+                        if (debug > 1) fprintf (stderr, "z11tm: [%u] skrv %5u bytes at %10u => %10u\n", drivesel, reclen, dr->curposn + 4,
+                            (reclen == 0) ? (dr->curposn + 4) : (dr->curposn - 4 + ((reclen + 1) & -2)));
+
+                        // one more record skipped (including mark)
+                        mtbrc ++;
 
                         // check for tape mark
                         if (reclen == 0) {
@@ -320,7 +333,7 @@ static void *tmiothread (void *dummy)
 
                         // decrement over the data and length before data
                         dr->curposn -= ((reclen + 1) & -2) + sizeof reclen;
-                    } while (++ mtbrc != 0);
+                    } while (mtbrc != 0);
                     break;
                 }
 
@@ -381,7 +394,6 @@ static void *tmiothread (void *dummy)
         dmaerror:
             fprintf (stderr, "z11tm: [%u] dma error at %06o\n", drivesel, mtcma);
             mtcmts |= 0x80;     // non-existent memory
-            goto done;
 
         done:;
             updatelowbits ();       // update low status bits [06:00]
@@ -390,6 +402,9 @@ static void *tmiothread (void *dummy)
             if (dr->curposn > TAPELEN) mtcmts |= 02000;
 
             mtcmts = (mtcmts & ~ 0x300000) | 0x800000 | ((mtcma << 4) & 0x300000);
+
+            if (debug > 0) fprintf (stderr, "z11tm: [%u]  done MTC=%06o MTS=%06o MTBRC=%06o MTCMA=%06o\n",
+                    drivesel, mtcmts >> 16, mtcmts & 0xFFFF, mtbrc, mtcma);
 
             ZWR(tmat[2], ((uint32_t) mtcma << 16) | mtbrc);
 
