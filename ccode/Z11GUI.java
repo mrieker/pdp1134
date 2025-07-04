@@ -45,6 +45,7 @@ import java.awt.event.MouseListener;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.io.IOException;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
@@ -1653,24 +1654,9 @@ public class Z11GUI extends JPanel {
         private final static int RL01DISKSIZE = 256*2*40*256;  // bytes in RL01 disk file
         private final static int RL02DISKSIZE = 512*2*40*256;  // bytes in RL02 disk file
 
-        private final static FileFilter rlfilefilter = new FileFilter () {
-            @Override   // FileFilter
-            public boolean accept (File ff)
-            {
-                if (ff.isDirectory ()) return true;
-                String ffname = ff.getName ().toUpperCase ();
-                return ffname.endsWith (".RL01") || ffname.endsWith (".RL02");
-            }
-            @Override   // FileFilter
-            public String getDescription ()
-            {
-                return "RL01/RL02 disk image";
-            }
-        };
-
         protected int getCtrlrID () { return GUIZynqPage.MSCTLID_RL; }
         protected String getCtlName () { return "RL"; }
-        protected FileFilter getFileFilter () { return rlfilefilter; }
+        protected FileFilter getFileFilter () { return new FileNameExtensionFilter ("RL01/RL02 disk image", "rl01", "rl02"); }
         protected boolean verifyFile (File ff)
         {
             long issize = ff.length ();
@@ -1683,9 +1669,17 @@ public class Z11GUI extends JPanel {
                 sbsize = RL02DISKSIZE;
             }
             if (sbsize == 0) {
-                JOptionPane.showMessageDialog (RLDrive.this, "filename " + ffname + " must end with .rl01 or .rl02",
+                JOptionPane.showMessageDialog (this, "filename " + ffname + " must end with .rl01 or .rl02",
                     "Loading Drive", JOptionPane.ERROR_MESSAGE);
                 return false;
+            }
+            if (! ff.exists ()) {
+                try { ff.createNewFile (); } catch (IOException ioe) {
+                    JOptionPane.showMessageDialog (this, "error creating " + ffname + ": " + ioe.getMessage(),
+                        "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                return true;
             }
             return (issize == sbsize) || (JOptionPane.showConfirmDialog (RLDrive.this,
                     ffname + " size " + issize + " is not " + sbsize + "\nAre you sure you want to load it?",
@@ -1717,10 +1711,21 @@ public class Z11GUI extends JPanel {
         protected boolean verifyFile (File ff)
         {
             String ffname = ff.getName ();
-            if (ffname.toUpperCase ().endsWith (".TAP")) return true;
-            JOptionPane.showMessageDialog (TMDrive.this, "filename " + ffname + " must end with .tap",
-                "Loading Drive", JOptionPane.ERROR_MESSAGE);
-            return false;
+            if (! ffname.toUpperCase ().endsWith (".TAP")) {
+                JOptionPane.showMessageDialog (TMDrive.this, "filename " + ffname + " must end with .tap",
+                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+            if (! ff.exists ()) {
+                try { ff.createNewFile (); } catch (IOException ioe) {
+                    JOptionPane.showMessageDialog (this, "error creating " + ffname + ": " + ioe.getMessage(),
+                        "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                return true;
+            }
+            return true;
+
         }
         protected String fmtCylNo (long cylno) { return (cylno < 0) ? "             " : String.format ("  %09d  ", cylno); }
         protected boolean hasFaultLt () { return false; }

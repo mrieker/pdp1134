@@ -97,9 +97,9 @@ int main (int argc, char **argv)
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
-            puts ("  ./z11ctrl [-log <logfile>] [-real | -sim] [<scriptfile.tcl>]");
+            puts ("  ./z11ctrl [-log <logfile>] [<scriptfile.tcl>]");
             puts ("");
-            puts ("         -log : record output to given log file");
+            puts ("                 -log : record output to given log file");
             puts ("     <scriptfile.tcl> : execute script then exit");
             puts ("                 else : read and process commands from stdin");
             puts ("");
