@@ -1,0 +1,517 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+; Test xe11.v and z11xe.cc DEUNA ethernet interface
+
+;   $ ../MACRO11/src/macro11 -o xetest.obj -l xetest.lst xetest.mac
+;   $ ./z11xe &
+;   $ ./z11ctrl
+;   > pin set fpgamode 1
+;   > pin set bm_enablo 0xFFFF
+;   > hardreset
+;   > loadlst xetest.lst
+;       on another screen:  $ ./z11dl -cps 960
+;   > flickstart 0400
+;   $ ./z11dump    to see it working
+
+	PCSR0 = 174510
+	PCSR1 = 174512
+	PCSR2 = 174514
+	PCSR3 = 174516
+
+	ZZ = .
+
+	.word	0,0
+	.word	trap04,0340	; bus error
+	.word	trap10,0340	; ill instr
+	.word	trap14,0340	; bpt/trace
+	.word	trap20,0340	; iot
+	.word	start,0340	; power-on
+
+	. = ZZ + 064
+	.word	ttintr,0200
+
+	. = ZZ + 120
+	.word	xeintr,0240
+
+	. = ZZ + 400
+
+	jmp	start
+
+; get my mac address
+macpcb:	.word	004
+mymac:	.word	0,0,0
+
+myipad:	.byte	192.
+	.byte	168.
+	.byte	5.
+	.byte	9.
+
+; set promiscuous mode
+propcb:	.word	015	; p4-36
+	.word	100000
+	.word	0,0
+
+; set up transmit and receive rings with one buffer each
+rfmpcb:
+	.word	011	; p4-26
+	.word	rngfmt
+	.word	0,0
+rngfmt:
+	.word	tdrb	; transmit descriptor address
+	.byte	0,4
+	.word	trlen	; transmit descriptor count
+	.word	rdrb	; receive descriptor address
+	.byte	0,4
+	.word	rrlen	; receive descriptor count
+
+tdrb:	.word	txlen	; p4-52
+	.word	txbuf
+	.word	0	; 0=ignore it; 101400=send it
+	.word	0
+	trlen = 1
+
+rdrb:	.word	rxlen	; p4-57
+	.word	rxbuf
+	.word	0	; 0=ignore it; 100000=fill it
+	.word	0
+	rrlen = 1
+
+txbuf:	.blkw	1365	; 1514. bytes
+	txlen = .-txbuf
+
+rxbuf:	.blkw	1365	; 1514. bytes
+	rxlen = .-rxbuf
+
+; test start here
+start:
+	mov	#stktop,sp
+	mtps	#0
+
+	jsr	r5,prascz
+		.asciz	<15><12>"initializing..."<15><12>
+		.even
+
+	mov	#177500,@#PCSR0		; enable interrupts
+
+	; read my mac address
+	mov	#macpcb,r0
+	jsr	pc,dopcb
+	jsr	pc,prspac
+	mov	#5,r4
+	mov	#mymac,r5
+100$:
+	movb	(r5)+,r1
+	jsr	pc,prhex2
+	mov	#72,r0
+	jsr	pc,prchar
+	sob	r4,100$
+	movb	@r5,r1
+	jsr	pc,prhex2
+	jsr	pc,prcrlf
+
+	; turn on promiscuous mode
+	mov	#propcb,r0
+	jsr	pc,dopcb
+
+	; tell DEUNA where the ring descriptors are
+	mov	#rfmpcb,r0		; p82
+	jsr	pc,dopcb
+
+	; tell DEUNA to start processing messages
+	mov	#177504,@#PCSR0		; start command
+	jsr	pc,chekst
+
+loop:
+	; wait for a packet to be received
+	jsr	pc,rcvpkt
+
+	; print received buffer
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+
+	mov	r4,r1
+	jsr	pc,prdcml
+	mov	#72,r0			; ':'
+	jsr	pc,prchar
+	cmp	r4,#40
+	blo	200$
+	mov	#40,r4
+200$:
+	dec	r4			; print message
+	bmi	300$
+	jsr	pc,prspac
+	movb	(r5)+,r1
+	jsr	pc,prhex2
+	br	200$
+300$:
+	jsr	pc,prcrlf
+
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+
+	; tcpdump -e -n -v -xx 'ether proto \arp'
+
+	; b0:41:6f:0d:10:4b > ff:ff:ff:ff:ff:ff,
+	;  ethertype ARP (0x0806), length 60:
+	;  Ethernet (len 6), IPv4 (len 4),
+	;  Request who-has 192.168.1.99 tell 192.168.1.8, length 46
+
+	; https://en.wikipedia.org/wiki/Address_Resolution_Protocol
+	; 60: FF FF FF FF FF FF
+	;     DC A6 32 64 46 10		ether dc:a6:32:64:46:10
+	;     08 06			arp protocol
+	;     00 01 08 00 06 04 00 01
+	;     DC A6 32 64 46 10		ether dc:a6:32:64:46:10
+	;     C0 A8 05 01		inet 192.168.5.1
+
+	mov	#10,r1
+	cmp	r4,#74			; check for ARP who-has packet
+	blo	narprq
+	inc	r1
+	cmp	14(r5),#003010		; 0806 (ARP protocol)
+	bne	narprq
+	inc	r1
+	cmp	16(r5),#000400		; 0001 hardware type
+	bne	narprq
+	inc	r1
+	cmp	20(r5),#000010		; 0800 protocol type
+	bne	narprq
+	inc	r1
+	cmp	22(r5),#002006		; 0604 hdwlen(6)/protolen(4)
+	bne	narprq
+	inc	r1
+	cmp	24(r5),#000400		; 0001 request
+	bne	narprq
+	inc	r1
+	cmp	46(r5),myipad+0		; my ip address
+	bne	narprq
+	inc	r1
+	cmp	50(r5),myipad+2
+	bne	narprq
+
+	mov	#txbuf,r3		; fill in reply packet
+	mov	 6(r5),0(r3)		; - destination mac address = request source address
+	mov	10(r5),2(r3)
+	mov	12(r5),4(r3)
+	mov	#003010,14(r3)		; 0806 ARP protocol
+	mov	#000400,16(r3)		; 0001 hardware type
+	mov	#000010,20(r3)		; 0800 protocol type
+	mov	#002006,22(r3)		; 0604 hdwlen/protolen
+	mov	#001000,24(r3)		; 0002 reply
+	mov	mymac+0,26(r3)		; sender hw addr = my mac address
+	mov	mymac+2,30(r3)
+	mov	mymac+4,32(r3)
+	mov	myipad+0,34(r3)		; sender ip addr = my ip address
+	mov	myipad+2,36(r3)
+	mov	26(r5),40(r3)		; target hw addr = request source hw addr
+	mov	30(r5),42(r3)
+	mov	32(r5),44(r3)
+	mov	34(r5),46(r3)		; target ip addr = request source ip addr
+	mov	36(r5),50(r3)
+
+	mov	#74,tdrb+0		; message length
+	mov	#101400,tdrb+4		; OWN,STP,ENP flags passing buffer to DEUNA
+
+	mov	#177510,@#PCSR0		; polling demand
+	jsr	pc,chekst		; wait for transmit to start
+
+	mov	#77,r1
+narprq:
+	jsr	pc,prdcml
+	jsr	pc,prcrlf
+
+	jmp	loop
+
+; wait for packet received
+rcvpkt:
+	mov	#100000,rdrb+4		; enable receive again
+	mov	#177510,@#PCSR0		; polling demand
+	jsr	pc,chekst
+100$:
+	mtps	#340
+	movb	#-1,@#PCSR0+1		; clear interrupt sources
+	tst	rdrb+4			; p113
+	bpl	200$
+	mov	intctr,r0
+	mtps	#0
+	wait
+	br	100$
+200$:
+	mtps	#0
+	mov	rdrb+6,r4
+	bic	#160000,r4
+	mov	#rxbuf,r5
+	rts	pc
+
+; execute function in the given pcb
+dopcb:
+	mov	r0,@#PCSR2		; pass pcb address to deuna
+	clr	@#PCSR3
+	mov	#177501,@#PCSR0
+	jsr	pc,chekst
+	mov	#177502,@#PCSR0		; tell deuna to process pcb
+	jsr	pc,chekst
+	rts	pc
+
+; check deuna status
+chekst:
+	mtps	#340
+	mov	@#PCSR0,r0
+	tstb	r0
+	bmi	100$
+	mov	intctr,r0
+	mtps	#0
+	wait
+	br	chekst
+100$:
+	mtps	#0
+	rts	pc
+
+
+xeintr:
+	inc	intctr
+ttintr:
+	cmp	@(sp),#1
+	bne	100$
+	add	#2,@sp
+100$:
+	rti
+
+intctr:	.word	0
+
+
+
+trap20:
+	mov	#20,-(sp)
+	br	trapxx
+trap04:
+	mov	#4,-(sp)
+	br	trapxx
+trap10:
+	mov	#10,-(sp)
+trapxx:
+	jsr	r5,prascz
+		.asciz	<15><12>"trap"
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PS="
+		.even
+	mov	(sp)+,r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	halt
+	br	.-2
+
+trap14:
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz " PC="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz " PS="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	rtt
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	14(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+; print asciz string following the jsr r5 call
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	jsr	pc,prchar
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	jsr	pc,prchar
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	jsr	pc,prchar
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print 2-digit hex number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prhex2:
+	mov	#1400,r0
+	bisb	r1,r0
+	ash	#-4,r0
+	jsr	pc,100$
+	mov	r1,r0
+	bic	#177760,r0
+	bis	#000060,r0
+100$:
+	cmpb	r0,#72
+	blo	200$
+	add	#7,r0
+200$:
+	br	prchar
+
+; print decimal number
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prdcml:
+	clr	-(sp)
+100$:
+	clr	r0
+	div	#12,r0
+	add	#60,r1
+	mov	r1,-(sp)
+	mov	r0,r1
+	bne	100$
+	mov	(sp)+,r0
+200$:
+	jsr	pc,prchar
+	mov	(sp)+,r0
+	bne	200$
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	jsr	pc,prchar
+	mov	#12,r0
+	br	prchar
+
+; print space
+;  scratch:
+;   r0
+prspac:
+	mov	#40,r0
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+prchar:
+	tstb	@#177776
+	bmi	500$
+	mov	#100,@#177564
+100$:
+	mtps	#200
+	tstb	@#177564
+	bmi	400$
+	mov	r0,-(sp)
+	mov	intctr,r0
+	mtps	#0
+	wait
+	mov	(sp)+,r0
+	br	100$
+400$:
+	mtps	#0
+	br	600$
+500$:
+	tstb	@#177564
+	bpl	500$
+600$:
+	movb	r0,@#177566
+	rts	pc
+
+
+	. = ZZ + 160000
+stktop:
+
+	.end

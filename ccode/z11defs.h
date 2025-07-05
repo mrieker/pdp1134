@@ -221,4 +221,6 @@
 #define TM5_BOTS0 (TM5_BOTS & - TM5_BOTS)
 #define TM6_SELS0 (TM6_SELS & - TM6_SELS)
 
+#define XE3_ENAB 0x80000000U
+
 #endif

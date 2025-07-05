@@ -22,6 +22,7 @@
 #define _Z11UTIL_H
 
 #include <exception>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,6 +78,7 @@ private:
     uint32_t volatile *zynqpage;
     void *zynqptr;
 
+    static pthread_mutex_t dmamutex;
     static uint32_t mypid;
 };
 

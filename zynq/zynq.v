@@ -522,7 +522,7 @@ module Zynq (
     //  arm reading/writing registers  //
     /////////////////////////////////////
 
-    wire[31:00] bmarmrdata, dlarmrdata, dzarmrdata, kwarmrdata, kyarmrdata, pcarmrdata, rlarmrdata, tmarmrdata;
+    wire[31:00] bmarmrdata, dlarmrdata, dzarmrdata, kwarmrdata, kyarmrdata, pcarmrdata, rlarmrdata, tmarmrdata, xearmrdata;
 
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION      :
@@ -551,7 +551,8 @@ module Zynq (
         (readaddr[11:05] ==  7'b0001000)    ? tmarmrdata   :
         (readaddr[11:04] ==  8'b00010010)   ? pcarmrdata   :
         (readaddr[11:04] ==  8'b00010011)   ? dlarmrdata   :
-        (readaddr[11:03] ==  9'b000101000)  ? kwarmrdata   :
+        (readaddr[11:04] ==  8'b00010100)   ? xearmrdata   :
+        (readaddr[11:03] ==  9'b000101010)  ? kwarmrdata   :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
@@ -563,7 +564,8 @@ module Zynq (
     wire tmarmwrite = armwrite & (writeaddr[11:05] == 7'b0001000);
     wire pcarmwrite = armwrite & (writeaddr[11:04] == 8'b00010010);
     wire dlarmwrite = armwrite & (writeaddr[11:04] == 8'b00010011);
-    wire kwarmwrite = armwrite & (writeaddr[11:03] == 9'b000101000);
+    wire xearmwrite = armwrite & (writeaddr[11:04] == 8'b00010100);
+    wire kwarmwrite = armwrite & (writeaddr[11:03] == 9'b000101010);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -657,7 +659,7 @@ module Zynq (
     wire irq4_intr_out_h, irq5_intr_out_h, irq6_intr_out_h, irq7_intr_out_h;
     wire[7:0] irq4_d70_out_h, irq5_d70_out_h, irq6_d70_out_h, irq7_d70_out_h;
 
-    assign regarmintreq[29:02] = 0;
+    assign regarmintreq[29:03] = 0;
 
     // big memory
     wire bm_pb_out_h, bm_ssyn_out_h;
@@ -786,6 +788,36 @@ module Zynq (
 
         .d_out_h (tm_d_out_h),
         .ssyn_out_h (tm_ssyn_out_h));
+
+    // xe11 deuna ethernet controller
+    wire xeintreq, xe_ssyn_out_h;
+    wire[7:0] xeintvec;
+    wire[15:00] xe_d_out_h;
+
+    xe11 xeinst (
+        .CLOCK (CLOCK),
+        .RESET (fpgaoff),
+
+        .armraddr (readaddr[3:2]),
+        .armrdata (xearmrdata),
+        .armwaddr (writeaddr[3:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (xearmwrite),
+        .armintrq (regarmintreq[02]),
+
+        .intreq (xeintreq),
+        .irvec  (xeintvec),
+        .intgnt (irq6_intr_out_h),
+        .igvec  (irq6_d70_out_h),
+
+        .a_in_h (dev_a_h),
+        .c_in_h (dev_c_h),
+        .d_in_h (dev_d_h),
+        .init_in_h (dev_init_h),
+        .msyn_in_h (dev_del_msyn_h),
+
+        .d_out_h (xe_d_out_h),
+        .ssyn_out_h (xe_ssyn_out_h));
 
     // switches and lights
     wire ky_bbsy_out_h, ky_hltrq_out_h, ky_msyn_out_h;
@@ -939,7 +971,7 @@ module Zynq (
 
     wire[7:0] intvec4 = (ky_irqlev == 4) ? { ky_irqvec, 2'b0 } : pcintreq ? pcintvec : dlintreq ? dlintvec : 1;
     wire[7:0] intvec5 = (ky_irqlev == 5) ? { ky_irqvec, 2'b0 } : rlintreq ? rlintvec : tmintreq ? tmintvec : dzintreq ? dzintvec : 1;
-    wire[7:0] intvec6 = (ky_irqlev == 6) ? { ky_irqvec, 2'b0 } : kwintreq ? kwintvec : 1;
+    wire[7:0] intvec6 = (ky_irqlev == 6) ? { ky_irqvec, 2'b0 } : kwintreq ? kwintvec : xeintreq ? xeintvec : 1;
     wire[7:0] intvec7 = (ky_irqlev == 7) ? { ky_irqvec, 2'b0 } : 1;
 
     wire irq4_bbsy_out_h, irq4_sack_out_h;
@@ -1099,6 +1131,7 @@ module Zynq (
                               rl_d_out_h      |
                             ~ sim_d_out_l     |
                               tm_d_out_h      |
+                              xe_d_out_h      |
 
                               { 8'b0, irq4_d70_out_h |
                                       irq5_d70_out_h |
@@ -1149,7 +1182,8 @@ module Zynq (
                               pc_ssyn_out_h   |
                               rl_ssyn_out_h   |
                             ~ sim_ssyn_out_l  |
-                              tm_ssyn_out_h;
+                              tm_ssyn_out_h   |
+                              xe_ssyn_out_h;
 
     always @(*) begin
         case (fpgamode)

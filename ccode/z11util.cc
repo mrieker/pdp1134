@@ -33,6 +33,7 @@
 #include "z11defs.h"
 #include "z11util.h"
 
+pthread_mutex_t Z11Page::dmamutex = PTHREAD_MUTEX_INITIALIZER;
 uint32_t Z11Page::mypid = getpid ();
 
 Z11Page::Z11Page ()
@@ -266,6 +267,8 @@ void Z11Page::dmalock ()
 {
     ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
 
+    if (pthread_mutex_lock (&dmamutex) != 0) ABORT ();
+
     // use ky11.v for dma transfers
     if (kyat == NULL) {
         kyat = findev ("KY", NULL, NULL, false, false);
@@ -292,6 +295,8 @@ void Z11Page::dmaunlk ()
     ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[5], mypid);
+
+    if (pthread_mutex_unlock (&dmamutex) != 0) ABORT ();
 }
 
 // wait for interrupt(s) given in mask
