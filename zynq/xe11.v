@@ -45,10 +45,10 @@ module xe11
     output reg[15:00] d_out_h,
     output reg ssyn_out_h);
 
-    reg enable;
+    reg enable, lastinit;
     reg[15:00] pcsr0, pcsr1, pcsr2, pcsr3;
 
-    assign armrdata = (armraddr == 0) ? 32'h58451001 : // [31:16] = 'XE'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h58451002 : // [31:16] = 'XE'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { pcsr1, pcsr0 } :
                       (armraddr == 2) ? { pcsr3, pcsr2 } :
                           { enable, 5'b0, INTVEC, ADDR };
@@ -84,6 +84,7 @@ module xe11
                 enable <= 0;
             end
 
+            lastinit <= 1;
             pcsr0[15:08] <= 0;
             pcsr0[06:00] <= 0;
             pcsr1 <= 0;
@@ -92,6 +93,12 @@ module xe11
 
             d_out_h    <= 0;
             ssyn_out_h <= 0;
+        end
+
+        // init just released, flag arm to reset itself
+        else if (lastinit) begin
+            lastinit <= 0;
+            pcsr0[05:04] <= 3;
         end
 
         // arm processor is writing one of the registers

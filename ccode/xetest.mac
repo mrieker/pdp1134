@@ -25,16 +25,21 @@
 ;   $ ./z11ctrl
 ;   > pin set fpgamode 1
 ;   > pin set bm_enablo 0xFFFF
+;   > pin set ky_enable 1
 ;   > hardreset
 ;   > loadlst xetest.lst
 ;       on another screen:  $ ./z11dl -cps 960
 ;   > flickstart 0400
-;   $ ./z11dump    to see it working
+;   > pin set ky_switches 0        ;# to show packet dumps
+;   > pin set ky_switches 0100000  ;# to skip packet dumps
+;       from host computer: $ ping 192.168.5.9
 
 	PCSR0 = 174510
 	PCSR1 = 174512
 	PCSR2 = 174514
 	PCSR3 = 174516
+
+	SWR = 177570
 
 	ZZ = .
 
@@ -128,8 +133,8 @@ start:
 	jsr	pc,prcrlf
 
 	; turn on promiscuous mode
-	mov	#propcb,r0
-	jsr	pc,dopcb
+	;;mov	#propcb,r0
+	;;jsr	pc,dopcb
 
 	; tell DEUNA where the ring descriptors are
 	mov	#rfmpcb,r0		; p82
@@ -142,6 +147,9 @@ start:
 loop:
 	; wait for a packet to be received
 	jsr	pc,rcvpkt
+
+	tst	@#SWR
+	bmi	800$
 
 	; print received buffer
 	mov	r5,-(sp)
@@ -167,6 +175,23 @@ loop:
 	mov	(sp)+,r4
 	mov	(sp)+,r5
 
+800$:
+	jsr	pc,doarp
+	jsr	pc,doping
+
+	br	loop
+
+; check for arp packet requesting asking for our mac address
+; send reply if so
+;  input:
+;   r4 = length of message received
+;   r5 = address of msg received
+;  output:
+;   reply possibly transmitted
+;  scratch:
+;   r0,r1,r2,r3
+doarp:
+
 	; tcpdump -e -n -v -xx 'ether proto \arp'
 
 	; b0:41:6f:0d:10:4b > ff:ff:ff:ff:ff:ff,
@@ -182,30 +207,22 @@ loop:
 	;     DC A6 32 64 46 10		ether dc:a6:32:64:46:10
 	;     C0 A8 05 01		inet 192.168.5.1
 
-	mov	#10,r1
 	cmp	r4,#74			; check for ARP who-has packet
-	blo	narprq
-	inc	r1
+	blo	900$
 	cmp	14(r5),#003010		; 0806 (ARP protocol)
-	bne	narprq
-	inc	r1
+	bne	900$
 	cmp	16(r5),#000400		; 0001 hardware type
-	bne	narprq
-	inc	r1
+	bne	900$
 	cmp	20(r5),#000010		; 0800 protocol type
-	bne	narprq
-	inc	r1
+	bne	900$
 	cmp	22(r5),#002006		; 0604 hdwlen(6)/protolen(4)
-	bne	narprq
-	inc	r1
+	bne	900$
 	cmp	24(r5),#000400		; 0001 request
-	bne	narprq
-	inc	r1
+	bne	900$
 	cmp	46(r5),myipad+0		; my ip address
-	bne	narprq
-	inc	r1
+	bne	900$
 	cmp	50(r5),myipad+2
-	bne	narprq
+	bne	900$
 
 	mov	#txbuf,r3		; fill in reply packet
 	mov	 6(r5),0(r3)		; - destination mac address = request source address
@@ -232,13 +249,83 @@ loop:
 
 	mov	#177510,@#PCSR0		; polling demand
 	jsr	pc,chekst		; wait for transmit to start
+900$:
+	rts	pc
 
-	mov	#77,r1
-narprq:
-	jsr	pc,prdcml
-	jsr	pc,prcrlf
+; check for ping packet for this host
+; send reply if so
+;  input:
+;   r4 = length of message received
+;   r5 = address of msg received
+;  output:
+;   reply possibly transmitted
+;  scratch:
+;   r0,r1,r2,r3
+doping:
 
-	jmp	loop
+	; 98:	42 23 DE AE 56 EA	dest mac address
+	;	DC A6 32 64 46 10	source mac address
+	;	08 00			ip protocol
+	;	45 00
+	;	00 54			total length
+	;	EC EE 40 00
+	;	40 01 C2 5F		ttl, protocol, header cksum
+	;	C0 A8 05 01		source ip address
+	;	C0 A8...		dest ip address
+
+	cmp	r4,#46			; check packet length
+	blo	900$
+	cmp	14(r5),#000010		; 0800 IP protocol
+	bne	900$
+	cmp	16(r5),#000105		; 4500 version=4; headerlen=5; dscp=0; ecn=0
+	bne	900$
+;;	cmp	20(r5),#		; 0054 total length
+;;	bne	900$
+;;	cmp	22(r5),#		; ECEE identification
+;;	bne	900$
+;;	cmp	24(r5),#		; 4000 flags, fragment offset
+;;	bne	900$
+;;	cmp	26(r5),#		; 4001 time to live, protocol
+;;	cmp	30(r5),#		; header checksum
+	cmp	36(r5),myipad+0		; destination ip address = my ip address
+	bne	900$
+	cmp	40(r5),myipad+2
+	bne	900$
+	cmpb	42(r5),#10		; icmp ping request
+	bne	900$
+
+	mov	r4,tdrb+0		; reply message length
+
+	mov	#txbuf,r3		; fill in reply packet
+
+	mov	r4,r0			; copy request packet to reply
+	asr	r0
+	adc	r0
+	mov	r5,r1
+	mov	r3,r2
+100$:
+	mov	(r1)+,(r2)+
+	sob	r0,100$
+
+	mov	 6(r5),0(r3)		; - reply destination mac address = request source address
+	mov	10(r5),2(r3)
+	mov	12(r5),4(r3)
+					; - deuna fills in reply source mac address
+
+	mov	36(r5),32(r3)		; - reply source ip address = request dest ip address
+	mov	40(r5),34(r3)
+	mov	32(r5),36(r3)		; - reply dest ip address = request source ip address
+	mov	34(r5),40(r3)
+
+	clrb	42(r3)			; set reply to ping reply (was ping request)
+	add	#10,44(r3)		; compensate checksum
+	adc	44(r3)
+
+	mov	#101400,tdrb+4		; OWN,STP,ENP flags passing buffer to DEUNA
+	mov	#177510,@#PCSR0		; polling demand
+	jsr	pc,chekst		; wait for transmit to start
+900$:
+	rts	pc
 
 ; wait for packet received
 rcvpkt:

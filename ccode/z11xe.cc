@@ -538,8 +538,9 @@ static void *receivethread (void *dummy)
                     // copy as much as we can to this descriptor's buffer
                     uint16_t amountfits = (numbytestogo < (rdrb[0] & 0xFFFEU)) ? numbytestogo : (rdrb[0] & 0xFFFEU);
                     uint32_t segb = (((uint32_t) rdrb[2] << 16) | rdrb[1]) & 0777776;
+                    z11p->dmalock ();
                     for (uint16_t i = 0; i + 2 <= amountfits; i += 2) {
-                        if (! z11p->dmawrite (segb, rcvbuf[index])) {
+                        if (! z11p->dmawritelocked (segb, rcvbuf[index])) {
                             word6 |= 0x4000U;
                             goto badbuf;
                         }
@@ -548,13 +549,14 @@ static void *receivethread (void *dummy)
                     }
                     if (amountfits & 1) {
                         ASSERT (amountfits == numbytestogo);
-                        if (! z11p->dmawbyte (segb, rcvbuf[index])) {
+                        if (! z11p->dmawbytelocked (segb, rcvbuf[index])) {
                             word6 |= 0x4000U;
                             goto badbuf;
                         }
                         segb ++;
                     }
                 badbuf:;
+                    z11p->dmaunlk ();
 
                     // see if that was last of message
                     uint16_t nextowner;
@@ -668,9 +670,13 @@ static void *transmithread (void *dummy)
 
             // transfer from unibus to xmtbuf
             uint32_t segb = ((uint32_t) tdrb[2] << 16) | tdrb[1];
+            z11p->dmalock ();
             while (tdrb[0] > 0) {
                 uint16_t word;
-                if (z11p->dmaread (segb & 0777776, &word) != 0) goto dmaerror;
+                if (z11p->dmareadlocked (segb & 0777776, &word) != 0) {
+                    z11p->dmaunlk ();
+                    goto dmaerror;
+                }
                 if (segb & 1) {
                     xmtbuf[index++] = word >> 8;
                     segb ++;
@@ -688,6 +694,7 @@ static void *transmithread (void *dummy)
                 segb += 2;
                 tdrb[0] -= 2;
             }
+            z11p->dmaunlk ();
 
             // if ENP (end of packet), transmit packet
             if (tdrb[2] & 0x100) {
