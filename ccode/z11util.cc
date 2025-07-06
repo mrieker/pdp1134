@@ -196,6 +196,7 @@ uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 
 uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
 {
+    ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
     uint32_t rc;
     for (int i = 0; ((rc = ZRD(kyat[3])) & KY3_DMASTATE) != 0; i ++) {
@@ -224,6 +225,7 @@ bool Z11Page::dmawbyte (uint32_t xba, uint8_t data)
 
 bool Z11Page::dmawbytelocked (uint32_t xba, uint8_t data)
 {
+    ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[4], KY4_DMADATA0 * 0401 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 3 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
@@ -251,6 +253,7 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 
 bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 {
+    ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[4], KY4_DMADATA0 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
