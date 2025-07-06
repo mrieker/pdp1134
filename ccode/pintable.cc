@@ -195,6 +195,8 @@ PinDef const pindefs[] = {
     { "tm_enable",       DEV_TM, 4,    TM4_ENAB,          0, true  },
     { "tm_fastio",       DEV_TM, 4,    TM4_FAST,          0, true  },
 
+    { "xe_enable",       DEV_XE, 3,    XE3_ENAB,          0, true  },
+
     { "", 0, 0, 0, 0, false }
 };
 
