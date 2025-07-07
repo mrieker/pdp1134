@@ -38,32 +38,26 @@ after 1000
 # reset RL01 disk images and load them on drives
 puts "reset rl images"
 set home [getenv HOME /tmp]
-exec -ignorestderr $home/rsx40/unzipall.sh
+exec -ignorestderr $home/rsx40/unzipall.sh > /dev/tty
 after 1000
 puts "load rl drives"
 rlload 0 $home/rsx40/rsxm32.rl01
 rlload 1 $home/rsx40/excprv.rl01
 after 1000
 
+# make sure devices enabled and we have some memory
+puts "enable devices"
+source boots.tcl
+probedevsandmem
+pin set kw_fiftyhz 0
+
 # turn on RL-11 fastio mode (skip usleeps)
 # turbo only works for sim (skip msyn/ssyn deskewing), ignored for real pdp
-puts "enable devices"
 pin set rl_fastio 1
 pin set turbo 1
 
-# make sure devices enabled and we have some memory
-pin set dl_enable 1
-pin set dz_enable 1 dz_addres 0760100 dz_intvec 0300
-pin set kw_enable 1 kw_fiftyhz 0
-pin set ky_enable 1
-pin set pc_enable 1
-pin set rl_enable 1
-pin set tm_enable 1
-enabmem
-
 # boot RL-11 drive
 puts "boot rl drive 0"
-source boots.tcl
 rlboot
 
 # process prompts
@@ -113,6 +107,31 @@ waitforstring "RSX-11M V4.0 BL32"
 replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
 replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
+waitforcrlf
+
+# phase iii
+# sysgen guide 6-1,7-1
+replytoprompt ">" "INS \$PIP"
+replytoprompt ">" "PIP \[*,*\]*.*/PU"
+replytoprompt ">" "SET /UIC=\[200,200\]"
+replytoprompt ">" "@SYSGEN3"
+
+replytoprompt "In what UIC is SGNPARM.CMD if not in \[200,200\] \[S\]: " ""
+replytoprompt "Are you building nonprivileged tasks? \[Y/N\]: " "Y"
+rlload 2 $home/rsx40/rlutil.rl01
+replytoprompt "Enter device for RLUTIL device when it is ready (ddu:) \[D: DL1:\] \[S\]: " "DL2:"
+replytoprompt "Enter map device (ddu:) \[D: NL:\] \[S\]: " ""
+replytoprompt "Enter task name(s) \[S\]: " "%"
+replytoprompt "Use \[1,1\]FCSRES.STB when building those tasks? \[Y/N\]: " "Y"
+replytoprompt "Pause to edit any task build .CMD or .ODL files? \[Y/N\]: " "N"
+replytoprompt "Delete task build .CMD and .ODL files after task building? \[Y/N\]: " "Y"
+waitforstring ">@ <EOF>"
+
+replytoprompt ">" "SET /UIC=\[1,54\]"
+replytoprompt ">" "PIP \[*,*\]*.*/PU"
+replytoprompt ">" "PIP ACF.BSL;1/DE"
+replytoprompt ">" "PIP DPDRV.*;1/DE"
+replytoprompt ">" "PIP FCPSML.TSK;1/DE"
 waitforcrlf
 
 puts ""

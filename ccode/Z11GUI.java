@@ -182,6 +182,9 @@ public class Z11GUI extends JPanel {
                 int sample_running = GUIZynqPage.running ();
 
                 // run light always says what is happening
+                if ((sample_running > 0) && ! runled.ison) {
+                    messagelabel.setText ("running...");
+                }
                 runled.setOn (sample_running > 0);
 
                 // light register lights also always reflect the fpga 777570 register

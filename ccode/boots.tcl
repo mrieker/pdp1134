@@ -20,9 +20,21 @@ proc probedevsandmem {} {
     if {[rdwordtimo 0777546] < 0} {
         pin set kw_enable 1
     }
+    pin set pc_enable 0             ;# same with pc controller
+    if {[rdwordtimo 0777550] < 0} {
+        pin set pc_enable 1
+    }
     pin set rl_enable 0             ;# same with rl controller
     if {[rdwordtimo 0774400] < 0} {
         pin set rl_enable 1
+    }
+    pin set tm_enable 0             ;# same with tm controller
+    if {[rdwordtimo 0772520] < 0} {
+        pin set tm_enable 1
+    }
+    pin set xe_enable 0             ;# same with xe controller
+    if {[rdwordtimo 0774510] < 0} {
+        pin set xe_enable 1
     }
     pin set bm_enablo 0 bm_enabhi 0 ;# same with main mem
     set mem 0                       ;# except probe page-by-page
@@ -51,15 +63,15 @@ proc enablerealdma {} {
     }
     switch $n {
         0 {
-            # no BBSY seen, KY-11 is not present, dma should just work
-            pin set ky_enable 1 ;# enable zynq 777570 registers
+            # no BBSY seen, real KY-11 is not present, rdword,wrword should just work
+            pin set ky_enable 1 ;# enable zynq ky11.v 777570 registers
         }
         5 {
             # BBSY stuck on, presumably by real KY-11, persuade it to release BBSY
             releasebbsy
         }
         default {
-            puts "boots.tcl: unable to determine presence of KY-11 console board"
+            puts "boots.tcl: unable to determine presence of real KY-11 console board"
             after 2000
             puts "boots.tcl: (BBSY line flickering), cannot boot"
             after 2000
@@ -68,26 +80,27 @@ proc enablerealdma {} {
             exit
         }
     }
-
 }
 
-# get processor running so real KY-11 will release BBSY
+# get processor running a wait loop so real KY-11 will release BBSY
 proc releasebbsy {} {
+
+    set bootrombase 0761000
 
     # put an infinite loop of WAIT/BR.-2 in zynq boot mem
     # bmrdword,bmwrword access zynq mem via backdoor not using unibus
-    bmwrword 0761000 0000000    ;# flagword
-    bmwrword 0761024 0161100    ;# power-up vector
-    bmwrword 0761026 0000340
-    bmwrword 0761100 0005237    ;# inc @#flagword
-    bmwrword 0761102 0161000
-    bmwrword 0761104 0000001    ;# wait
-    bmwrword 0761106 0000776    ;# br .-2
+    bmwrword [expr {$bootrombase+0000}] 0000000 ;# flagword
+    bmwrword [expr {$bootrombase+0024}] [expr {$bootrombase-0600000+0100}] ;# power-up vector
+    bmwrword [expr {$bootrombase+0026}] 0000340
+    bmwrword [expr {$bootrombase+0100}] 0005267 ;# inc flagword
+    bmwrword [expr {$bootrombase+0102}] 0176774
+    bmwrword [expr {$bootrombase+0104}] 0000001 ;# wait
+    bmwrword [expr {$bootrombase+0106}] 0000776 ;# br .-2
 
-    startbootmem                ;# start it up
+    startbootmem $bootrombase   ;# start it up
 
     # look for flagword set indicating processor started running our program
-    for {set i 0} {[bmrdword 0761000] != 1} {incr i} {
+    for {set i 0} {[bmrdword $bootrombase] != 1} {incr i} {
         if {$i > 1000} {
             puts "boots.tcl: failed to start processor"
             after 2000
@@ -102,23 +115,33 @@ proc releasebbsy {} {
 
     # processor is supposedly running WAIT/BR.-2 loop so we can do dma
     # regular rdword should be able to read the boot mem now
-    if {[rdword 0761024] != 0161100} {
-        error "enablerealdma: verify boot mem read failed"
+    if {[rdword [expr {$bootrombase+0102}]] != 0176774} {
+        error "releasebbsy: verify boot mem read failed"
     }
 
-    # disable zynq 777570 registers cuz real KY-11 has that address
+    # disable zynq ky11.v 777570 registers cuz real KY-11 has that address
     pin set ky_enable 0
 }
 
-# start program loaded into zynq boot memory at 761000
+# start program loaded into zynq boot memory bigmem.v at bootrombase
 # assumes program loaded into boot memory has power-up vector set up
-proc startbootmem {} {
-    pin set bm_brenab 2         ;# plug 761xxx boot mem into unibus
-    pin set bm_brjama 1         ;# set up 761000 to be jammed on unibus address lines
+#  input:
+#   bootrombase = where boot program was loaded in bigmem.v memory
+#                 0760000, 0761000, 0762000, ,..., 0777000
+proc startbootmem {bootrombase} {
+
+    if {($bootrombase < 0760000) || ($bootrombase > 0777000) || ($bootrombase & 0777)} {
+        error [format "startbootmem: bad bootrombase %06o" $bootrombase]
+    }
+    set brjama [expr {($bootrombase-0760000)>>9}]
+    set brenab [expr {1<<$brjama}]
+
+    pin set bm_brenab $brenab   ;# plug bootrombase boot mem into unibus
+    pin set bm_brjama $brjama   ;# set up bootrombase to be jammed on unibus address lines
     pin set man_ac_lo_out_h 1   ;# powerfail the processor
     after 5
     pin set man_dc_lo_out_h 1
-    pin set bm_brjame 1         ;# jam 761000 onto address lines
+    pin set bm_brjame 1         ;# jam bootrombase onto address lines
     pin set ky_haltreq 0        ;# make sure we aren't requesting it to halt when it starts back up
     after 200
     pin set man_dc_lo_out_h 0   ;# power-up processor
@@ -129,5 +152,12 @@ proc startbootmem {} {
 # boot RL disk 0
 proc rlboot {} {
     loadlst rlboot.lst bmwr
-    startbootmem
+    startbootmem 0761000
+}
+
+# boot TM tape 0
+proc tmboot {} {
+    loadlst tm11-boot.lst bmwr
+    bmwrword 0773024 0173004
+    startbootmem 0773000
 }

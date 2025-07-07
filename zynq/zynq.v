@@ -136,7 +136,6 @@ module Zynq (
     reg[31:00] regctla, regctlb, regctli, regctll;
     wire[31:00] regctlj;
     reg[23:06]  regctlk_2306;
-    wire[05:00] regctlk_0500;
 
     // fpga sends interrupt request to arm
     reg[30:00] regarmintena;    // arm enables each interrupt source separately
@@ -364,6 +363,7 @@ module Zynq (
     wire sim_hltgr_out_h;
     wire[15:00] sim_r0out;
     wire sim_waiting;
+    wire[5:0] sim_state;
 
     wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
 
@@ -374,7 +374,7 @@ module Zynq (
         .turbo (turbo),
         .pcout (regctlj[15:00]),
         .psout (regctlj[31:16]),
-        .stout (regctlk_0500),
+        .stout (sim_state),
         .r0out (sim_r0out),
         .waiting (sim_waiting),
 
@@ -536,7 +536,7 @@ module Zynq (
         (readaddr        == 10'b0000001000) ? regctlh      :
         (readaddr        == 10'b0000001001) ? regctli      :
         (readaddr        == 10'b0000001010) ? regctlj      :
-        (readaddr        == 10'b0000001011) ? { 8'b0, regctlk_2306, regctlk_0500 } :
+        (readaddr        == 10'b0000001011) ? { 8'b0, regctlk_2306, sim_state } :
         (readaddr        == 10'b0000001100) ? regctll      :
         (readaddr        == 10'b0000011010) ? { 1'b0, regarmintena } :                       // ZG_INTENABS in km
         (readaddr        == 10'b0000011011) ? { armintreq, regarmintreq_30, regarmintreq } : // ZG_INTFLAGS in km
@@ -1347,14 +1347,14 @@ module Zynq (
         lastmsyn <= dev_syn_msyn_h;
     end
 
-    wire ilatrigr = 0; // ((dev_a_h & 18'o777770) == 18'o760100) & dev_syn_msyn_h;
+    wire ilatrigr = (sim_state == 3) & (dev_a_h == 0); // & 18'o777770) == 18'o760100) & dev_syn_msyn_h;
     wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // 1;
 
     // detect 'TSTB @R5 ; BPL .-2' to edit out lineclock testing loop
     /***
     reg[2:0] looped1, nextlp1;
     always @(*) begin
-                 if ((dev_d_h == 16'o105715) & (regctlk_0500 == 3)) begin
+                 if ((dev_d_h == 16'o105715) & (sim_state == 3)) begin
             nextlp1[2]   = (looped1[1:0] == 3);
             nextlp1[1:0] = 1;
         end else if ((dev_d_h == 16'o000000) & (looped1[1:0] == 1)) begin
@@ -1373,7 +1373,7 @@ module Zynq (
     /***
     reg[2:0] looped2, nextlp2;
     always @(*) begin
-                 if ((dev_d_h == 16'o005304) & (regctlk_0500 == 3)) begin
+                 if ((dev_d_h == 16'o005304) & (sim_state == 3)) begin
             nextlp2[2]   = (looped2[1:0] == 2);
             nextlp2[1:0] = 1;
         end else if ((dev_d_h == 16'o001376) & (looped2[1:0] == 1)) begin
@@ -1388,7 +1388,7 @@ module Zynq (
     always @(*) begin
         ilacurwd = {
             10'b0,              //54
-            regctlk_0500,       //48 sim state
+            sim_state,          //48
             dev_a_h,            //30
             dev_bg_l,           //26
             dev_br_h,           //22
