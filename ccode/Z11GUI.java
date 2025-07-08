@@ -70,7 +70,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class Z11GUI extends JPanel {
 
-    public final static int UPDMS = 23;     // updisplay() typically takes 1mS
+    public final static int UPDMS = 73;
 
     public final static Dimension buttondim = new Dimension (116, 116);
     public final static ImageIcon buttonin  = new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("violetcirc116.png"));
@@ -153,6 +153,7 @@ public class Z11GUI extends JPanel {
 
     public static FModeCkBox fmckbox;
     public static MemCkBox   bmckbox;
+    public static DevCkBox   xeckbox;
     public static DevCkBox   dlckbox;
     public static DZCkBox    dzckbox;
     public static KWCkBox    kwckbox;
@@ -280,6 +281,7 @@ public class Z11GUI extends JPanel {
                 // update option selection checkboxes
                 fmckbox.update ();
                 bmckbox.update ();
+                xeckbox.update ();
                 dlckbox.update ();
                 dzckbox.update ();
                 kwckbox.update ();
@@ -652,6 +654,7 @@ public class Z11GUI extends JPanel {
             add (ckboxrow);
             ckboxrow.add (fmckbox = new FModeCkBox ("OFF   "));
             ckboxrow.add (bmckbox = new MemCkBox   ("Mem   "));
+            ckboxrow.add (xeckbox = new DevCkBox   ("DEUNA   ", "xe_enable"));
             ckboxrow.add (dlckbox = new DevCkBox   ("DL-11   ", "dl_enable"));
             ckboxrow.add (dzckbox = new DZCkBox    ("DZ-11   "));
             ckboxrow.add (kwckbox = new KWCkBox    ("KW-11   "));

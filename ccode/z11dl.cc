@@ -55,7 +55,7 @@ static bool nokb;
 static bool upcase;
 static bool volatile ctrlcflag;
 static struct termios term_original;
-static uint32_t cps = 10;
+static uint32_t cps = 960;
 static uint32_t volatile *dlat;
 
 static bool finddl (void *param, uint32_t volatile *dlat);
@@ -74,7 +74,7 @@ int main (int argc, char **argv)
             puts ("     Access DL-11 TTY controller");
             puts ("");
             puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-norsxdt] [-upcase]");
-            puts ("     -cps     : set chars per second, default 10");
+            puts ("     -cps     : set chars per second, default 960");
             puts ("     -killit  : kill other process that is processing this port");
             puts ("     -log     : log output to given file");
             puts ("     -nokb    : do not pass stdin keyboard to pdp");
