@@ -142,6 +142,13 @@ int shmms_stat (int ctlid, int drive, char *buff, int size, uint32_t *curpos_r)
         if (dr->rl01)        statbits |= MSSTAT_RL01;       // RL01 drive
         statbits |= dr->fnseq * (MSSTAT_FNSEQ & - MSSTAT_FNSEQ);
         *curpos_r = dr->curposn;                            // current position
+        if (dr->rewendsat != 0) {                           // see if tape rewinding
+            struct timespec nowts;
+            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
+            uint64_t nowns = (nowts.tv_sec * 1000000000ULL) + nowts.tv_nsec;
+            *curpos_r = (nowns > dr->rewendsat) ? 0 :       // make position proportional to how much time left
+                    (uint32_t) (*curpos_r * (double) (dr->rewendsat - nowns) / (dr->rewendsat - dr->rewbganat));
+        }
         if (size > 0) {
             char const *fn = dr->filename;                  // loaded filename
             strncpy (buff, fn, size);

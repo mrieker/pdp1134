@@ -43,10 +43,12 @@
 #define SHMMSCMD_UNLD  9    // unload drive
 #define SHMMSCMD_DONE 17    // done loading/unloading
 
-#define SHMMS_FNSIZE 500    // make sure it all fits on one page
+#define SHMMS_FNSIZE 480    // make sure it all fits on one page
 #define SHMMS_NDRIVES 8
 
 struct ShmMSDrive {
+    uint64_t rewbganat;     // rewind began at (0 if not rewinding)
+    uint64_t rewendsat;     // rewind ends at (0 if not rewinding)
     uint32_t curposn;       // current position
     bool readonly;          // write protected
     bool rl01;              // is an RL01

@@ -51,17 +51,18 @@ static bool unloads[8];
 static char fns[8][SHMMS_FNSIZE];
 static int debug;
 static int fds[8];
-static uint64_t rewdoneats[8];
 
 #define LOCKIT shmms_svr_mutexlock(shmms)
 #define UNLKIT shmms_svr_mutexunlk(shmms)
 
+static bool fastio;
 static int mypid;
 static ShmMS *shmms;
 static uint32_t volatile *tmat;
 static Z11Page *z11p;
 
 static void *tmiothread (void *dummy);
+static void startrewind (int drivesel);
 static void updatelowbits ();
 static void *timerthread (void *dsptr);
 static int setdrivetype (void *param, int drivesel);
@@ -120,17 +121,21 @@ static void *tmiothread (void *dummy)
         LOCKIT;
 
         // see if command from pdp waiting to be processed
-        uint32_t mtcmtsat = tmat[1];
+        uint32_t mtcmtsat = ZRD(tmat[1]);
 
         uint32_t drivesel = (mtcmtsat & 0x07000000) >> 24;
         ShmMSDrive *dr = &shmms->drives[drivesel];
 
         uint32_t mtcmts = mtcmtsat & 0x6F7E0000;
 
+        fastio = (ZRD(tmat[4]) & TM4_FAST) != 0;
+
         if (mtcmtsat & 0x10000000) {
 
             // power clear
-            memset (rewdoneats, 0, sizeof rewdoneats);
+            for (int i = 0; i < SHMMS_NDRIVES; i ++) {
+                if (fds[i] >= 0) startrewind (i);
+            }
             updatelowbits ();
             mtcmts |= 0x00800000;                   // controller ready
             ZWR(tmat[1], mtcmts);
@@ -140,14 +145,16 @@ static void *tmiothread (void *dummy)
             // go - update status at beginning of function, clearing errors and go bit
             ZWR(tmat[1], mtcmts);
 
-            // maybe wait for previously started rewind to complete
-            while (rewdoneats[drivesel] != 0) {
-                int doneat = (int) rewdoneats[drivesel];
+            // maybe wait for previously started rewind/unload to complete
+            while (dr->rewendsat != 0) {
+                int doneat = (int) dr->rewendsat;
                 UNLKIT;
-                int rc = futex ((int *)&rewdoneats[drivesel], FUTEX_WAIT, doneat, NULL, NULL, 0);
+                int rc = futex ((int *)&dr->rewendsat, FUTEX_WAIT, doneat, NULL, NULL, 0);
                 if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
                 LOCKIT;
             }
+
+            unloads[drivesel] = false;              // assume this is not an unload function
 
             uint16_t mtbrc = RFLD (2, TM2_MTBRC);
             uint32_t mtcma = RFLD (2, TM2_MTCMA) | ((mtcmts & 0x00300000) >> 4);
@@ -155,7 +162,6 @@ static void *tmiothread (void *dummy)
             if (debug > 0) fprintf (stderr, "z11tm: [%u] start MTC=%06o MTS=%06o MTBRC=%06o MTCMA=%06o\n",
                     drivesel, mtcmts >> 16, mtcmts & 0xFFFF, mtbrc, mtcma);
 
-            bool fastio = (tmat[4] & TM4_FAST) != 0;
             int fd = fds[drivesel];
 
             int rc = 0;
@@ -342,29 +348,8 @@ static void *tmiothread (void *dummy)
                     unloads[drivesel] = true;
                 // rewind
                 case 7: {
-
-                    if ((dr->curposn != 0) && ! fastio) {  // if already at beginning of tape, immediate completion
-
-                        // start a timer which will cause rewind in progress to set and tape unit ready to clear
-                        struct timespec nowts;
-                        if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
-                        uint64_t nowns = (nowts.tv_sec * 1000000000ULL) + nowts.tv_nsec;
-
-                        // rewind:  (150 inch / second) * (800 chars / inch) = 120,000 chars / second = 8.33uS / char
-                        uint64_t rewns = dr->curposn * 8333ULL;
-                        if (rewns > 5000000000ULL) rewns = 5000000000ULL;
-
-                        int oldsdaint = (int) rewdoneats[drivesel];
-                        rewdoneats[drivesel] = nowns + rewns;
-                        if ((int) rewdoneats[drivesel] == oldsdaint) rewdoneats[drivesel] ++;
-                        if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-                    } else {
-                        dr->curposn = 0;
-                        if (unloads[drivesel]) {
-                            dr->filename[0] = 0;
-                            unloadfile (NULL, drivesel);
-                        }
-                    }
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] rewind unload=%d curposn=%u fastio=%d\n", drivesel, unloads[drivesel], dr->curposn, fastio);
+                    startrewind (drivesel);
                     break;
                 }
 
@@ -415,6 +400,36 @@ static void *tmiothread (void *dummy)
     }
 }
 
+// start rewinding the given drive
+static void startrewind (int drivesel)
+{
+    ShmMSDrive *dr = &shmms->drives[drivesel];
+
+    if ((dr->curposn != 0) && ! fastio) {  // if already at beginning of tape, immediate completion
+
+        // start a timer which will cause rewind in progress to set and tape unit ready to clear
+        struct timespec nowts;
+        if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
+        uint64_t nowns = (nowts.tv_sec * 1000000000ULL) + nowts.tv_nsec;
+
+        // rewind:  (150 inch / second) * (800 chars / inch) = 120,000 chars / second = 8.33uS / char
+        uint64_t rewns = dr->curposn * 8333ULL;
+        if (rewns > 5000000000ULL) rewns = 5000000000ULL;
+
+        int oldsdaint = (int) dr->rewendsat;
+        dr->rewbganat = nowns;
+        dr->rewendsat = nowns + rewns;
+        if ((int) dr->rewendsat == oldsdaint) dr->rewendsat ++;
+        if (futex ((int *)&dr->rewendsat, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+    } else {
+        dr->curposn = 0;
+        if (unloads[drivesel]) {
+            dr->filename[0] = 0;
+            unloadfile (NULL, drivesel);
+        }
+    }
+}
+
 // update low status bits, ie, mts[06:00]
 // they are on a per-drive basis so there is an individual bit for each
 static void updatelowbits ()
@@ -425,22 +440,24 @@ static void updatelowbits ()
     uint32_t bots = 0;                      // figure out which drives are at beg of tape
     uint32_t sels = 0;                      // figure out which drives are selected
     for (int i = 0; i < 8; i ++) {
-        if (fds[i] >= 0)                    turs |= 1U << i;
-        if (rewdoneats[i] != 0)             rews |= 1U << i;
-        if (shmms->drives[i].readonly)      wrls |= 1U << i;
-        if (shmms->drives[i].curposn == 0) bots |= 1U << i;
-        if (fds[i] >= 0)                    sels |= 1U << i;
+        ShmMSDrive *dr = &shmms->drives[i];
+        if (fds[i] >= 0)        turs |= 1U << i;
+        if (dr->rewendsat != 0) rews |= 1U << i;
+        if (dr->readonly)       wrls |= 1U << i;
+        if (dr->curposn == 0)   bots |= 1U << i;
+        if (fds[i] >= 0)        sels |= 1U << i;
     }
     turs &= ~ rews;
     ZWR(tmat[5], bots * TM5_BOTS0 | wrls * TM5_WRLS0 | rews * TM5_REWS0 | turs * TM5_TURS0);
     ZWR(tmat[6], sels * TM6_SELS0);
 }
 
-// wait for changes in rewdoneats[drivesel]
+// wait for changes in dr->rewendsat
 // when time is up, clear rewind in progress and set tape unit ready
 static void *timerthread (void *dsptr)
 {
     uint32_t drivesel = (long)dsptr;
+    ShmMSDrive *dr = &shmms->drives[drivesel];
 
     while (true) {
 
@@ -448,7 +465,7 @@ static void *timerthread (void *dsptr)
         LOCKIT;
         struct timespec *tsptr = NULL;
         struct timespec timeout;
-        uint64_t doneat = rewdoneats[drivesel];
+        uint64_t doneat = dr->rewendsat;
         if ((fds[drivesel] >= 0) && (doneat != 0)) {
             struct timespec nowts;
             if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
@@ -466,20 +483,20 @@ static void *timerthread (void *dsptr)
             // rewind complete, mark drive rewound and ready
             // then leave tsptr NULL to wait indefinitely for next rewind to begin
             else {
-                shmms->drives[drivesel].curposn = 0;
-                rewdoneats[drivesel] = doneat = 0;
+                dr->curposn = 0;
+                dr->rewbganat = dr->rewendsat = doneat = 0;
                 if (unloads[drivesel]) {
-                    shmms->drives[drivesel].filename[0] = 0;
+                    dr->filename[0] = 0;
                     unloadfile (NULL, drivesel);
                 }
-                if (futex ((int *)&rewdoneats[drivesel], FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+                if (futex ((int *)&dr->rewendsat, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                 updatelowbits ();
             }
         }
 
         // wait for current rewind complete or for another rewind to be started
         UNLKIT;
-        int rc = futex ((int *)&rewdoneats[drivesel], FUTEX_WAIT, (int)doneat, tsptr, NULL, 0);
+        int rc = futex ((int *)&dr->rewendsat, FUTEX_WAIT, (int)doneat, tsptr, NULL, 0);
         if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR) && (errno != ETIMEDOUT)) ABORT ();
     }
 }

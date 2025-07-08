@@ -317,17 +317,24 @@ static int cmd_msload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
         char const *stri = Tcl_GetString (objv[1]);
         if (strcasecmp (stri, "help") == 0) {
             puts ("");
-            printf ("  %sload [-readonly] <drive> <filename>\n", mscdat->lcid);
+            printf ("  %sload [-create | -readonly] <drive> <filename>\n", mscdat->lcid);
             puts ("");
             return TCL_OK;
         }
     }
+    bool create = false;
     bool readonly = false;
     char const *filename = NULL;
     int drive = -1;
     for (int i = 0; ++ i < objc;) {
         char const *stri = Tcl_GetString (objv[i]);
+        if (strcasecmp (stri, "-create") == 0) {
+            create = true;
+            readonly = false;
+            continue;
+        }
         if (strcasecmp (stri, "-readonly") == 0) {
+            create = false;
             readonly = true;
             continue;
         }
@@ -353,6 +360,14 @@ static int cmd_msload (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
     if (filename == NULL) {
         Tcl_SetResultF (interp, "missing drive and/or filename");
         return TCL_ERROR;
+    }
+    if (create) {
+        int fd = open (filename, O_CREAT | O_WRONLY, 0666);
+        if (fd < 0) {
+            Tcl_SetResultF (interp, "%m");
+            return TCL_ERROR;
+        }
+        close (fd);
     }
     int rc = shmms_load (mscdat->ctlid, drive, readonly, filename);
     if (rc < 0) {
