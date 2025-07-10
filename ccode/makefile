@@ -26,6 +26,7 @@ lib.$(MACH).a: \
 		readprompt.$(MACH).o \
 		shmms.$(MACH).o \
 		strprintf.$(MACH).o \
+		tapelib.$(MACH).o \
 		tclmain.$(MACH).o \
 		z11util.$(MACH).o
 	rm -f lib.$(MACH).a

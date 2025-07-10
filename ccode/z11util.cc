@@ -33,6 +33,8 @@
 #include "z11defs.h"
 #include "z11util.h"
 
+Z11Page *z11page;
+
 pthread_mutex_t Z11Page::dmamutex = PTHREAD_MUTEX_INITIALIZER;
 uint32_t Z11Page::mypid = getpid ();
 
@@ -73,12 +75,16 @@ Z11Page::Z11Page ()
     zynqpage = (uint32_t volatile *) zynqptr;
 
 #endif
+
+    ASSERT (z11page == NULL);
+    z11page = this;
 }
 
 Z11Page::~Z11Page ()
 {
     if (zynqptr != NULL) munmap (zynqptr, 4096);
     close (zynqfd);
+    z11page = NULL;
     zynqpage = NULL;
     zynqptr = NULL;
     zynqfd = -1;

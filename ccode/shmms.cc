@@ -38,7 +38,6 @@ static ShmMS *shmrl = NULL;
 static ShmMS *shmtm = NULL;
 static uint32_t volatile *rlat;
 static uint32_t volatile *tmat;
-static Z11Page *z11page;
 
 static ShmMS *getshmms (int ctlid);
 static int msunload (ShmMS *shmms, int drive);

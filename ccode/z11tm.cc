@@ -24,119 +24,91 @@
 
 //  ./z11tm [-reset]
 
-#include <errno.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <signal.h>
-#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/time.h>
-#include <tcl.h>
-#include <unistd.h>
 
-#include "futex.h"
 #include "shmms.h"
+#include "tapelib.h"
 #include "z11defs.h"
 #include "z11util.h"
 
-#define TAPELEN 20000000                        // number bytes in reel of tape
+#define TAPELEN 20000000
+
+struct MSTapeCtrlr : TapeCtrlr {
+    int debug;
+    uint32_t volatile *tmat;
+
+    MSTapeCtrlr (ShmMS *shmms);
+    virtual void iothread ();
+    virtual void updstbits ();
+};
 
 #define RFLD(n,m) ((ZRD(tmat[n]) & m) / (m & - m))
 
-static bool unloads[8];
-static char fns[8][SHMMS_FNSIZE];
-static int debug;
-static int fds[8];
-
-#define LOCKIT shmms_svr_mutexlock(shmms)
-#define UNLKIT shmms_svr_mutexunlk(shmms)
-
-static bool fastio;
-static int mypid;
-static ShmMS *shmms;
-static uint32_t volatile *tmat;
-static Z11Page *z11p;
-
-static void *tmiothread (void *dummy);
-static void startrewind (int drivesel);
-static void updatelowbits ();
-static void *timerthread (void *dsptr);
-static int setdrivetype (void *param, int drivesel);
-static int fileloaded (void *param, int drivesel, int fd);
-static void unloadfile (void *param, int drivesel);
-
 int main (int argc, char **argv)
 {
-    memset (fds, -1, sizeof fds);
-    mypid = getpid ();
-
     bool resetit = (argc > 1) && (strcasecmp (argv[1], "-reset") == 0);
 
     // access fpga register set for the TM-11 controller
     // lock it so we are only process accessing it
-    z11p = new Z11Page ();
-    tmat = z11p->findev ("TM", NULL, NULL, true, false);
+    z11page = new Z11Page ();
+    uint32_t volatile *tmat = z11page->findev ("TM", NULL, NULL, true, false);
 
     // open shared memory, create if not there
-    shmms = shmms_svr_initialize (resetit, SHMMS_NAME_TM, "z11tm");
-    UNLKIT;
+    ShmMS *shmms = shmms_svr_initialize (resetit, SHMMS_NAME_TM, "z11tm");
+    shmms_svr_mutexunlk (shmms);
 
-    // enable board to process io instructions
+    // enable tm11.v to process io instructions from pdp
     ZWR(tmat[4], (tmat[4] & TM4_FAST) | TM4_ENAB);
 
-    debug = 0;
     char const *dbgenv = getenv ("z11tm_debug");
-    if (dbgenv != NULL) debug = atoi (dbgenv);
 
-    pthread_t tmtid;
-    int rc = pthread_create (&tmtid, NULL, tmiothread, NULL);
-    if (rc != 0) ABORT ();
-    for (int i = 0; i < 8; i ++) {
-        rc = pthread_create (&tmtid, NULL, timerthread, (void *)(long)i);
-        if (rc != 0) ABORT ();
-    }
+    // initialize tape library
+    MSTapeCtrlr *tapectrlr = new MSTapeCtrlr (shmms);
+    tapectrlr->debug = (dbgenv == NULL) ? 0 : atoi (dbgenv);
+    tapectrlr->tmat  = tmat;
 
-    shmms_svr_proccmds (shmms, "z11tm", setdrivetype, fileloaded, unloadfile, NULL);
+    fprintf (stderr, "z11tm*: debug=%d\n", tapectrlr->debug);
+
+    // process commands from shared memory (load, unload)
+    tapectrlr->proccmds ();
 
     return 0;
 }
 
+MSTapeCtrlr::MSTapeCtrlr (ShmMS *shmms)
+    : TapeCtrlr (shmms, "z11tm")
+{ }
+
 // do the tape file I/O
-static void *tmiothread (void *dummy)
+void MSTapeCtrlr::iothread ()
 {
-    static uint8_t buf[65536];
-
-    if (debug > 1) fprintf (stderr, "z11tm: thread started\n");
-
     while (true) {
 
         // wait for pdp set go mtc[00] or power clear mtc[12]
-        z11p->waitint (ZGINT_TM);
+        if (debug > 2) fprintf (stderr, "z11tm: waiting\n");
+        z11page->waitint (ZGINT_TM);
+        if (debug > 2) fprintf (stderr, "z11tm: woken\n");
 
         // block tape from being unloaded from under us
-        LOCKIT;
+        this->lockit ();
+        if (debug > 2) fprintf (stderr, "z11tm: locked\n");
 
         // see if command from pdp waiting to be processed
         uint32_t mtcmtsat = ZRD(tmat[1]);
 
-        uint32_t drivesel = (mtcmtsat & 0x07000000) >> 24;
-        ShmMSDrive *dr = &shmms->drives[drivesel];
-
         uint32_t mtcmts = mtcmtsat & 0x6F7E0000;
 
-        fastio = (ZRD(tmat[4]) & TM4_FAST) != 0;
+        this->fastio = (ZRD(tmat[4]) & TM4_FAST) != 0;
 
         if (mtcmtsat & 0x10000000) {
+            if (debug > 0) fprintf (stderr, "z11tm: power clear\n");
 
             // power clear
-            for (int i = 0; i < SHMMS_NDRIVES; i ++) {
-                if (fds[i] >= 0) startrewind (i);
-            }
-            updatelowbits ();
+            this->resetall ();                      // reset tape drives
+
             mtcmts |= 0x00800000;                   // controller ready
             ZWR(tmat[1], mtcmts);
 
@@ -145,16 +117,13 @@ static void *tmiothread (void *dummy)
             // go - update status at beginning of function, clearing errors and go bit
             ZWR(tmat[1], mtcmts);
 
-            // maybe wait for previously started rewind/unload to complete
-            while (dr->rewendsat != 0) {
-                int doneat = (int) dr->rewendsat;
-                UNLKIT;
-                int rc = futex ((int *)&dr->rewendsat, FUTEX_WAIT, doneat, NULL, NULL, 0);
-                if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
-                LOCKIT;
-            }
+            uint32_t drivesel = (mtcmtsat & 0x07000000) >> 24;
+            TapeDrive *td = &this->drives[drivesel];
+            ShmMSDrive *dr = td->dr;
 
-            unloads[drivesel] = false;              // assume this is not an unload function
+            // maybe wait for previously started rewind/unload to complete
+            if (debug > 2) fprintf (stderr, "z11tm: [%u] wait rewind\n", drivesel);
+            td->waitrewind ();
 
             uint16_t mtbrc = RFLD (2, TM2_MTBRC);
             uint32_t mtcma = RFLD (2, TM2_MTCMA) | ((mtcmts & 0x00300000) >> 4);
@@ -162,65 +131,21 @@ static void *tmiothread (void *dummy)
             if (debug > 0) fprintf (stderr, "z11tm: [%u] start MTC=%06o MTS=%06o MTBRC=%06o MTCMA=%06o\n",
                     drivesel, mtcmts >> 16, mtcmts & 0xFFFF, mtbrc, mtcma);
 
-            int fd = fds[drivesel];
-
-            int rc = 0;
-            uint32_t nbytes = 0;
             uint32_t func = (mtcmts >> 17) & 7;
             switch (func) {
 
                 // read
                 case 1: {
-
-                    // read record length before data
-                    uint32_t reclen  = 0;
-                    uint32_t reclen2 = 0;
-                    rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
-                    if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
-                    if (debug > 1) fprintf (stderr, "z11tm: [%u] read %5u bytes at %10u => %10u\n", drivesel, reclen, dr->curposn,
-                        (reclen == 0) ? (dr->curposn + 4) : ((dr->curposn + 8 + reclen + 1) & -2));
-                    dr->curposn += sizeof reclen;
-
-                    // if zero, hit a tape mark
-                    if (reclen == 0) {
-                        mtcmts |= 0x4000;
-                    } else {
-
-                        // read data
-                        nbytes = (reclen > sizeof buf) ? sizeof buf : reclen;
-                        rc = pread (fd, buf, nbytes, dr->curposn);
-                        if (rc != (int) nbytes) goto readerror;
-                        dr->curposn += (reclen + 1) & -2;
-
-                        // read record length after data, should match length before data
-                        rc = pread (fd, &reclen2, sizeof reclen2, dr->curposn);
-                        if (rc != (int) sizeof reclen2) { nbytes = sizeof reclen2; goto readerror; }
-                        if (reclen2 != reclen) {
-                            fprintf (stderr, "z11tm: [%u] reclen %u, reclen2 %u at %u\n", drivesel, reclen, reclen2, dr->curposn);
-                            goto readerror2;
-                        }
-                        dr->curposn += sizeof reclen2;
-
-                        // write data to dma buffer
-                        uint32_t i = 0;
-                        do {
-                            if ((mtbrc <= 0xFFFEU) && ! (mtcma & 1)) {
-                                uint16_t word = buf[i] | ((uint16_t) buf[i+1] << 8);
-                                if (! z11p->dmawrite (mtcma, word)) goto dmaerror;
-                                mtbrc += 2;
-                                mtcma += 2;
-                                i += 2;
-                            } else {
-                                if (! z11p->dmawbyte (mtcma, buf[i])) goto dmaerror;
-                                mtbrc ++;
-                                mtcma ++;
-                                i ++;
-                            }
-                            mtcma &= 0777777;
-                        } while ((i < nbytes) && (mtbrc != 0));
-
-                        // record length error if record longer than dma buffer
-                        if (i < reclen) mtcmts |= 0x200;
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] read bc=%u pos=%u\n", drivesel, 65536 - mtbrc, dr->curposn);
+                    int32_t rc = td->readfwd (mtbrc, mtcma);
+                    switch (rc) {
+                        case -1:
+                        case -2: goto crcerror;
+                        case -3: goto nxmerror;
+                        case  0: { mtcmts |= 0x4000; break; }   // tape mark
+                        case  1: { break; }                     // normal read
+                        case  2: { mtcmts |= 0x2000; break; }   // record too long
+                        default: ABORT ();
                     }
                     break;
                 }
@@ -229,127 +154,91 @@ static void *tmiothread (void *dummy)
                 case 2:
                 // write with extended interrecord gap
                 case 6: {
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] write bc=%u pos=%u\n", drivesel, 65536 - mtbrc, dr->curposn);
                     if (dr->readonly) {
                         mtcmts |= 0x8000;   // illegal command
                     } else {
-
-                        // read data from dma buffer
-                        uint32_t reclen = 65536 - mtbrc;
-                        ASSERT (reclen <= sizeof buf);
-                        uint32_t i = 0;
-                        do {
-                            uint16_t word;
-                            if (z11p->dmaread (mtcma & 0777776, &word) != 0) goto dmaerror;
-                            if ((mtbrc <= 0xFFFEU) && ! (mtcma & 1)) {
-                                buf[i++] = word;
-                                buf[i++] = word >> 8;
-                                mtbrc += 2;
-                                mtcma += 2;
-                            } else {
-                                buf[i++] = (mtcma & 1) ? (word >> 8) : word;
-                                mtbrc ++;
-                                mtcma ++;
+                        int rc = td->wrdata (mtbrc, mtcma);
+                        if (rc < 0) {
+                            switch (rc) {
+                                case -3: goto nxmerror;
+                                case -4: goto crcerror;
+                                default: ABORT ();
                             }
-                            mtcma &= 0777777;
-                        } while (mtbrc != 0);
-
-                        // write record length before data
-                        rc = pwrite (fd, &reclen, sizeof reclen, dr->curposn);
-                        if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto writerror; }
-                        dr->curposn += sizeof reclen;
-
-                        // write data
-                        rc = pwrite (fd, buf, reclen, dr->curposn);
-                        if (rc != (int) reclen) { nbytes = reclen; goto writerror; }
-                        dr->curposn += (reclen + 1) & -2;
-
-                        // write record length after data
-                        rc = pwrite (fd, &reclen, sizeof reclen, dr->curposn);
-                        if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto writerror; }
-                        dr->curposn += sizeof reclen;
+                        }
                     }
                     break;
                 }
 
                 // write tape mark
                 case 3: {
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] write mark pos=%u\n", drivesel, dr->curposn);
                     if (dr->readonly) {
                         mtcmts |= 0x8000;   // illegal command
                     } else {
-
-                        // write a zero length for a tape mark
-                        uint32_t mark = 0;
-                        rc = pwrite (fd, &mark, sizeof mark, dr->curposn);
-                        if (rc != (int) sizeof mark) { nbytes = sizeof mark; goto writerror; }
-                        dr->curposn += sizeof mark;
+                        int rc = td->wrmark ();
+                        if (rc < 0) {
+                            switch (rc) {
+                                case -3: goto nxmerror;
+                                case -4: goto crcerror;
+                                default: ABORT ();
+                            }
+                        }
                     }
                     break;
                 }
 
                 // space forward
                 case 4: {
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] space fwd beg rc=%u pos=%u\n", drivesel, 65536 - mtbrc, dr->curposn);
                     do {
-
-                        // get record length being skipped
-                        uint32_t reclen;
-                        rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
-                        if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
-                        if (debug > 1) fprintf (stderr, "z11tm: [%u] skfw %5u bytes at %10u => %10u\n", drivesel, reclen, dr->curposn,
-                            (reclen == 0) ? (dr->curposn + 4) : ((dr->curposn + 8 + reclen + 1) & -2));
-                        dr->curposn += sizeof reclen;
-
-                        // one more record skipped (including mark)
-                        mtbrc ++;
-
-                        // check for tape mark
-                        if (reclen == 0) {
-                            mtcmts |= 0x4000;
-                            break;
+                        int rc = td->skipfwd ();
+                        if (debug > 1) fprintf (stderr, "z11tm: [%u] space fwd end rc=%d pos=%u\n", drivesel, rc, dr->curposn);
+                        switch (rc) {
+                            case -1: goto crcerror;     // read error
+                            case  0: break;             // record skipped
+                            case  1: {
+                                mtcmts |= 0x4000;       // tape mark
+                                mtbrc ++;               // count includes tape mark
+                                goto done;
+                            }
+                            default: ABORT ();
                         }
-
-                        // increment over the data and length after data
-                        dr->curposn += ((reclen + 1) & -2) + sizeof reclen;
+                        mtbrc ++;
+                        ZWR(tmat[2], ((uint32_t) mtcma << 16) | mtbrc);
                     } while (mtbrc != 0);
                     break;
                 }
 
                 // space reverse
                 case 5: {
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] space rev beg rc=%u pos=%u\n", drivesel, 65536 - mtbrc, dr->curposn);
                     do {
-
-                        // check for beginning of tape
-                        if (dr->curposn == 0) break;
-
-                        // read record length in reverse
-                        uint32_t reclen;
-                        dr->curposn -= sizeof reclen;
-                        rc = pread (fd, &reclen, sizeof reclen, dr->curposn);
-                        if (rc != (int) sizeof reclen) { nbytes = sizeof reclen; goto readerror; }
-                        if (debug > 1) fprintf (stderr, "z11tm: [%u] skrv %5u bytes at %10u => %10u\n", drivesel, reclen, dr->curposn + 4,
-                            (reclen == 0) ? (dr->curposn + 4) : (dr->curposn - 4 + ((reclen + 1) & -2)));
-
-                        // one more record skipped (including mark)
-                        mtbrc ++;
-
-                        // check for tape mark
-                        if (reclen == 0) {
-                            mtcmts |= 0x4000;
-                            break;
+                        int rc = td->skiprev ();
+                        if (debug > 1) fprintf (stderr, "z11tm: [%u] space rev end rc=%d pos=%u\n", drivesel, rc, dr->curposn);
+                        switch (rc) {
+                            case -1: goto crcerror;     // read error
+                            case  0: break;             // record skipped
+                            case  1: {
+                                mtcmts |= 0x4000;       // tape mark
+                                mtbrc ++;               // count includes tape mark
+                                goto done;
+                            }
+                            case  2: goto done;         // beginning of tape
+                            default: ABORT ();
                         }
-
-                        // decrement over the data and length before data
-                        dr->curposn -= ((reclen + 1) & -2) + sizeof reclen;
+                        mtbrc ++;
+                        ZWR(tmat[2], ((uint32_t) mtcma << 16) | mtbrc);
                     } while (mtbrc != 0);
                     break;
                 }
 
                 // unload
                 case 0:
-                    unloads[drivesel] = true;
                 // rewind
                 case 7: {
-                    if (debug > 1) fprintf (stderr, "z11tm: [%u] rewind unload=%d curposn=%u fastio=%d\n", drivesel, unloads[drivesel], dr->curposn, fastio);
-                    startrewind (drivesel);
+                    if (debug > 1) fprintf (stderr, "z11tm: [%u] rewind unld=%d pos=%u\n", drivesel, func == 0, dr->curposn);
+                    td->startrewind (func == 0);
                     break;
                 }
 
@@ -357,33 +246,17 @@ static void *tmiothread (void *dummy)
             }
             goto done;
 
-        readerror:
-            if (rc < 0) {
-                fprintf (stderr, "z11tm: [%u] error reading tape at %u: %m\n", drivesel, dr->curposn);
-            } else {
-                fprintf (stderr, "z11tm: [%u] only read %d of %u bytes at %u\n", drivesel, rc, nbytes, dr->curposn);
-            }
-        readerror2:
-            mtcmts |= 0x2000;   // crc error
+        crcerror:;
+            mtcmts |= 0x2000;               // crc error
             goto done;
 
-        writerror:
-            if (rc < 0) {
-                fprintf (stderr, "z11tm: [%u] error writing tape at %u: %m\n", drivesel, dr->curposn);
-            } else {
-                fprintf (stderr, "z11tm: [%u] only wrote %d of %u bytes at %u\n", drivesel, rc, nbytes, dr->curposn);
-            }
-            mtcmts |= 0x2000;   // crc error
-            goto done;
-
-        dmaerror:
-            fprintf (stderr, "z11tm: [%u] dma error at %06o\n", drivesel, mtcma);
-            mtcmts |= 0x80;     // non-existent memory
+        nxmerror:;
+            mtcmts |= 0x80;                 // non-existent memory
 
         done:;
-            updatelowbits ();       // update low status bits [06:00]
+            this->updstbits ();             // update low status bits [06:00]
 
-            mtcmts &= ~02000;       // update end-of-tape
+            mtcmts &= ~02000;               // update end-of-tape
             if (dr->curposn > TAPELEN) mtcmts |= 02000;
 
             mtcmts = (mtcmts & ~ 0x300000) | 0x800000 | ((mtcma << 4) & 0x300000);
@@ -396,43 +269,13 @@ static void *tmiothread (void *dummy)
             ZWR(tmat[1], mtcmts);
         }
 
-        UNLKIT;
-    }
-}
-
-// start rewinding the given drive
-static void startrewind (int drivesel)
-{
-    ShmMSDrive *dr = &shmms->drives[drivesel];
-
-    if ((dr->curposn != 0) && ! fastio) {  // if already at beginning of tape, immediate completion
-
-        // start a timer which will cause rewind in progress to set and tape unit ready to clear
-        struct timespec nowts;
-        if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
-        uint64_t nowns = (nowts.tv_sec * 1000000000ULL) + nowts.tv_nsec;
-
-        // rewind:  (150 inch / second) * (800 chars / inch) = 120,000 chars / second = 8.33uS / char
-        uint64_t rewns = dr->curposn * 8333ULL;
-        if (rewns > 5000000000ULL) rewns = 5000000000ULL;
-
-        int oldsdaint = (int) dr->rewendsat;
-        dr->rewbganat = nowns;
-        dr->rewendsat = nowns + rewns;
-        if ((int) dr->rewendsat == oldsdaint) dr->rewendsat ++;
-        if (futex ((int *)&dr->rewendsat, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-    } else {
-        dr->curposn = 0;
-        if (unloads[drivesel]) {
-            dr->filename[0] = 0;
-            unloadfile (NULL, drivesel);
-        }
+        this->unlkit ();
     }
 }
 
 // update low status bits, ie, mts[06:00]
 // they are on a per-drive basis so there is an individual bit for each
-static void updatelowbits ()
+void MSTapeCtrlr::updstbits ()
 {
     uint32_t turs = 0;                      // figure out which drives are ready
     uint32_t rews = 0;                      // figure out which drives are rewinding
@@ -440,99 +283,15 @@ static void updatelowbits ()
     uint32_t bots = 0;                      // figure out which drives are at beg of tape
     uint32_t sels = 0;                      // figure out which drives are selected
     for (int i = 0; i < 8; i ++) {
-        ShmMSDrive *dr = &shmms->drives[i];
-        if (fds[i] >= 0)        turs |= 1U << i;
+        TapeDrive *td = &this->drives[i];
+        ShmMSDrive *dr = td->dr;
+        if (td->fd >= 0)        turs |= 1U << i;
         if (dr->rewendsat != 0) rews |= 1U << i;
         if (dr->readonly)       wrls |= 1U << i;
         if (dr->curposn == 0)   bots |= 1U << i;
-        if (fds[i] >= 0)        sels |= 1U << i;
+        if (td->fd >= 0)        sels |= 1U << i;
     }
     turs &= ~ rews;
     ZWR(tmat[5], bots * TM5_BOTS0 | wrls * TM5_WRLS0 | rews * TM5_REWS0 | turs * TM5_TURS0);
     ZWR(tmat[6], sels * TM6_SELS0);
-}
-
-// wait for changes in dr->rewendsat
-// when time is up, clear rewind in progress and set tape unit ready
-static void *timerthread (void *dsptr)
-{
-    uint32_t drivesel = (long)dsptr;
-    ShmMSDrive *dr = &shmms->drives[drivesel];
-
-    while (true) {
-
-        // see if file open and rewind in progress
-        LOCKIT;
-        struct timespec *tsptr = NULL;
-        struct timespec timeout;
-        uint64_t doneat = dr->rewendsat;
-        if ((fds[drivesel] >= 0) && (doneat != 0)) {
-            struct timespec nowts;
-            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
-            uint64_t nowns = (nowts.tv_sec * 1000000000ULL) + nowts.tv_nsec;
-
-            // see if still waiting for rewind to complete
-            // if so, set up timeout for remaining delta
-            if (doneat > nowns) {
-                memset (&timeout, 0, sizeof timeout);
-                timeout.tv_sec  = (doneat - nowns) / 1000000000;
-                timeout.tv_nsec = (doneat - nowns) % 1000000000;
-                tsptr = &timeout;
-            }
-
-            // rewind complete, mark drive rewound and ready
-            // then leave tsptr NULL to wait indefinitely for next rewind to begin
-            else {
-                dr->curposn = 0;
-                dr->rewbganat = dr->rewendsat = doneat = 0;
-                if (unloads[drivesel]) {
-                    dr->filename[0] = 0;
-                    unloadfile (NULL, drivesel);
-                }
-                if (futex ((int *)&dr->rewendsat, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-                updatelowbits ();
-            }
-        }
-
-        // wait for current rewind complete or for another rewind to be started
-        UNLKIT;
-        int rc = futex ((int *)&dr->rewendsat, FUTEX_WAIT, (int)doneat, tsptr, NULL, 0);
-        if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR) && (errno != ETIMEDOUT)) ABORT ();
-    }
-}
-
-// check that file about to be loaded is ok
-static int setdrivetype (void *param, int drivesel)
-{
-    ShmMSDrive *dr = &shmms->drives[drivesel];
-    char const *filenm = dr->filename;
-    int fnlen = strlen (filenm);
-    if ((fnlen < 5) || (strcasecmp (filenm + fnlen - 4, ".tap") != 0)) {
-        fprintf (stderr, "z11tm: [%u] error decoding %s: name does not end with .tap\n", drivesel, filenm);
-        return -EBADF;
-    }
-    return 0;
-}
-
-// file successfully loaded, save fd and mark drive online
-static int fileloaded (void *param, int drivesel, int fd)
-{
-    ShmMSDrive *dr = &shmms->drives[drivesel];
-    char const *filenm = dr->filename;
-    fds[drivesel] = fd;
-    if (strcmp (fns[drivesel], filenm) != 0) {
-        strcpy (fns[drivesel], filenm);
-        dr->curposn = 0;
-    }
-    updatelowbits ();
-    return fd;
-}
-
-// close file loaded on a tape drive
-static void unloadfile (void *param, int drivesel)
-{
-    fns[drivesel][0] = 0;
-    close (fds[drivesel]);
-    fds[drivesel] = -1;
-    updatelowbits ();
 }

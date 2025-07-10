@@ -200,8 +200,6 @@ PinDef const pindefs[] = {
     { "", 0, 0, 0, 0, false }
 };
 
-Z11Page *z11page;
-
 // point to section header word for the given device
 //  input:
 //   dev = dev member from PinDef

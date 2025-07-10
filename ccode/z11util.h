@@ -82,6 +82,8 @@ private:
     static uint32_t mypid;
 };
 
+extern Z11Page *z11page;
+
 uint32_t randbits (int nbits);
 
 #endif
