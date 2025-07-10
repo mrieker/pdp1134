@@ -45,11 +45,11 @@ module tm11
     output reg[15:00] d_out_h,
     output reg ssyn_out_h);
 
-    reg enable, fastio;
+    reg enable, fastio, lastinit;
     reg[15:00] mts, mtc, mtbrc, mtcma, mtd, mtrd;
     reg[7:0] sels, bots, wrls, rews, turs;
 
-    assign armrdata = (armraddr == 0) ? 32'h544D2003 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h544D2004 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mtc,   mts   } :
                       (armraddr == 2) ? { mtcma, mtbrc } :
                       (armraddr == 3) ? { mtrd,  mtd   } :
@@ -119,10 +119,17 @@ module tm11
                 fastio <= 0;
             end
 
+            lastinit   <= 1;
             mts[15:07] <= 0;            // clear error bits
-            mtc[14:00] <= 15'o10200;    // power clear, alerts arm to abandon i/o
+            mtc[14:00] <= 0;            // clear command bits
             d_out_h    <= 0;
             ssyn_out_h <= 0;
+        end
+
+        // init just released, flag arm to reset itself
+        else if (lastinit) begin
+            lastinit   <= 0;
+            mtc[14:00] <= 15'o10200;    // power clear, alerts arm to abandon i/o
         end
 
         // arm processor is writing one of the registers

@@ -66,6 +66,7 @@ struct TapeCtrlr {
     virtual void iothread () = 0;
     virtual void updstbits () = 0;
 
+    void startio ();
     void proccmds ();
     void resetall ();
     void lockit ();

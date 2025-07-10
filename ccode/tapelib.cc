@@ -60,7 +60,11 @@ TapeCtrlr::TapeCtrlr (ShmMS *shmms, char const *progname)
     for (int i = 0; i < SHMMS_NDRIVES; i ++) {
         this->drives[i].ctor (this, i);
     }
+}
 
+// start the i/o processing thread
+void TapeCtrlr::startio ()
+{
     pthread_t tid;
     int rc = pthread_create (&tid, NULL, iothreadwrap, this);
     if (rc != 0) ABORT ();

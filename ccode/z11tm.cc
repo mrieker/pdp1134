@@ -72,6 +72,9 @@ int main (int argc, char **argv)
 
     fprintf (stderr, "z11tm*: debug=%d\n", tapectrlr->debug);
 
+    // start iothread()
+    tapectrlr->startio ();
+
     // process commands from shared memory (load, unload)
     tapectrlr->proccmds ();
 
@@ -85,6 +88,7 @@ MSTapeCtrlr::MSTapeCtrlr (ShmMS *shmms)
 // do the tape file I/O
 void MSTapeCtrlr::iothread ()
 {
+    if (debug > 0) fprintf (stderr, "z11tm: iothread running\n");
     while (true) {
 
         // wait for pdp set go mtc[00] or power clear mtc[12]
