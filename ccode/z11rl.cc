@@ -29,15 +29,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <signal.h>
-#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/time.h>
-#include <tcl.h>
 #include <unistd.h>
 
 #include "futex.h"
@@ -85,6 +82,7 @@ static Z11Page *z11p;
 static void *rliothread (void *dummy);
 static int setdrivetype (void *param, int drivesel);
 static int fileloaded (void *param, int drivesel, int fd);
+static int writebadblocks (ShmMSDrive *dr, int fd);
 static void *timerthread (void *dsptr);
 static void unloadfile (void *param, int drivesel);
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func);
@@ -534,7 +532,14 @@ static int setdrivetype (void *param, int drivesel)
 static int fileloaded (void *param, int drivesel, int fd)
 {
     ShmMSDrive *dr = &shmms->drives[drivesel];
-    if (! dr->readonly && (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0)) return -1;
+    if (! dr->readonly) {
+        struct stat statbuf;
+        if (fstat (fd, &statbuf) < 0) return -1;
+        if (ftruncate (fd, NSECS * WRDPERSEC * 2) < 0) return -1;
+        if (S_ISREG (statbuf.st_mode) && (statbuf.st_size == 0)) {
+            if (writebadblocks (dr, fd) < 0) return -1;
+        }
+    }
     fds[drivesel] = fd;
     if (strcmp (fns[drivesel], dr->filename) != 0) {
         strcpy (fns[drivesel], dr->filename);
@@ -542,6 +547,40 @@ static int fileloaded (void *param, int drivesel, int fd)
         dr->curposn = 0;
     }
     ZWR(rlat[4], ZRD(rlat[4]) | (RL4_DRDY0 << drivesel));
+    return 0;
+}
+
+// newly created file (it was empty)
+// write a null badblock list so rsx is happy
+// ref p1-9
+static int writebadblocks (ShmMSDrive *dr, int fd)
+{
+    // get random bits for serial number
+    uint16_t snbuf[2];
+    int randfd = open ("/dev/urandom", O_RDONLY);
+    if (randfd < 0) ABORT ();
+    if (read (randfd, snbuf, sizeof snbuf) != (int) sizeof snbuf) ABORT ();
+    close (randfd);
+
+    // set up bad block file
+    // written 4 sectors at a time
+    uint16_t sectors0003[512];
+    memset (sectors0003, -1, sizeof sectors0003);
+
+    sectors0003[0] = snbuf[0] & 077777;
+    sectors0003[1] = snbuf[1] & 077777;
+    sectors0003[2] = 0;
+    sectors0003[3] = 0;
+
+    // fill last 40 sectors with repetition of those 4 sectors
+    for (int i = NSECS - 40; i < NSECS; i += 4) {
+        int rc = pwrite (fd, sectors0003, sizeof sectors0003, i * WRDPERSEC * 2);
+        if (rc < 0) {
+            fprintf (stderr, "z11rl: error writing badblock file at %u: %m\n",
+                i * WRDPERSEC * 2);
+            return -1;
+        }
+    }
     return 0;
 }
 
