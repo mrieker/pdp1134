@@ -239,10 +239,6 @@ int TapeDrive::readfwd (uint16_t &mtbc, uint32_t &mtma)
     if (rc != (int) reclen) { readerror (rc, reclen); return -1; }
     dr->curposn += (reclen + 1) & -2;
 
-    if (rc == 80) {
-        fprintf (stderr, "TapeDrive::readfwd*: %.80s\n", buf);
-    }
-
     // read record length after data, should match length before data
     rc = pread (fd, &reclen2, sizeof reclen2, dr->curposn);
     if (rc != (int) sizeof reclen2) { readerror (rc, sizeof reclen2); return -1; }

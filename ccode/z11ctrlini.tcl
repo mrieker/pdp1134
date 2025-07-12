@@ -397,12 +397,21 @@ proc octal {x} {
 }
 
 # read character printed by PDP
+# discard nulls
+# discard redundant CRs
+set readttychar_last 0
 proc readttychar {timoms} {
+    global readttychar_last
+
     for {set i 0} {! [ctrlcflag] && ($i < $timoms)} {incr i} {
         after 1
         if {! ([pin dl_xcsr] & 0200)} {
             set by [pin dl_xbuf set dl_xcsr 0200]
-            return [format "%c" $by]
+            if {($by != 0) && (($by != 13) || ($readttychar_last != 13))} {
+                set readttychar_last $by
+                return [format "%c" $by]
+            }
+            set i 0
         }
     }
     return ""

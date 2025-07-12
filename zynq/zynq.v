@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314021;
+    localparam VERSION = 32'h31314022;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -807,8 +807,8 @@ module Zynq (
 
         .intreq (xeintreq),
         .irvec  (xeintvec),
-        .intgnt (irq6_intr_out_h),
-        .igvec  (irq6_d70_out_h),
+        .intgnt (irq5_intr_out_h),
+        .igvec  (irq5_d70_out_h),
 
         .a_in_h (dev_a_h),
         .c_in_h (dev_c_h),
@@ -970,8 +970,8 @@ module Zynq (
     // generate interrupt request cycles from simple request/vector lines from internal devices
 
     wire[7:0] intvec4 = (ky_irqlev == 4) ? { ky_irqvec, 2'b0 } : pcintreq ? pcintvec : dlintreq ? dlintvec : 1;
-    wire[7:0] intvec5 = (ky_irqlev == 5) ? { ky_irqvec, 2'b0 } : rlintreq ? rlintvec : tmintreq ? tmintvec : dzintreq ? dzintvec : 1;
-    wire[7:0] intvec6 = (ky_irqlev == 6) ? { ky_irqvec, 2'b0 } : kwintreq ? kwintvec : xeintreq ? xeintvec : 1;
+    wire[7:0] intvec5 = (ky_irqlev == 5) ? { ky_irqvec, 2'b0 } : dzintreq ? dzintvec : xeintreq ? xeintvec : tmintreq ? tmintvec : rlintreq ? rlintvec : 1;
+    wire[7:0] intvec6 = (ky_irqlev == 6) ? { ky_irqvec, 2'b0 } : kwintreq ? kwintvec : 1;
     wire[7:0] intvec7 = (ky_irqlev == 7) ? { ky_irqvec, 2'b0 } : 1;
 
     wire irq4_bbsy_out_h, irq4_sack_out_h;

@@ -37,6 +37,7 @@
 #define TAPELEN 20000000
 
 struct MSTapeCtrlr : TapeCtrlr {
+    bool endoftapes[8];
     int debug;
     uint32_t volatile *tmat;
 
@@ -49,12 +50,25 @@ struct MSTapeCtrlr : TapeCtrlr {
 
 int main (int argc, char **argv)
 {
-    bool resetit = (argc > 1) && (strcasecmp (argv[1], "-reset") == 0);
+    bool killit = false;
+    bool resetit = false;
+    for (int i = 0; ++ i < argc;) {
+        if (strcasecmp (argv[i], "-killit") == 0) {
+            killit = true;
+            continue;
+        }
+        if (strcasecmp (argv[i], "-reset") == 0) {
+            resetit = true;
+            continue;
+        }
+        fprintf (stderr, "unknown argument/option %s\n", argv[i]);
+        return 1;
+    }
 
     // access fpga register set for the TM-11 controller
     // lock it so we are only process accessing it
     z11page = new Z11Page ();
-    uint32_t volatile *tmat = z11page->findev ("TM", NULL, NULL, true, false);
+    uint32_t volatile *tmat = z11page->findev ("TM", NULL, NULL, true, killit);
 
     // open shared memory, create if not there
     ShmMS *shmms = shmms_svr_initialize (resetit, SHMMS_NAME_TM, "z11tm");
@@ -63,11 +77,8 @@ int main (int argc, char **argv)
     // enable tm11.v to process io instructions from pdp
     ZWR(tmat[4], (tmat[4] & TM4_FAST) | TM4_ENAB);
 
-    char const *dbgenv = getenv ("z11tm_debug");
-
     // initialize tape library
     MSTapeCtrlr *tapectrlr = new MSTapeCtrlr (shmms);
-    tapectrlr->debug = (dbgenv == NULL) ? 0 : atoi (dbgenv);
     tapectrlr->tmat  = tmat;
 
     fprintf (stderr, "z11tm*: debug=%d\n", tapectrlr->debug);
@@ -83,7 +94,12 @@ int main (int argc, char **argv)
 
 MSTapeCtrlr::MSTapeCtrlr (ShmMS *shmms)
     : TapeCtrlr (shmms, "z11tm")
-{ }
+{
+    memset (endoftapes, 0, sizeof endoftapes);
+
+    char const *dbgenv = getenv ("z11tm_debug");
+    debug = (dbgenv == NULL) ? 0 : atoi (dbgenv);
+}
 
 // do the tape file I/O
 void MSTapeCtrlr::iothread ()
@@ -163,6 +179,7 @@ void MSTapeCtrlr::iothread ()
                         mtcmts |= 0x8000;   // illegal command
                     } else {
                         int rc = td->wrdata (mtbrc, mtcma);
+                        if (dr->curposn >= TAPELEN) endoftapes[drivesel] = true;
                         if (rc < 0) {
                             switch (rc) {
                                 case -3: goto nxmerror;
@@ -181,6 +198,7 @@ void MSTapeCtrlr::iothread ()
                         mtcmts |= 0x8000;   // illegal command
                     } else {
                         int rc = td->wrmark ();
+                        if (dr->curposn >= TAPELEN) endoftapes[drivesel] = true;
                         if (rc < 0) {
                             switch (rc) {
                                 case -3: goto nxmerror;
@@ -243,6 +261,7 @@ void MSTapeCtrlr::iothread ()
                 case 7: {
                     if (debug > 1) fprintf (stderr, "z11tm: [%u] rewind unld=%d pos=%u\n", drivesel, func == 0, dr->curposn);
                     td->startrewind (func == 0);
+                    endoftapes[drivesel] = false;
                     break;
                 }
 
@@ -260,8 +279,9 @@ void MSTapeCtrlr::iothread ()
         done:;
             this->updstbits ();             // update low status bits [06:00]
 
-            mtcmts &= ~02000;               // update end-of-tape
-            if (dr->curposn > TAPELEN) mtcmts |= 02000;
+            mtcmts &= ~ 02000;              // update end-of-tape bit
+            if (dr->curposn < TAPELEN) endoftapes[drivesel] = false;
+            else if (endoftapes[drivesel]) mtcmts |= 02000;
 
             mtcmts = (mtcmts & ~ 0x300000) | 0x800000 | ((mtcma << 4) & 0x300000);
 
