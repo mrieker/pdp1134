@@ -49,7 +49,7 @@ module tm11
     reg[15:00] mts, mtc, mtbrc, mtcma, mtd, mtrd;
     reg[7:0] sels, bots, wrls, rews, turs;
 
-    assign armrdata = (armraddr == 0) ? 32'h544D2004 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h544D2005 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mtc,   mts   } :
                       (armraddr == 2) ? { mtcma, mtbrc } :
                       (armraddr == 3) ? { mtrd,  mtd   } :
@@ -128,8 +128,12 @@ module tm11
 
         // init just released, flag arm to reset itself
         else if (lastinit) begin
-            lastinit   <= 0;
-            mtc[14:00] <= 15'o10200;    // power clear, alerts arm to abandon i/o
+            lastinit    <= 0;
+            mtc[14:00]  <= 15'o10200;   // power clear, alerts arm to abandon i/o
+            mtbrc       <= 0;
+            mtcma       <= 0;
+            mtd         <= 0;
+            mtrd[14:00] <= 0;
         end
 
         // arm processor is writing one of the registers
