@@ -1,0 +1,107 @@
+
+; ../MACRO11/src/macro11 -o absldr.obj -l absldr.lst absldr.mac
+
+	ZZ = .
+	. = ZZ + 161024
+	.word	start, 340
+
+start:
+	mov	pc,sp
+	add	#ZZ+162000-.,sp
+	jsr	r5,prascz
+		.asciz	<15><12>"loading..."<15><12>
+		.even
+100$:
+	jsr	pc,readch
+	tst	r0
+	beq	100$
+	cmp	r0,#1
+	bne	badldr
+	jsr	pc,readch
+	tst	r0
+	bne	badldr
+200$:
+	clr	r3		; init checksum
+	jsr	pc,readch	; read low size byte
+	mov	r0,r4
+	jsr	pc,readch	; read high size byte
+	swab	r0		; get block size
+	bis	r0,r4
+	sub	#6,r4
+	blo	badsiz
+	jsr	pc,readch	; read low address byte
+	mov	r0,r5
+	jsr	pc,readch	; read high address vyte
+	swab	r0
+	bis	r0,r5
+	tst	r4		; check for zero size
+	beq	done
+300$:
+	jsr	pc,readch	; read data bytes
+	movb	r0,(r5)+
+	sob	r4,300$
+	jsr	pc,readch
+	incb	r3
+	beq	100$
+	br	badchk
+done:
+	jsr	pc,readch
+	incb	r3
+	bne	badchk
+	jsr	r5,prascz
+		.asciz	"success"<15><12>
+		.even
+	bit	#1,r5
+	bne	nostrt
+	jmp	@r5
+
+badldr:
+	jsr	r5,prascz
+		.asciz	"bad leader"<15><12>
+		.even
+	halt
+
+badsiz:
+	jsr	r5,prascz
+		.asciz	"bad size"<15><12>
+		.even
+	halt
+
+badchk:
+	jsr	r5,prascz
+		.asciz	"bad cksum"<15><12>
+		.even
+	halt
+
+nostrt:
+	jsr	r5,prascz
+		.asciz	"no start addr"<15><12>
+		.even
+	halt
+
+; read char from paper tape
+; add to checksum
+readch:
+	inc	@#177550
+100$:
+	tstb	@#177550
+	bpl	100$
+	clr	r0
+	bisb	@#177552,r0
+	add	r0,r3
+	rts	pc
+
+; print .asciz message
+prascz:
+	movb	(r5)+,r0
+	bne	100$
+	inc	r5
+	bic	#1,r5
+	rts	r5
+100$:
+	tstb	@#177564
+	bpl	100$
+	movb	r0,@#177566
+	br	prascz
+
+	.end

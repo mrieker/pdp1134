@@ -18,6 +18,7 @@ GUIEXTRAS := purpleclear58.png purpleflat58.png violetcirc58.png purpleclear116.
 
 default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dz.$(MACH) z11dump.$(MACH) \
 		z11ila.$(MACH) z11pc.$(MACH) z11rl.$(MACH) z11tm.$(MACH) z11xe.$(MACH) \
+		absldr.lst \
 	Z11GUI.jar libGUIZynqPage.$(MACH).so
 
 lib.$(MACH).a: \
@@ -32,6 +33,14 @@ lib.$(MACH).a: \
 	rm -f lib.$(MACH).a
 	ar rc $@ $^
 
+../MACRO11/src/macro11.$(MACH): ../MACRO11/src/makefile
+	rm -f ../MACRO11/src/*.o
+	$(MAKE) -C ../MACRO11/src
+	mv ../MACRO11/src/macro11 ../MACRO11/src/macro11.$(MACH)
+
+../MACRO11/src/makefile:
+	git clone https://github.com/j-hoppe/MACRO11.git ../MACRO11
+
 ../verisim/verisim.$(MACH).a:
 	$(MAKE) -C ../verisim verisim.$(MACH).a
 
@@ -40,6 +49,10 @@ lib.$(MACH).a: \
 
 %.$(MACH).o: %.cc *.h
 	$(GPP) -c -o $@ $<
+
+%.lst:	%.mac ../MACRO11/src/macro11.$(MACH)
+	../MACRO11/src/macro11.$(MACH) -o x.obj -l $@ $<
+	rm -f x.obj
 
 Z11GUI.jar: Z11GUI.java GUIZynqPage.class $(GUIEXTRAS)
 	rm -f Z11GUI.class Z11GUI\$$*.class Z11GUI.jar

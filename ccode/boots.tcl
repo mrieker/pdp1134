@@ -149,15 +149,40 @@ proc startbootmem {bootrombase} {
                                 ;# bm_brjame should self-clear when processor finishes reading power-up vector
 }
 
+# boot PR bin file
+proc prboot {} {
+    global Z11HOME
+    if {[pin pc_enable]} {      ;# if using fpga paper tape reader
+        wrtty "on another screen do:\n"
+        wrtty "  $Z11HOME/z11pc reader <filename>\n"
+    }
+    wrtty "press return when ready or esc to abandon boot: "
+    while {! [ctrlcflag]} {
+        set by [rdtty]
+        if {$by == 015} {
+            wrtty "\nreading in paper tape\n"
+            loadlst $Z11HOME/absldr.lst bmwr
+            startbootmem 0761000
+            return
+        }
+        if {$by == 033} {
+            wrtty "\nabandoning boot\n"
+            return
+        }
+    }
+}
+
 # boot RL disk 0
 proc rlboot {} {
-    loadlst rlboot.lst bmwr
+    global Z11HOME
+    loadlst $Z11HOME/rlboot.lst bmwr
     startbootmem 0761000
 }
 
 # boot TM tape 0
 proc tmboot {} {
-    loadlst tm11-boot.lst bmwr
+    global Z11HOME
+    loadlst $Z11HOME/tm11-boot.lst bmwr
     bmwrword 0773024 0173004
     startbootmem 0773000
 }
