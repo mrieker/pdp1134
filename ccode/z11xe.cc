@@ -545,6 +545,7 @@ static void *receivethread (void *dummy)
 
         if ((pcsr1 & RUN) && matchesincoming (rcvbuf)) {
             if (ringfmt.rrlen == 0) {
+                if (debug > 1) fprintf (stderr, "receivethread: ring empty\n");
                 if (! rcbisetinh) writepcsr0 (RCBI);
                 rcbisetinh = true;  // don't set again until told to rescan ring
             } else {
@@ -569,10 +570,12 @@ static void *receivethread (void *dummy)
                         if (z11p->dmareadlocked ((rdrca + i * 2) & 0777776, &rdrb[i]) != 0) goto dmaerror;
                     }
                     if (! (rdrb[2] & OWN)) {
+                        if (debug > 1) fprintf (stderr, "receivethread: ring overflow\n");
                         if (! rcbisetinh) status |= RCBI;       // set RCBI - receive buffer unabailable interrupt
                         rcbisetinh = true;                      // don't set again until told to rescan ring
                         break;                                  // abandon incoming packet
                     }
+                    if (debug > 1) fprintf (stderr, "receivethread: packet accepted index=%u\n", index);
 
                     // compute address of next ring entry, possibly wrapping
                     uint32_t rdrna = (rdrca + ringfmt.relen * 2) & 0777776;

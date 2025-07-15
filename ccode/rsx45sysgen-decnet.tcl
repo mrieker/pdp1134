@@ -1,6 +1,9 @@
 
 # create RSX-11M V4.5 disk set
 
+#  ./z11gui &  (optional)
+#  ./z11ctrl rsx45sysgen-decnet.tcl
+
 # start with:
 #  /mdsk/mrieker/rsx40/rsxm32.rl01
 #  /mdsk/mrieker/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
@@ -20,6 +23,9 @@
 # https://www.9track.net/pdp11/decnet4_netgen
 # https://shop-pdp.net/rthtml/tcpget.php
 # https://ftp.trailing-edge.com/pub/rsxdists/
+
+# >NCP SET EXEC STATE OFF
+# >NCP SET EXEC STATE ON
 
 source boots.tcl
 
@@ -196,20 +202,10 @@ replytoprompt ">" "PIP DPDRV.*;1/DE"
 replytoprompt ">" "PIP FCPSML.TSK;1/DE"
 replytoprompt ">" ""
 
-## /mdsk/mrieker/rsxdisks-cp00.tgz
-
-} else {
-    exec rm -rf /mdsk/mrieker/rsxdisks
-    exec tar xzvfC /mdsk/mrieker/rsxdisks-cp00.tgz /mdsk/mrieker < /dev/null > /dev/tty
-
-    probedevsandmem
-    rlload 0 /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
-    rlboot
-
-    replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
-    replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
-    waitforstring ">@ <EOF>"
-}
+puts "= = = = = = = = = = = = = = = ="
+puts "tar czvfC /mdsk/mrieker/rsxdisks-cp00.tgz /mdsk/mrieker rsxdisks"
+exec tar czvfC /mdsk/mrieker/rsxdisks-cp00.tgz /mdsk/mrieker rsxdisks < /dev/null > /dev/tty
+puts "= = = = = = = = = = = = = = = ="
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -288,6 +284,20 @@ puts "tar czvfC /mdsk/mrieker/rsxdisks-cp11.tgz /mdsk/mrieker rsxdisks"
 exec tar czvfC /mdsk/mrieker/rsxdisks-cp11.tgz /mdsk/mrieker rsxdisks < /dev/null > /dev/tty
 puts "= = = = = = = = = = = = = = = ="
 
+} else {
+    exec rm -rf /mdsk/mrieker/rsxdisks
+    exec tar xzvfC /mdsk/mrieker/rsxdisks-cp11.tgz /mdsk/mrieker < /dev/null > /dev/tty
+
+    probedevsandmem
+    rlload 0 /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
+    rlload 1 /mdsk/mrieker/rsxdisks/rsx45-netgen.rl02
+    rlboot
+
+    replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+    replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+    waitforstring ">@ <EOF>"
+}
+
 puts ""
 puts "= = = = = = = = = = = = = = = ="
 puts "RUNNING DECNET NETGEN"
@@ -350,7 +360,7 @@ replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
 # NET - Section  6 - Define the System Management Utilities
 
-replytoprompt "08.00 Do you want EVF \[D=N\]? \[Y/N\]: " "Y"
+replytoprompt "08.00 Do you want EVF \[D=N\]? \[Y/N\]: " ""
 waitforstring "<EOS>  Do you want to:"
 replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
@@ -396,35 +406,17 @@ replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
 # DEC - Section  5 - Define the DECnet File Utilities
 
-replytoprompt "02.00 Do you want NFT \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "04.00 Do you want FAL \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "04.01 Should FAL support RMS file access \[D=Y\]? \[Y/N\]: " "N"
-replytoprompt "04.02 Should FAL be overlaid \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "04.05 Number of incoming connections to support \[D R:1.-10. D:4.\]: " ""
-replytoprompt "04.06 User data buffer size \[D R:260.-1024. D:1024.\]: " ""
-replytoprompt "05.00 Do you want MCM \[D=N\]? \[Y/N\]: " "Y"
+replytoprompt "02.00 Do you want NFT \[D=N\]? \[Y/N\]: " ""
+replytoprompt "04.00 Do you want FAL \[D=N\]? \[Y/N\]: " ""
 waitforstring "<EOS>  Do you want to:"
 replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
 # DEC - Section  6 - Define the DECnet Terminal and Control Utilities
 
 replytoprompt "02.00 Do you want RMT/RMTACP \[D=N\]? \[Y/N\]: " ""
-replytoprompt "03.00 Do you want HT:/RMHACP \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "03.01 Number of incoming connections to support \[D R:1.-16. D:4.\]: " ""
-replytoprompt "04.00 Do you want NCT \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "05.00 Do you want RTH \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "06.00 Do you want TLK \[D=N\]? \[Y/N\]: " ""
-replytoprompt "07.00 Do you want LSN \[D=N\]? \[Y/N\]: " ""
-replytoprompt "10.00 Do you want TCL \[D=N\]? \[Y/N\]: " ""
-waitforstring "<EOS>  Do you want to:"
-replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " "R"
-
-# DEC - Section  6 - Define the DECnet Terminal and Control Utilities
-
-replytoprompt "02.00 Do you want RMT/RMTACP \[D=N\]? \[Y/N\]: " ""
 replytoprompt "03.00 Do you want HT:/RMHACP \[D=N\]? \[Y/N\]: " ""
-replytoprompt "04.00 Do you want NCT \[D=N\]? \[Y/N\]: " "Y"
-replytoprompt "05.00 Do you want RTH \[D=N\]? \[Y/N\]: " "Y"
+replytoprompt "04.00 Do you want NCT \[D=N\]? \[Y/N\]: " ""
+replytoprompt "05.00 Do you want RTH \[D=N\]? \[Y/N\]: " ""
 replytoprompt "06.00 Do you want TLK \[D=N\]? \[Y/N\]: " ""
 replytoprompt "07.00 Do you want LSN \[D=N\]? \[Y/N\]: " ""
 replytoprompt "10.00 Do you want TCL \[D=N\]? \[Y/N\]: " ""
