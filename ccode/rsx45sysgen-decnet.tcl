@@ -1,28 +1,40 @@
 
-# create RSX-11M V4.5 disk set
+# create RSX-11M V4.5 disk set with DECnet
 
 #  ./z11gui &  (optional)
-#  ./z11ctrl rsx45sysgen-decnet.tcl
+#  ./rsx45sysgen-decnet.sh
 
 # start with:
-#  /mdsk/mrieker/rsx40/rsxm32.rl01
-#  /mdsk/mrieker/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
-#  /mdsk/mrieker/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
-#  /mdsk/mrieker/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
+#  disks/rsx40/rsxm32.rl01  (used to copy .tap files to new rl02 files, can be any version that works)
+#  disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
+#  disks/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
+#  disks/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
+
+#  disks should probably be softlink to magnetic disk
 
 # outputs:
-#  /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
-#  /mdsk/mrieker/rsxdisks/rsx45-excprv.rl02
-#  /mdsk/mrieker/rsxdisks/rsx45-prvbld.rl02
-#  /mdsk/mrieker/rsxdisks/rsx45-mcrsrc.rl02
-#  /mdsk/mrieker/rsxdisks/rsx45-rmsv20.rl02
-#  /mdsk/mrieker/rsxdisks/rsx45-netgen.rl02
+#  disks/rsx45/dlsys.rl02
+#  disks/rsx45/excprv.rl02
+#  disks/rsx45/prvbld.rl02
+#  disks/rsx45/mcrsrc.rl02
+#  disks/rsx45/rmsv20.rl02
+#  disks/rsx45/netgen.rl02
 
-# https://pdp2011.sytse.net/wordpress/pdp-11/sessions/rsx-11m-plus/install-5/
-# https://supratim-sanyal.blogspot.com/2019/07/installing-rsx-11m-plus-on-dec-pdp-1124.html
-# https://www.9track.net/pdp11/decnet4_netgen
-# https://shop-pdp.net/rthtml/tcpget.php
-# https://ftp.trailing-edge.com/pub/rsxdists/
+# some install instructions
+#  https://pdp2011.sytse.net/wordpress/pdp-11/sessions/rsx-11m-plus/install-5/
+#  https://supratim-sanyal.blogspot.com/2019/07/installing-rsx-11m-plus-on-dec-pdp-1124.html
+#  https://www.9track.net/pdp11/decnet4_netgen
+
+# RSX 40 disks:  rsx11m40.zip
+#  https://pdp-11.org.ru/en/files.pl
+
+# RSX 45 tape files:  BB-J050G-BC BB-L974F-BC BB-M461E-BC
+#  https://www.9track.net/bits/
+
+# install as root on other computer plugged into zturn's ethernet:
+#  https://github.com/JohnForecast/LinuxDECnet.git
+#   build and config so remote node is pdp11 1.11
+#   then do 'dnping pdp11' to ping the pdp
 
 # >NCP SET EXEC STATE OFF
 # >NCP SET EXEC STATE ON
@@ -39,10 +51,8 @@ rlunload 2
 rlunload 3
 tmunload 0
 tmunload 1
-exec rm -rf /mdsk/mrieker/rsxdisks
-exec mkdir -p /mdsk/mrieker/rsxdisks
-
-if false {
+exec rm -rf disks/rsx45
+exec mkdir -p disks/rsx45
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -50,9 +60,10 @@ puts "MAKE BOOTABLE V4.5 SYSTEM DISK"
 puts ""
 
 probedevsandmem
-rlload 0 /mdsk/mrieker/rsx40/rsxm32.rl01
-rlload 1 -create /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
-tmload 0 -readonly /mdsk/mrieker/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
+pin set turbo 1 rl_fastio 1 tm_fastio 1
+rlload 0 disks/rsx40/rsxm32.rl01
+rlload 1 -create disks/rsx45/dlsys.rl02
+tmload 0 -readonly disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
 rlboot
 
 replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
@@ -76,8 +87,8 @@ rlunload 0
 rlunload 1
 tmunload 0
 
-rlload 0 /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
-tmload 0 -readonly /mdsk/mrieker/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
+rlload 0 disks/rsx45/dlsys.rl02
+tmload 0 -readonly disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
 rlboot
 
 replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
@@ -90,19 +101,19 @@ replytoprompt "Enter second drive and unit \[ddn:\] \[S\]: " "DL1:"
 replytoprompt "Enter drive and unit with tape distribution kit \[ddn:\] \[S\]: " "MT0:"
 
 waitforstring "Load disk labeled EXCPRV in DL1:"
-rlload 1 -create /mdsk/mrieker/rsxdisks/rsx45-excprv.rl02
+rlload 1 -create disks/rsx45/excprv.rl02
 replytoprompt "Is DL1: ready? \[Y/N\]: " "Y"
 
 waitforstring "Load disk labeled PRVBLD in DL1:"
-rlload 1 -create /mdsk/mrieker/rsxdisks/rsx45-prvbld.rl02
+rlload 1 -create disks/rsx45/prvbld.rl02
 replytoprompt "Is DL1: ready? \[Y/N\]: " "Y"
 
 waitforstring "Load disk labeled MCRSRC in DL1:"
-rlload 1 -create /mdsk/mrieker/rsxdisks/rsx45-mcrsrc.rl02
+rlload 1 -create disks/rsx45/mcrsrc.rl02
 replytoprompt "Is DL1: ready? \[Y/N\]: " "Y"
 
 waitforstring "Load disk labeled RMSV20 in DL1:"
-rlload 1 -create /mdsk/mrieker/rsxdisks/rsx45-rmsv20.rl02
+rlload 1 -create disks/rsx45/rmsv20.rl02
 replytoprompt "Is DL1: ready? \[Y/N\]: " "Y"
 waitforstring ">@ <EOF>"
 waitforcrlf
@@ -117,9 +128,9 @@ rlunload 0
 rlunload 1
 tmunload 0
 
-rlload 0 /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
-rlload 1 /mdsk/mrieker/rsxdisks/rsx45-excprv.rl02
-rlload 2 /mdsk/mrieker/rsxdisks/rsx45-prvbld.rl02
+rlload 0 disks/rsx45/dlsys.rl02
+rlload 1 disks/rsx45/excprv.rl02
+rlload 2 disks/rsx45/prvbld.rl02
 rlboot
 
 replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
@@ -201,11 +212,7 @@ replytoprompt ">" "PIP ACF.BSL;1/DE"
 replytoprompt ">" "PIP DPDRV.*;1/DE"
 replytoprompt ">" "PIP FCPSML.TSK;1/DE"
 replytoprompt ">" ""
-
-puts "= = = = = = = = = = = = = = = ="
-puts "tar czvfC /mdsk/mrieker/rsxdisks-cp00.tgz /mdsk/mrieker rsxdisks"
-exec tar czvfC /mdsk/mrieker/rsxdisks-cp00.tgz /mdsk/mrieker rsxdisks < /dev/null > /dev/tty
-puts "= = = = = = = = = = = = = = = ="
+waitforcrlf
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -237,17 +244,12 @@ replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-puts "= = = = = = = = = = = = = = = ="
-puts "tar czvfC /mdsk/mrieker/rsxdisks-cp10.tgz /mdsk/mrieker rsxdisks"
-exec tar czvfC /mdsk/mrieker/rsxdisks-cp10.tgz /mdsk/mrieker rsxdisks < /dev/null > /dev/tty
-puts "= = = = = = = = = = = = = = = ="
-
 puts ""
 puts "= = = = = = = = = = = = = = = ="
 puts "RUNNING DECNET PREGEN"
 puts ""
 
-tmload 0 -readonly /mdsk/mrieker/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
+tmload 0 -readonly disks/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
 
 replytoprompt ">" "INS \$FLX"
 replytoprompt ">" "UFD DL0:\[137,10\]"
@@ -259,7 +261,7 @@ replytoprompt ">" "@DL0:PREGEN"
 replytoprompt "Do you wish to see the PREGEN notes? \[Y/N\]: " "N"
 replytoprompt "Are you running on a small dual-disk system? \[Y/N\]: " "N"
 replytoprompt "Where is the Network distribution kit loaded \[S\]: " "MT0:"
-rlload 1 -create /mdsk/mrieker/rsxdisks/rsx45-netgen.rl02
+rlload 1 -create disks/rsx45/netgen.rl02
 replytoprompt "Is the tape already loaded in MT0:? \[Y/N\]: " "Y"
 replytoprompt "Is the tape 1600 BPI? \[Y/N\]: " "N"
 replytoprompt "Where is the NETGEN disk loaded \[S\]: " "DL1:"
@@ -269,7 +271,7 @@ replytoprompt "Should the Network object files be moved to the NETGEN Disk? \[Y/
 
 replytoprompt "Copy the DECnet distribution kit? \[Y/N\]: " "Y"
 replytoprompt "Where is the DECnet distribution kit loaded \[S\]: " "MT0:"
-tmload 0 -readonly /mdsk/mrieker/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
+tmload 0 -readonly disks/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
 replytoprompt "Is the tape already loaded in MT0:? \[Y/N\]: " "Y"
 replytoprompt "Is the tape 1600 BPI? \[Y/N\]: " "N"
 replytoprompt "Should the DECnet object files be moved to the NETGEN Disk? \[Y/N\]: " "Y"
@@ -278,25 +280,6 @@ waitforstring ">@ <EOF>"
 waitforcrlf
 
 tmunload 0
-
-puts "= = = = = = = = = = = = = = = ="
-puts "tar czvfC /mdsk/mrieker/rsxdisks-cp11.tgz /mdsk/mrieker rsxdisks"
-exec tar czvfC /mdsk/mrieker/rsxdisks-cp11.tgz /mdsk/mrieker rsxdisks < /dev/null > /dev/tty
-puts "= = = = = = = = = = = = = = = ="
-
-} else {
-    exec rm -rf /mdsk/mrieker/rsxdisks
-    exec tar xzvfC /mdsk/mrieker/rsxdisks-cp11.tgz /mdsk/mrieker < /dev/null > /dev/tty
-
-    probedevsandmem
-    rlload 0 /mdsk/mrieker/rsxdisks/rsx45-dlsys.rl02
-    rlload 1 /mdsk/mrieker/rsxdisks/rsx45-netgen.rl02
-    rlboot
-
-    replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
-    replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
-    waitforstring ">@ <EOF>"
-}
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -436,13 +419,6 @@ replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-## rsxdisks-cp12.tgz
-
-puts "= = = = = = = = = = = = = = = ="
-puts "tar czvfC /mdsk/mrieker/rsxdisks-cp12.tgz /mdsk/mrieker rsxdisks"
-exec tar czvfC /mdsk/mrieker/rsxdisks-cp12.tgz /mdsk/mrieker rsxdisks < /dev/null > /dev/tty
-puts "= = = = = = = = = = = = = = = ="
-
 puts ""
 puts "= = = = = = = = = = = = = = = ="
 puts "STARTING DECNET"
@@ -458,6 +434,11 @@ replytoprompt "On what device are the network tasks \[D=DL0:\] \[S\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-## ch 9: p202
-
-## exec -ignorestderr ./z11dl < /dev/tty > /dev/tty
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "ALL DONE"
+puts ""
+puts "  try 'dnping pdp11' from another computer on ethernet"
+puts ""
+puts "  do ./z11dl to access tty"
+puts ""
