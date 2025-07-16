@@ -1,6 +1,11 @@
 
 # create RSX-11M V4.5 disk set with DECnet
 
+# defines this node as PDP11 address 1.11
+# assumes there is a PDPI at address 1.1 on the ethernet
+
+# provides NCP, NCT, NFT commands
+
 #  ./z11gui &  (optional)
 #  ./rsx45sysgen-decnet.sh
 
@@ -44,13 +49,15 @@ source boots.tcl
 if {[pin get fpgamode] == 0} {
     pin set fpgamode 1
 }
-hardreset
-rlunload 0
+hardreset       ;# make sure processor halted
+rlunload 0      ;# make sure drives unloaded
 rlunload 1
 rlunload 2
 rlunload 3
 tmunload 0
 tmunload 1
+dllock -killit  ;# make sure nothing else using DL-11
+
 exec rm -rf disks/rsx45
 exec mkdir -p disks/rsx45
 
@@ -389,8 +396,9 @@ replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
 # DEC - Section  5 - Define the DECnet File Utilities
 
-replytoprompt "02.00 Do you want NFT \[D=N\]? \[Y/N\]: " ""
+replytoprompt "02.00 Do you want NFT \[D=N\]? \[Y/N\]: " "Y"
 replytoprompt "04.00 Do you want FAL \[D=N\]? \[Y/N\]: " ""
+replytoprompt "05.00 Do you want MCM \[D=N\]? \[Y/N\]: " ""
 waitforstring "<EOS>  Do you want to:"
 replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
@@ -398,7 +406,7 @@ replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 
 replytoprompt "02.00 Do you want RMT/RMTACP \[D=N\]? \[Y/N\]: " ""
 replytoprompt "03.00 Do you want HT:/RMHACP \[D=N\]? \[Y/N\]: " ""
-replytoprompt "04.00 Do you want NCT \[D=N\]? \[Y/N\]: " ""
+replytoprompt "04.00 Do you want NCT \[D=N\]? \[Y/N\]: " "Y"
 replytoprompt "05.00 Do you want RTH \[D=N\]? \[Y/N\]: " ""
 replytoprompt "06.00 Do you want TLK \[D=N\]? \[Y/N\]: " ""
 replytoprompt "07.00 Do you want LSN \[D=N\]? \[Y/N\]: " ""
@@ -424,13 +432,22 @@ puts "= = = = = = = = = = = = = = = ="
 puts "STARTING DECNET"
 puts ""
 
+replytoprompt ">" "BOO \[1,54\]RSX11M"
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
 replytoprompt ">" "SET /NETUIC=\[5,54\]"
 replytoprompt ">" "SET /UIC=\[5,1\]"
 replytoprompt ">" "@NETINS"
 replytoprompt "Do you want to install and load the CEX system? \[Y/N\]: " "Y"
 replytoprompt "Do you want to install and start DECnet? \[Y/N\]: " "Y"
-replytoprompt "On what device are the network tasks \[D=DL0:\] \[S\]: " ""
-
+replytoprompt "On what device are the network tasks \[D=DL0:\] \[S\]: " "LB0:"
+waitforstring ">@ <EOF>"
+replytoprompt ">" "ACS SY:/BLKS=0"
+replytoprompt ">" "SAV"
+waitforstring "RSX-11M V4.5 BL50"
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
