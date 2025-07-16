@@ -56,6 +56,7 @@ struct Z11Page {
     virtual ~Z11Page ();
     uint32_t volatile *findev (char const *id, bool (*entry) (void *param, uint32_t volatile *dev), void *param, bool lockit, bool killit = false);
     void locksubdev (uint32_t volatile *start, int nwords, bool killit);
+    void unlkdev (uint32_t volatile *start);
 
     uint32_t dmaread (uint32_t xba, uint16_t *data);
     bool dmawbyte (uint32_t xba, uint8_t data);

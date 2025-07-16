@@ -62,6 +62,8 @@ static MSCDat const ctlidtm = { "tm", 7, SHMMS_CTLID_TM,
 
 // internal TCL commands
 static Tcl_ObjCmdProc cmd_disasop;
+static Tcl_ObjCmdProc cmd_dllock;
+static Tcl_ObjCmdProc cmd_dlunlock;
 static Tcl_ObjCmdProc cmd_gettod;
 static Tcl_ObjCmdProc cmd_msload;
 static Tcl_ObjCmdProc cmd_msstat;
@@ -73,6 +75,8 @@ static Tcl_ObjCmdProc cmd_waitint;
 
 static TclFunDef const fundefs[] = {
     { cmd_disasop,  NULL, "disasop",  "disassemble instruction" },
+    { cmd_dllock,   NULL, "dllock",   "lock access to DL port" },
+    { cmd_dlunlock, NULL, "dlunlock", "unlock access to DL port" },
     { cmd_gettod,   NULL, "gettod",   "get current time in us precision" },
     { cmd_pin,      NULL, "pin",      "direct access to signals on zynq page" },
     { cmd_readchar, NULL, "readchar", "read character with timeout" },
@@ -296,6 +300,41 @@ static int cmd_disasop (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl
 
     Tcl_SetResult (interp, strdup (str.c_str ()), (void (*) (char *)) free);
 
+    return TCL_OK;
+}
+
+static uint32_t volatile *dllock;
+
+static int cmd_dllock (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    bool killit = false;
+    for (int i = 0; ++ i < objc;) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            printf ("  dllock [-killit]\n");
+            puts ("");
+            return TCL_OK;
+        }
+        if (strcasecmp (stri, "-killit") == 0) {
+            killit = true;
+            continue;
+        }
+        Tcl_SetResultF (interp, "unknown argument/option %s", stri);
+        return TCL_ERROR;
+    }
+    if (dllock == NULL) {
+        dllock = z11page->findev ("DL", NULL, NULL, true, killit);
+    }
+    return TCL_OK;
+}
+
+static int cmd_dlunlock (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    if (dllock != NULL) {
+        z11page->unlkdev (dllock);
+        dllock = NULL;
+    }
     return TCL_OK;
 }
 

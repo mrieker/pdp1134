@@ -185,6 +185,36 @@ found:;
     }
 }
 
+// unlock a device
+//  input:
+//   start = first register of device to unlock
+void Z11Page::unlkdev (uint32_t volatile *start)
+{
+    // find device that contains the start word
+    int len, ofs;
+    uint32_t volatile *dev;
+    for (int idx = 0; idx < 1024;) {
+        dev = &zynqpage[idx];
+        len = 2 << ((ZRD(*dev) >> 12) & 15);
+        if (idx + len > 1024) break;
+        ofs = start - dev;
+        if ((ofs >= 0) && (ofs < len)) goto found;
+        idx += len;
+    }
+    return;
+
+    // release lock on the device
+found:;
+    struct flock flockit;
+    memset (&flockit, 0, sizeof flockit);
+    flockit.l_type   = F_UNLCK;
+    flockit.l_whence = SEEK_SET;
+    flockit.l_start  = (long)start - (long)zynqpage;
+    flockit.l_len    = len * sizeof zynqpage[0];
+
+    fcntl (zynqfd, F_SETLK, &flockit);
+}
+
 // read a word from unibus via dma
 // uses ky11.v so it works even when 11/34 is halted
 uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)

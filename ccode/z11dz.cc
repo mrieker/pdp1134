@@ -53,7 +53,7 @@
 
 static bool volatile ctrlcflag;
 static struct termios term_original;
-static uint32_t cps = 10;
+static uint32_t cps = 960;
 
 static void sigrunhand (int signum);
 
@@ -72,7 +72,7 @@ int main (int argc, char **argv)
             puts ("     Access DZ-11 serial line multiplexor");
             puts ("");
             puts ("  ./z11dz [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-upcase] <linenum>");
-            puts ("     -cps    : set chars per second, default 10");
+            puts ("     -cps    : set chars per second, default 960");
             puts ("     -killit : kill other process that is processing this port");
             puts ("     -log    : log output to given file");
             puts ("     -nokb   : do not pass stdin keyboard to pdp");
