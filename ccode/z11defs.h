@@ -135,6 +135,9 @@
 #define l_muxdelay    (0x0000003FU)
 #define l_latdata     (0x003FFFC0U)
 #define l_turbo       (0x00400000U)
+#define l_stepenable  (0x00800000U)
+#define l_stepsingle  (0x01000000U)
+#define l_stephalted  (0x80000000U)
 
 #define ILACTL 034
 #define ILATIM 035

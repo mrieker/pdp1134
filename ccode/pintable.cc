@@ -114,6 +114,9 @@ PinDef const pindefs[] = {
     { "dev_d_h",         DEV_11, Z_RG, g_dev_d_h,         0, false },
     { "muxdelay",        DEV_11, Z_RL, l_muxdelay,        0, true  },
     { "turbo",           DEV_11, Z_RL, l_turbo,           0, true  },
+    { "stepenable",      DEV_11, Z_RL, l_stepenable,      0, true  },
+    { "stepsingle",      DEV_11, Z_RL, l_stepsingle,      0, true  },
+    { "stephalted",      DEV_11, Z_RL, l_stephalted,      0, false },
 
     { "ilaafter",        DEV_11, 28,   ILACTL_AFTER,      0, true  },
     { "ilaarmed",        DEV_11, 28,   ILACTL_ARMED,      0, true  },

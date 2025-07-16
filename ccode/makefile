@@ -18,7 +18,7 @@ GUIEXTRAS := purpleclear58.png purpleflat58.png violetcirc58.png purpleclear116.
 
 default: memtest.$(MACH) z11ctrl.$(MACH) z11dl.$(MACH) z11dz.$(MACH) z11dump.$(MACH) \
 		z11ila.$(MACH) z11pc.$(MACH) z11rl.$(MACH) z11tm.$(MACH) z11xe.$(MACH) \
-		absldr.lst \
+		simtrace.$(MACH) absldr.lst \
 	Z11GUI.jar libGUIZynqPage.$(MACH).so
 
 lib.$(MACH).a: \

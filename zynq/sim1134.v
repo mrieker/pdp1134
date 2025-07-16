@@ -24,10 +24,11 @@ module sim1134 (
     input CLOCK,
     input RESET,
 
-    input turbo,
+    input turbo, stepenable, stepsingle,
     output[15:00] r0out, pcout, psout,
     output[5:0] stout,
     output waiting,
+    output reg stephalted,
 
     input bus_ac_lo_in_l,
     input bus_bbsy_in_l,
@@ -339,6 +340,7 @@ module sim1134 (
             resdelay    <= 0;           // not doing RESET instruction
             rwstate     <= 0;           // not accessing memory
             state       <= S_SERVICE;   // start out doing power-up trap after releasing bus_init_out_l
+            stephalted  <= 0;           // not stopped waiting for stepsingle pulse
             traceck     <= 1;           // check T-bit
             trapping    <= 0;           // not currently doing a trap
             trapvec     <= T_PWRFAIL;   // start out doing power-up trap
@@ -504,7 +506,6 @@ module sim1134 (
                             state      <= S_SERVICE;
                             trapvec    <= T_PARERR;
                         end
-                        bus_msyn_out_l <= 1;
                         rwdelay        <= 0;
                         rwstate        <= 7;
                     end else begin
@@ -515,15 +516,21 @@ module sim1134 (
                 // let address, data and function linger for 80nS after dropping MSYN
                 // also wait for slave to drop SSYN
                 7: begin
-                    if ((rwdelay != 8) & ~ turbo) begin
-                        rwdelay        <= rwdelay + 1;
-                    end else if (bus_ssyn_in_l) begin
-                        bus_a_out_l    <= 18'o777777;
-                        bus_bbsy_out_l <= 1;
-                        bus_c_out_l    <= 3;
-                        cpu_d_out_l    <= 16'o177777;
-                        memfunc        <= 0;
-                        rwstate        <= 0;
+                    if (~ stepenable | stepsingle) begin
+                        bus_msyn_out_l     <= 1;
+                        if ((rwdelay != 8) & ~ turbo) begin
+                            rwdelay        <= rwdelay + 1;
+                        end else if (bus_ssyn_in_l) begin
+                            bus_a_out_l    <= 18'o777777;
+                            bus_bbsy_out_l <= 1;
+                            bus_c_out_l    <= 3;
+                            cpu_d_out_l    <= 16'o177777;
+                            memfunc        <= 0;
+                            rwstate        <= 0;
+                            stephalted     <= 0;
+                        end
+                    end else begin
+                        stephalted         <= 1;
                     end
                 end
             endcase

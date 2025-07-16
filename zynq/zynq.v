@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314022;
+    localparam VERSION = 32'h31314023;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -133,7 +133,7 @@ module Zynq (
     reg ilaarmed, ilaoflow;
 
     // arm writes these to control fpga
-    reg[31:00] regctla, regctlb, regctli, regctll;
+    reg[31:00]  regctla, regctlb, regctli, regctll;
     wire[31:00] regctlj;
     reg[23:06]  regctlk_2306;
 
@@ -364,8 +364,11 @@ module Zynq (
     wire[15:00] sim_r0out;
     wire sim_waiting;
     wire[5:0] sim_state;
+    wire sim_stephalted;
 
     wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
+
+    always @(*) begin regctll[31] <= sim_stephalted; end
 
     sim1134 siminst (
         .CLOCK (CLOCK),
@@ -377,6 +380,10 @@ module Zynq (
         .stout (sim_state),
         .r0out (sim_r0out),
         .waiting (sim_waiting),
+
+        .stepenable (regctll[23]),              //<< 0=normal; 1=stop at end of bus cycle
+        .stepsingle (regctll[24]),              //<< 0=normal; 1=temporarily override stepenable
+        .stephalted (sim_stephalted),           //>> 0=normal; 1=halted by stepenable
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -583,7 +590,7 @@ module Zynq (
             regctlb[31:28]  <= 0;
             regctlb[27:24]  <= 4'b1111;                     // man_bg_out_l
             regctlb[23:00]  <= 0;
-            regctll[31:22]  <= 0;
+            regctll[30:22]  <= 0;
             regctll[04:00]  <= 21;                          // muxdelay (18=bad; 19=ok)
 
             regarmintena    <= 0;                           // disable all interrupts to arm
@@ -622,7 +629,7 @@ module Zynq (
                     end
                     10'b0000001100: begin
                         regctll[05:00] <= saxi_WDATA[05:00];
-                        regctll[22]    <= saxi_WDATA[22];
+                        regctll[24:22] <= saxi_WDATA[24:22];
                     end
                     10'b0000011010: begin
                         regarmintena    <= saxi_WDATA[30:00];
@@ -637,6 +644,8 @@ module Zynq (
                 saxi_BVALID  <= 1;                          // we have accepted the data
 
             end else begin
+                regctll[24] <= regctll[24] & sim_stephalted;  // stepsingle lasts just until resumed
+
                 // check for PS sending us a write address
                 if (saxi_AWREADY & saxi_AWVALID) begin
                     writeaddr <= saxi_AWADDR[11:02];        // save address bits we care about

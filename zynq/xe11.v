@@ -48,12 +48,13 @@ module xe11
     reg enable, lastinit;
     reg[15:00] pcsr0, pcsr1, pcsr2, pcsr3;
 
-    assign armrdata = (armraddr == 0) ? 32'h58451002 : // [31:16] = 'XE'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h58451004 : // [31:16] = 'XE'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { pcsr1, pcsr0 } :
                       (armraddr == 2) ? { pcsr3, pcsr2 } :
                           { enable, 5'b0, INTVEC, ADDR };
 
     // wake up arm (ZGINT_XE) whenever PCSR0[05] set or PCSR0[03:00] written by PDP
+    // PCSR0[04] is hijacked to indicate when that happens (PDP always sees it as zero)
     assign armintrq = pcsr0[04];
 
     // keep INTR bit up to date
@@ -62,18 +63,9 @@ module xe11
     end
 
     // interrupt pdp whenever done bit is set and interrupt enable is set
-    // - edge triggered
-    intreq mtintreq (
-        .CLOCK    (CLOCK),
-        .RESET    (init_in_h),
-        .INTVEC   (INTVEC),
-        .rirqlevl (pcsr0[07] & pcsr0[06]),
-        .xirqlevl (0),
-        .intreq   (intreq),
-        .irvec    (irvec),
-        .intgnt   (intgnt),
-        .igvec    (igvec)
-    );
+    // - level triggered (decnet sometimes hangs with edge triggered)
+    assign intreq = pcsr0[07] & pcsr0[06];
+    assign irvec  = INTVEC;
 
     wire writehi = ~ c_in_h[0] |   a_in_h[00];
     wire writelo = ~ c_in_h[0] | ~ a_in_h[00];
@@ -82,12 +74,14 @@ module xe11
         if (init_in_h) begin
             if (RESET) begin
                 enable <= 0;
+                pcsr1[04] <= 0; // 0=DEUNA; 1=DELUA (settable by arm)
             end
 
             lastinit <= 1;
             pcsr0[15:08] <= 0;
             pcsr0[06:00] <= 0;
-            pcsr1 <= 0;
+            pcsr1[15:05] <= 0;
+            pcsr1[03:00] <= 0;
             pcsr2 <= 0;
             pcsr3 <= 0;
 
@@ -106,9 +100,8 @@ module xe11
             case (armwaddr)
                 1: begin
                     pcsr1[15:07] <= armwdata[31:23];
-                    pcsr1[03:00] <= armwdata[19:16];
-                    pcsr0[15:10] <= pcsr0[15:10] |   armwdata[15:10];
-                    pcsr0[08]    <= pcsr0[08]    |   armwdata[08];
+                    pcsr1[04:00] <= armwdata[20:16];
+                    pcsr0[15:08] <= pcsr0[15:08] |   armwdata[15:08];
                     pcsr0[05:04] <= pcsr0[05:04] & ~ armwdata[05:04];
                 end
                 3: begin
@@ -136,7 +129,8 @@ module xe11
                         if (writelo & d_in_h[05]) begin
                             pcsr0[15:08] <= 0;
                             pcsr0[06:00] <= 7'o060;
-                            pcsr1 <= 0;
+                            pcsr1[15:05] <= 0;
+                            pcsr1[03:00] <= 0;
                         end
 
                         else begin

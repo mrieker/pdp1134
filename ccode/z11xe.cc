@@ -22,7 +22,12 @@
 // Runs as a background daemon
 
 // page references DEUNA User's Guide 1983
+// also there's DELUA User's Guide Apr 86
+// http://www.bitsavers.org/pdf/dec/unibus/
 
+// normally run as daemon:
+//  nohup ./z11xe < /dev/null > ~/z11xe.log 2>&1 &
+// run as command for debugging:
 //  ./z11xe
 
 #include <arpa/inet.h>
@@ -57,6 +62,7 @@
 
 #define RUN  0x0001     // PCSR1 running
 #define RDY  0x0002     // PCSR1 ready
+#define DELU 0x0010     // PCSR1 is a DELUA
 #define PCTO 0x0080     // PCSR1 port command timeout
 
 #define ERRS 0x8000     // PORTST1 error summary (p96)
@@ -118,7 +124,7 @@ struct RingFmt {
 };
 
 static uint16_t const bdcastaddr[3] = { 0xFFFFU, 0xFFFFU, 0xFFFFU };
-static uint16_t defethaddr[3] = { 0x2342U, 0xAEDEU, 0xEA56U };
+static uint16_t defethaddr[3] = { 0x0008U, 0x002BU, 0 };
 
 static bool rcbisetinh;
 static Counters counters;
@@ -144,8 +150,9 @@ static void xeiothread ();
 static void doreset ();
 static void getcommand (uint32_t pcbaddr);
 static void *receivethread (void *dummy);
-static bool matchesincoming (uint16_t const *rcvbuf);
 static void *transmithread (void *dummy);
+static void gotincoming (uint16_t *rcvwrd, int rc);
+static bool matchesincoming (uint16_t const *rcvwrd);
 static void writepcsr0 (uint16_t pcsr0);
 static void lockit ();
 static void unlkit ();
@@ -154,15 +161,18 @@ static void waittransmit ();
 
 int main (int argc, char **argv)
 {
+    setlinebuf (stderr);
     setlinebuf (stdout);
 
+    bool killit = false;
+    bool macopt = false;
     char const *ethdev = "eth0";
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
             puts ("  Handle DEUNA ethernet I/O");
             puts ("");
-            puts ("    sudo ./z11xe [-eth <device>] [-mac <address>]");
+            puts ("    sudo ./z11xe [-eth <device>] [-killit] [-mac <address>]");
             puts ("");
             puts ("      -eth = use given ethernet device (default eth0)");
             puts ("      -mac = use given mac address");
@@ -177,26 +187,58 @@ int main (int argc, char **argv)
             ethdev = argv[i];
             continue;
         }
+        if (strcasecmp (argv[i], "-killit") == 0) {
+            killit = true;
+            continue;
+        }
         if (strcasecmp (argv[i], "-mac") == 0) {
             if ((++ i >= argc) || (argv[i][0] == '-')) {
                 fprintf (stderr, "missing address after -mac\n");
                 return 1;
             }
-            uint8_t *addr = (uint8_t *) defethaddr;
+            uint8_t addr[6];
             char *p = argv[i];
-            for (int j = 0; j < 6; j ++) {
+            int j;
+            for (j = 0; j < 6;) {
                 uint32_t v = strtoul (p, &p, 16);
-                if ((*p != ((j == 5) ? 0 : ':')) || (v > 255) || ((j == 0) && (v & 1))) {
-                    fprintf (stderr, "bad mac address %s\n", argv[i]);
-                    return 1;
-                }
-                addr[j] = v;
-                p ++;
+                if (v > 255) goto badmacaddr;
+                addr[j++] = v;
+                if (*p == 0) goto gotmacaddr;
+                if (*(p ++) != ':') goto badmacaddr;
             }
+        badmacaddr:;
+            fprintf (stderr, "bad mac address %s\n", argv[i]);
+            return 1;
+        gotmacaddr:;
+            memcpy (((uint8_t *)defethaddr) + 6 - j, addr, j);
+            macopt = true;
             continue;
         }
         fprintf (stderr, "unknown option/argument %s\n", argv[i]);
         return 1;
+    }
+
+    // if -mac not given, use first xor last 3 bytes of hardware eth0 as last 3 bytes of DEUNA
+    if (! macopt) {
+        char macname[strlen(ethdev)+26];
+        sprintf (macname, "/sys/class/net/%s/address", ethdev);
+        FILE *macfile = fopen (macname, "r");
+        if (macfile == NULL) {
+            fprintf (stderr, "z11xe: error opening %s: %m\n", macname);
+            ABORT ();
+        }
+        char macline[40];
+        fgets (macline, sizeof macline, macfile);
+        fclose (macfile);
+        unsigned int macaddr[6];
+        if (sscanf (macline, "%x:%x:%x:%x:%x:%x", &macaddr[0], &macaddr[1],
+                &macaddr[2], &macaddr[3], &macaddr[4], &macaddr[5]) != 6) {
+            fprintf (stderr, "z11xe: bad %s mac address %s\n", macname, macline);
+            ABORT ();
+        }
+        ((uint8_t *)defethaddr)[3] = macaddr[3] ^ macaddr[0];
+        ((uint8_t *)defethaddr)[4] = macaddr[4] ^ macaddr[1];
+        ((uint8_t *)defethaddr)[5] = macaddr[5] ^ macaddr[2];
     }
 
     // set up to transmit out using the given ethernet device
@@ -207,13 +249,10 @@ int main (int argc, char **argv)
         return 1;
     }
 
-    // set up default mac address to be current mac address
-    memcpy (curethaddr, defethaddr, 6);
-
     // access fpga register set for the DEUNA controller
     // lock it so we are only process accessing it
     z11p = new Z11Page ();
-    xeat = z11p->findev ("XE", NULL, NULL, true, false);
+    xeat = z11p->findev ("XE", NULL, NULL, true, killit);
 
     // man 7 packet
     sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
@@ -232,7 +271,16 @@ int main (int argc, char **argv)
         ABORT ();
     }
 
+    // set up default mac address to be current mac address
+    memcpy (curethaddr, defethaddr, 6);
+
+    fprintf (stderr, "z11xe: mac %02X:%02X:%02X:%02X:%02X:%02X on line %s\n",
+        curethaddr[0] & 0xFF, curethaddr[0] >> 8, curethaddr[1] & 0xFF, curethaddr[1] >> 8,
+        curethaddr[2] & 0xFF, curethaddr[2] >> 8, ethdev);
+
     // enable board to process io instructions
+    pcsr1 = DELU;   // 0=DEUNA - rsx4.5 decnet works with DELUA, not DEUNA (tries to upload mystery microcode)
+    ZWR(xeat[1], pcsr1 << 16);
     ZWR(xeat[3], XE3_ENAB);
 
     debug = 0;
@@ -250,6 +298,10 @@ int main (int argc, char **argv)
     return 0;
 }
 
+static char const* const portcommands[] = {
+    "NOP", "GET_PCBB", "GET_CMD", "SELF_TEST", "START", "BOOT", "NOT_USED_6", "NOT_USED_7",
+    "PDMD", "NOT_USED_9", "NOT_USED_10", "NOT_USED_11", "NOT_USED_12", "NOT_USED_13", "NOT_USED_14", "STOP" };
+
 // process functions in PCSR0<03:00> in response to PDP writes
 static void xeiothread ()
 {
@@ -264,16 +316,18 @@ static void xeiothread ()
         lockit ();
 
         uint16_t pcsr0 = ZRD(xeat[1]);          // read PCSR0
-        if (debug > 0) fprintf (stderr, "xeiothread: PCSR0=%06o\n", pcsr0);
+        if (debug > 0) fprintf (stderr, "xeiothread: PCSR0=%06o=%04X\n", pcsr0, pcsr0);
 
         if (! (pcsr0 & HIJK)) goto done;        // make sure hijack bit is set, not spurious wakeup
 
         if (pcsr0 & RSET) {                     // check for reset, can also be from bus_init just released
+            if (debug > 0) fprintf (stderr, "xeiothread:   reset\n");
             doreset ();
-            writepcsr0 (RSET | HIJK);           // clear reset and hijack bits
+            writepcsr0 (DNI | RSET | HIJK);     // set done bit, clear reset and hijack bits
         }
 
         else {
+            if (debug > 0) fprintf (stderr, "xeiothread:   portcmd=%s\n", portcommands[pcsr0&PCMD]);
             switch (pcsr0 & PCMD) {             // decode port command
                 case 0:
                 case 6:
@@ -329,7 +383,7 @@ static void xeiothread ()
 // p131/v4-75
 static void doreset ()
 {
-    pcsr1 = RDY;                    // set ready state, not running
+    pcsr1 = (pcsr1 & DELU) | RDY;                // set ready state, not running
     modebits = 0;
     rcbisetinh = false;
     curmlt = 0;
@@ -339,18 +393,26 @@ static void doreset ()
     counterszeroed = time (NULL);
 }
 
+static char const *const pcbfuncs[] = {
+    "NOP", "STUC", "RDPA", "NOP_3", "RPA", "WPA", "RMAL", "WMAL",
+    "RRF", "WRF", "RC", "RCC", "RDMOD", "WRMOD", "RPS", "RCPS",
+    "RDUC", "LDUC", "RSID", "WSID", "RLSA", "WLSA" };
+
 // process command in PCB
 // sets DNI or PCEI bit when done (p61/v4-5)
 static void getcommand (uint32_t pcbaddr)
 {
     uint16_t pcbdata[4];
+    uint16_t pcbfc;
 
     z11p->dmalock ();
 
     pcsr1 &= ~ PCTO;
 
     if (z11p->dmareadlocked (pcbaddr, &pcbdata[0]) != 0) goto dmaerror;
-    switch (pcbdata[0] & 0xFF) {
+    pcbfc = pcbdata[0] & 0xFF;
+    if (debug > 0) fprintf (stderr, "gotcommand: func=%03o  %s\n", pcbfc, ((pcbfc < 026) ? pcbfuncs[pcbfc] : ""));
+    switch (pcbfc) {
 
         // nop
         case 000: {
@@ -412,6 +474,10 @@ static void getcommand (uint32_t pcbaddr)
                 if (z11p->dmareadlocked (udbb + i * 6 + 2, &mltaddrtable[i*3+1])) goto dmaerror;
                 if (z11p->dmareadlocked (udbb + i * 6 + 4, &mltaddrtable[i*3+2])) goto dmaerror;
                 if (! (mltaddrtable[i*3+0] & 1)) goto funceror;
+                if (debug > 1) fprintf (stderr, "gotcommand:  mltaddrtable[%u] = %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    i, mltaddrtable[i*3+0] & 0xFF, mltaddrtable[i*3+0] >> 8,
+                       mltaddrtable[i*3+1] & 0xFF, mltaddrtable[i*3+1] >> 8,
+                       mltaddrtable[i*3+2] & 0xFF, mltaddrtable[i*3+2] >> 8);
                 curmlt ++;
             }
             break;
@@ -451,6 +517,8 @@ static void getcommand (uint32_t pcbaddr)
             ringfmt.trlen = rfbuf[2];
             ringfmt.relen = rfbuf[4] >> 8;
             ringfmt.telen = rfbuf[1] >> 8;
+            if (debug > 1) fprintf (stderr, "getcommand:   rrlen=%u trlen=%u relen=%u telen=%u\n",
+                ringfmt.rrlen, ringfmt.trlen, ringfmt.relen, ringfmt.telen);
 
             rdrca = ringfmt.rdrb;
             tdrca = ringfmt.tdrb;
@@ -493,6 +561,7 @@ static void getcommand (uint32_t pcbaddr)
             if (z11p->dmareadlocked (pcbaddr + 2, &mode) != 0) goto dmaerror;
             if (mode & 0x05F2) goto funceror;
             modebits = mode;
+            if (debug > 1) fprintf (stderr, "getcommand:   modebits=%04X\n", modebits);
             break;
         }
 
@@ -513,7 +582,7 @@ static void getcommand (uint32_t pcbaddr)
     writepcsr0 (DNI | HIJK);
     goto done;
 dmaerror:;
-    pcsr1 |= PCTO;                  // set PCTO - set port command timeout
+    pcsr1 |= PCTO;                  // set PCTO - set port command dma timeout
 funceror:;
     writepcsr0 (PCEI | HIJK);
 done:;
@@ -524,9 +593,9 @@ done:;
 static void *receivethread (void *dummy)
 {
     while (true) {
-        uint16_t rcvbuf[757];
+        uint16_t rcvwrd[757];
 
-        int rc = read (sockfd, rcvbuf, sizeof rcvbuf);
+        int rc = read (sockfd, rcvwrd, sizeof rcvwrd);
         if (rc < 0) {
             fprintf (stderr, "z11xe: error receiving packet: %m\n");
             ABORT ();
@@ -537,143 +606,17 @@ static void *receivethread (void *dummy)
         }
 
         lockit ();
-        if (debug > 2) {
-            fprintf (stderr, "receivethread: rc=%05d:", rc);
-            for (int i = 0; (i < 20) & (i < rc); i ++) fprintf (stderr, " %02X", ((uint8_t *)rcvbuf)[i]);
-            fprintf (stderr, "\n");
-        }
-
-        if ((pcsr1 & RUN) && matchesincoming (rcvbuf)) {
-            if (ringfmt.rrlen == 0) {
-                if (debug > 1) fprintf (stderr, "receivethread: ring empty\n");
-                if (! rcbisetinh) writepcsr0 (RCBI);
-                rcbisetinh = true;  // don't set again until told to rescan ring
-            } else {
-                uint32_t packetsrcvd   = counters.packetsrcvd   + 1;    // p89
-                uint32_t databytesrcvd = counters.databytesrcvd + rc - 14;
-                if (packetsrcvd   < counters.packetsrcvd)   packetsrcvd   = 0xFFFFFFFFU;
-                if (databytesrcvd < counters.databytesrcvd) databytesrcvd = 0xFFFFFFFFU;
-                counters.packetsrcvd   = packetsrcvd;
-                counters.databytesrcvd = databytesrcvd;
-
-                z11p->dmalock ();
-
-                uint16_t numbytestogo = (uint16_t) rc;
-                uint16_t index  = 0;
-                uint16_t status = 0;
-                do {
-
-                    // hopefully descriptor entry pointed to by rdrca is owned by DEUNA
-                    // p113/v4-57
-                    uint16_t rdrb[3];
-                    for (int i = 0; i < 3; i ++) {
-                        if (z11p->dmareadlocked ((rdrca + i * 2) & 0777776, &rdrb[i]) != 0) goto dmaerror;
-                    }
-                    if (! (rdrb[2] & OWN)) {
-                        if (debug > 1) fprintf (stderr, "receivethread: ring overflow\n");
-                        if (! rcbisetinh) status |= RCBI;       // set RCBI - receive buffer unabailable interrupt
-                        rcbisetinh = true;                      // don't set again until told to rescan ring
-                        break;                                  // abandon incoming packet
-                    }
-                    if (debug > 1) fprintf (stderr, "receivethread: packet accepted index=%u\n", index);
-
-                    // compute address of next ring entry, possibly wrapping
-                    uint32_t rdrna = (rdrca + ringfmt.relen * 2) & 0777776;
-                    if (((rdrna - ringfmt.rdrb) & 0777776) >= (ringfmt.rrlen * ringfmt.relen * 2)) {
-                        rdrna = ringfmt.rdrb;
-                    }
-
-                    // set up status values
-                    uint8_t  byte5 = 0;
-                    uint16_t word6 = 0;
-
-                    if (index == 0) byte5 |= STP >> 8;          // STP - start of packet
-                    if (modebits & MODE_DRDC) word6 |= NCHN;    // NCHN - not in chaining mode
-
-                    // copy as much as we can to this descriptor's buffer
-                    uint16_t amountfits = (numbytestogo < (rdrb[0] & 0xFFFEU)) ? numbytestogo : (rdrb[0] & 0xFFFEU);
-                    uint32_t segb = (((uint32_t) rdrb[2] << 16) | rdrb[1]) & 0777776;
-                    for (uint16_t i = 0; i + 2 <= amountfits; i += 2) {
-                        if (! z11p->dmawritelocked (segb, rcvbuf[index])) {
-                            word6 |= UBTO;
-                            goto badbuf;
-                        }
-                        segb += 2;
-                        index ++;
-                    }
-                    if (amountfits & 1) {
-                        ASSERT (amountfits == numbytestogo);
-                        if (! z11p->dmawbytelocked (segb, rcvbuf[index])) {
-                            word6 |= UBTO;
-                        }
-                    }
-                badbuf:;
-
-                    // see if that was last of message
-                    uint16_t nextowner;
-                    if (amountfits == numbytestogo) {
-                        byte5 |= ENP >> 8;                      // ENP - end of packet
-                        word6 |= rc & 0x0FFFU;                  // MLEN - total message length in bytes
-                    }
-
-                    // if it didn't all fit, peek at owner of next descriptor in ring
-                    // if no further entry, assume it is owned by the PDP
-                    else if ((modebits & MODE_DRDC) ||
-                             (z11p->dmareadlocked ((rdrna + 4) & 0777776, &nextowner) != 0) ||
-                             ! (nextowner & OWN)) {
-                        word6 |= BUFL;                          // BUFL - buffer length error
-                        numbytestogo = amountfits;              // chop!
-                    }
-
-                    // write status out to memory, turning ownership over to PDP
-                    if (! z11p->dmawritelocked (rdrca + 6, word6)) goto dmaerror;
-                    if (! z11p->dmawbytelocked (rdrca + 5, byte5)) goto dmaerror;
-
-                    // set RXI - receive ring interrupt
-                    status |= RXI;
-
-                    // advance on to next ring entry
-                    rdrca = rdrna;
-
-                    // maybe there is more of this packet to process
-                    numbytestogo -= amountfits;
-                } while (numbytestogo > 0);
-
-                z11p->dmaunlk ();
-
-                // set RXI (receive ring interrupt) or RCBI (receive buffer unavailable) plus INTR
-                // p63
-                writepcsr0 (status);
-            }
-            goto done;
-        dmaerror:;
-            z11p->dmaunlk ();
-            portst1 |= ERRS | TMOT | RRNG;  // receive ring error (p96)
-            writepcsr0 (SERI);              // port status error
-        done:;
-        }
+        gotincoming (rcvwrd, rc);
         unlkit ();
     }
-}
-
-// see if incoming packet matches receive filters
-static bool matchesincoming (uint16_t const *rcvbuf)
-{
-    if (modebits & MODE_PROM) return true;
-    if (! (rcvbuf[0] & 1)) return memcmp (rcvbuf, curethaddr, 6) == 0;
-    if (memcmp (rcvbuf, bdcastaddr, 6) == 0) return true;
-    for (uint8_t i = 0; i < curmlt; i ++) {
-        if (memcmp (rcvbuf, &mltaddrtable[i*3], 6) == 0) return true;
-    }
-    return false;
 }
 
 // wait for PDP to put buffers in ring then send out over ethernet
 static void *transmithread (void *dummy)
 {
     bool didsomething = false;
-    uint8_t xmtbuf[1514];
-    uint32_t index = 0xFFFFFFFFU;
+    int xmtlen = -1;
+    union { uint16_t w[757]; uint8_t b[1514]; } xmtb;
 
     lockit ();
     while (true) {
@@ -718,72 +661,86 @@ static void *transmithread (void *dummy)
             }
 
             // see how many bytes in buffer and check for overflow
-            if (tdrb[2] & 0x200) index = 0;         // STP - start of buffer
+            if (tdrb[2] & 0x200) xmtlen = 0;        // STP - start of buffer
 
-            if (index == 0xFFFFFFFFU) {             // looking for start of buffer (STP)
+            if (xmtlen < 0) {                       // looking for start of buffer (STP)
                 if (! z11p->dmawritelocked (tdrpa + 6, tdrb[3] | BUFL)) goto dmaerror;
                 goto dmaunlok;                      // not found, set BUFL then check next descriptor
             }
 
-            if (index + tdrb[0] > sizeof xmtbuf) {  // see if message too int
+            if (xmtlen + tdrb[0] > (int) sizeof xmtb) { // see if message too int
                 if (! z11p->dmawritelocked (tdrpa + 6, tdrb[3] | BUFL)) goto dmaerror;
-                index = 0xFFFFFFFFU;                // search for STP
+                xmtlen = -1;                        // search for STP
                 goto dmaunlok;                      // if so, set BUFL then check next descriptor
             }
 
-            // transfer from unibus to xmtbuf
+            // transfer from unibus to xmtb.b
             segb = ((uint32_t) tdrb[2] << 16) | tdrb[1];
             while (tdrb[0] > 0) {
                 uint16_t word;
                 if (z11p->dmareadlocked (segb & 0777776, &word) != 0) {
                     if (! z11p->dmawritelocked (tdrpa + 6, tdrb[3] | UBTO)) goto dmaerror;
-                    index = 0xFFFFFFFFU;            // timeout reading memory, abandon this packet
+                    xmtlen = 1;                     // timeout reading memory, abandon this packet
                     goto relpacket;
                 }
                 if (segb & 1) {
-                    xmtbuf[index++] = word >> 8;
+                    xmtb.b[xmtlen++] = word >> 8;
                     segb ++;
                     tdrb[0] --;
                     continue;
                 }
                 if (tdrb[0] == 1) {
-                    xmtbuf[index++] = word;
+                    xmtb.b[xmtlen++] = word;
                     break;
                 }
-                xmtbuf[index++] = word;
-                xmtbuf[index++] = word >> 8;
+                xmtb.b[xmtlen++] = word;
+                xmtb.b[xmtlen++] = word >> 8;
                 segb += 2;
                 tdrb[0] -= 2;
             }
 
             // if ENP (end of packet), transmit packet
             if (tdrb[2] & ENP) {
+                memcpy (xmtb.b + 6, curethaddr, 6);
 
                 z11p->dmaunlk ();
-                unlkit ();
 
-                int rc = sendto (sockfd, xmtbuf, index, 0, (sockaddr const *) &sendtoaddr, sizeof sendtoaddr);
-                if (rc < 0) {
-                    fprintf (stderr, "z11xe: error transmitting: %m\n");
-                    ABORT ();
-                }
-                if (rc != (int) index) {
-                    fprintf (stderr, "z11xe: only sent %d bytes of %u byte packet\n", rc, index);
-                    ABORT ();
+                if (debug > 1) {
+                    fprintf (stderr, "transmithread: xmtlen=%d:", xmtlen);
+                    for (int i = 0; (i < 20) && (i < xmtlen); i ++) {
+                        fprintf (stderr, " %02X", xmtb.b[i]);
+                    }
+                    fputc ('\n', stderr);
                 }
 
-                lockit ();
+                if (modebits & MODE_LOOP) {
+                    gotincoming (xmtb.w, xmtlen);
+                } else {
+                    unlkit ();
+
+                    int rc = sendto (sockfd, xmtb.b, xmtlen, 0, (sockaddr const *) &sendtoaddr, sizeof sendtoaddr);
+                    if (rc < 0) {
+                        fprintf (stderr, "z11xe: error transmitting: %m\n");
+                        ABORT ();
+                    }
+                    if (rc != xmtlen) {
+                        fprintf (stderr, "z11xe: only sent %d bytes of %d byte packet\n", rc, xmtlen);
+                        ABORT ();
+                    }
+
+                    lockit ();
+                }
 
                 // increment counters
                 uint32_t packetsxmtd   = counters.packetsxmtd   + 1;        // p89
-                uint32_t databytesxmtd = counters.databytesxmtd + rc - 14;
+                uint32_t databytesxmtd = counters.databytesxmtd + xmtlen - 14;
                 if (packetsxmtd   < counters.packetsxmtd)   packetsxmtd   = 0xFFFFFFFFU;
                 if (databytesxmtd < counters.databytesxmtd) databytesxmtd = 0xFFFFFFFFU;
                 counters.packetsxmtd   = packetsxmtd;
                 counters.databytesxmtd = databytesxmtd;
 
                 // looking for an STP (start of packet) flag for another packet to send
-                index = 0xFFFFFFFFU;
+                xmtlen = -1;
 
                 z11p->dmalock ();
             }
@@ -800,6 +757,146 @@ static void *transmithread (void *dummy)
         }
     }
     unlkit ();
+}
+
+// got an incoming packet, copy to receive ring and possibly send interrupt to pdp
+static void gotincoming (uint16_t *rcvwrd, int rc)
+{
+    if (debug > 2) {
+        uint8_t *rcvbyt = (uint8_t *) rcvwrd;
+        if (rcvbyt[12] != 0x08) {   // don't dump IPs and ARPs
+            fprintf (stderr, "gotincoming: rc=%05d:", rc);
+            for (int i = 0; (i < 20) & (i < rc); i ++) fprintf (stderr, " %02X", ((uint8_t *)rcvbyt)[i]);
+            fprintf (stderr, "\n");
+        }
+    }
+
+    if ((pcsr1 & RUN) && matchesincoming (rcvwrd)) {
+        if (ringfmt.rrlen == 0) {
+            if (debug > 1) fprintf (stderr, "gotincoming: ring empty\n");
+            if (! rcbisetinh) writepcsr0 (RCBI);
+            rcbisetinh = true;  // don't set again until told to rescan ring
+        } else {
+            uint32_t packetsrcvd   = counters.packetsrcvd   + 1;    // p89
+            uint32_t databytesrcvd = counters.databytesrcvd + rc - 14;
+            if (packetsrcvd   < counters.packetsrcvd)   packetsrcvd   = 0xFFFFFFFFU;
+            if (databytesrcvd < counters.databytesrcvd) databytesrcvd = 0xFFFFFFFFU;
+            counters.packetsrcvd   = packetsrcvd;
+            counters.databytesrcvd = databytesrcvd;
+
+            z11p->dmalock ();
+
+            uint16_t numbytestogo = (uint16_t) rc;
+            uint16_t index  = 0;
+            uint16_t status = 0;
+            do {
+
+                // hopefully descriptor entry pointed to by rdrca is owned by DEUNA
+                // p113/v4-57
+                uint16_t rdrb[3];
+                for (int i = 0; i < 3; i ++) {
+                    if (z11p->dmareadlocked ((rdrca + i * 2) & 0777776, &rdrb[i]) != 0) goto dmaerror;
+                }
+                if (! (rdrb[2] & OWN)) {
+                    if (debug > 1) fprintf (stderr, "gotincoming: ring overflow\n");
+                    if (! rcbisetinh) status |= RCBI;       // set RCBI - receive buffer unabailable interrupt
+                    rcbisetinh = true;                      // don't set again until told to rescan ring
+                    break;                                  // abandon incoming packet
+                }
+                if (debug > 1) fprintf (stderr, "gotincoming: packet accepted rdrca=%u index=%u\n", rdrca, index);
+
+                // compute address of next ring entry, possibly wrapping
+                uint32_t rdrna = (rdrca + ringfmt.relen * 2) & 0777776;
+                if (((rdrna - ringfmt.rdrb) & 0777776) >= (ringfmt.rrlen * ringfmt.relen * 2)) {
+                    rdrna = ringfmt.rdrb;
+                }
+
+                // set up status values
+                uint8_t  byte5 = 0;
+                uint16_t word6 = 0;
+
+                if (index == 0) byte5 |= STP >> 8;          // STP - start of packet
+                if (modebits & MODE_DRDC) word6 |= NCHN;    // NCHN - not in chaining mode
+
+                // copy as much as we can to this descriptor's buffer
+                uint16_t amountfits = (numbytestogo < (rdrb[0] & 0xFFFEU)) ? numbytestogo : (rdrb[0] & 0xFFFEU);
+                uint32_t segb = (((uint32_t) rdrb[2] << 16) | rdrb[1]) & 0777776;
+                for (uint16_t i = 0; i + 2 <= amountfits; i += 2) {
+                    if (! z11p->dmawritelocked (segb, rcvwrd[index])) {
+                        word6 |= UBTO;
+                        goto badbuf;
+                    }
+                    segb += 2;
+                    index ++;
+                }
+                if (amountfits & 1) {
+                    ASSERT (amountfits == numbytestogo);
+                    if (! z11p->dmawbytelocked (segb, rcvwrd[index])) {
+                        word6 |= UBTO;
+                    }
+                }
+            badbuf:;
+
+                // see if that was last of message
+                uint16_t nextowner;
+                if (amountfits == numbytestogo) {
+                    byte5 |= ENP >> 8;                      // ENP - end of packet
+                    word6 |= rc & 0x0FFFU;                  // MLEN - total message length in bytes
+                }
+
+                // if it didn't all fit, peek at owner of next descriptor in ring
+                // if no further entry, assume it is owned by the PDP
+                else if ((modebits & MODE_DRDC) ||
+                         (z11p->dmareadlocked ((rdrna + 4) & 0777776, &nextowner) != 0) ||
+                         ! (nextowner & OWN)) {
+                    word6 |= BUFL;                          // BUFL - buffer length error
+                    numbytestogo = amountfits;              // chop!
+                }
+
+                // write status out to memory, turning ownership over to PDP
+                if (! z11p->dmawritelocked (rdrca + 6, word6)) goto dmaerror;
+                if (! z11p->dmawbytelocked (rdrca + 5, byte5)) goto dmaerror;
+
+                // set RXI - receive ring interrupt
+                status |= RXI;
+
+                // advance on to next ring entry
+                rdrca = rdrna;
+
+                // maybe there is more of this packet to process
+                numbytestogo -= amountfits;
+            } while (numbytestogo > 0);
+
+            z11p->dmaunlk ();
+
+            // set RXI (receive ring interrupt) or RCBI (receive buffer unavailable) plus INTR
+            // p63
+            writepcsr0 (status);
+        }
+        goto done;
+    dmaerror:;
+        z11p->dmaunlk ();
+        portst1 |= ERRS | TMOT | RRNG;  // receive ring error (p96)
+        writepcsr0 (SERI);              // port status error
+    done:;
+    }
+}
+
+// see if incoming packet matches receive filters
+static bool maceq (uint16_t const *a, uint16_t const *b)
+{
+    return (a[0] == b[0]) && (a[1] == b[1]) && (a[2] == b[2]);
+}
+static bool matchesincoming (uint16_t const *rcvwrd)
+{
+    if (modebits & MODE_PROM) return true;
+    if (! (rcvwrd[0] & 1)) return maceq (rcvwrd, curethaddr);
+    if (modebits & MODE_ENAL) return true;
+    if (maceq (rcvwrd, bdcastaddr)) return true;
+    for (uint8_t i = 0; i < curmlt; i ++) {
+        if (maceq (rcvwrd, &mltaddrtable[i*3])) return true;
+    }
+    return false;
 }
 
 static void writepcsr0 (uint16_t pcsr0)
