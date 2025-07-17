@@ -127,6 +127,8 @@ struct RingFmt {
     uint8_t  telen;
 };
 
+union Packet { uint16_t w[757]; uint8_t b[1514]; };
+
 static uint16_t const bdcastaddr[3] = { 0xFFFFU, 0xFFFFU, 0xFFFFU };
 static uint16_t defethaddr[3] = { 0x0008U, 0x002BU, 0 };
 
@@ -134,6 +136,7 @@ static bool rcbisetinh;
 static Counters counters;
 static int debug;
 static int sockfd;
+static Packet rcvp, xmtp;
 static pthread_cond_t thecond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t themutex = PTHREAD_MUTEX_INITIALIZER;
 static RingFmt ringfmt;
@@ -146,15 +149,22 @@ static uint16_t modebits;
 static uint16_t pcsr1;
 static uint16_t portst1;                // port status (p96)
 static uint32_t volatile *xeat;         // fpga xe11.v registers
+static uint32_t pcbaddr;
 static uint32_t rdrca;                  // receive descriptor ring current address
 static uint32_t tdrca;                  // transmit descriptor ring current address
 
 static void xeiothread ();
+static void xeiothread_locked ();
 static void doreset ();
-static void getcommand (uint32_t pcbaddr);
+static void getcommand_locked ();
+static void getcommand_dmalkd ();
 static void *receivethread (void *dummy);
 static void *transmithread (void *dummy);
-static void gotincoming (uint16_t *rcvwrd, int rc);
+static void transmithread_locked ();
+static bool transmithread_dmalkd ();
+static void transmithread_dmaulk (int xmtlen);
+static void gotincoming_locked (int rc);
+static uint16_t gotincoming_dmalkd (uint16_t rcvlen);
 static bool matchesincoming (uint16_t const *rcvwrd);
 static void writepcsr0 (uint16_t pcsr0);
 static void lockit ();
@@ -368,7 +378,6 @@ static char const* const portcommands[] = {
 // process functions in PCSR0<03:00> in response to PDP writes
 static void xeiothread ()
 {
-    uint32_t pcbaddr = 0;
     while (true) {
 
         // wait for PDP to set RSET or write PCMD
@@ -377,69 +386,72 @@ static void xeiothread ()
         z11page->waitint (ZGINT_XE);
 
         lockit ();
-
-        uint16_t pcsr0 = ZRD(xeat[1]);          // read PCSR0
-        if (debug > 0) fprintf (stderr, "xeiothread: PCSR0=%06o=%04X\n", pcsr0, pcsr0);
-
-        if (! (pcsr0 & HIJK)) goto done;        // make sure hijack bit is set, not spurious wakeup
-
-        if (pcsr0 & RSET) {                     // check for reset, can also be from bus_init just released
-            if (debug > 0) fprintf (stderr, "xeiothread:   reset\n");
-            doreset ();
-            writepcsr0 (DNI | RSET | HIJK);     // set done bit, clear reset and hijack bits
-        }
-
-        else {
-            if (debug > 0) fprintf (stderr, "xeiothread:   portcmd=%s\n", portcommands[pcsr0&PCMD]);
-            switch (pcsr0 & PCMD) {             // decode port command
-                case 0:
-                case 6:
-                case 7: {   // nop without setting DNI
-                    writepcsr0 (HIJK);
-                    goto done;
-                }
-                case 1: {   // get pcbb
-                    pcbaddr = ZRD(xeat[2]) & 0777776;
-                    break;
-                }
-                case 2: {   // get cmd
-                    getcommand (pcbaddr);
-                    goto done;
-                }
-                case 3: {   // self test
-                    doreset ();
-                    break;
-                }
-                case 4: {   // start
-                    if (! (pcsr1 & RUN)) {      // nop if already running
-                        rcbisetinh = false;
-                        pcsr1 |=   RUN;         // set running bit (state = 3)
-                        rdrca = ringfmt.rdrb;   // reset rings
-                        tdrca = ringfmt.tdrb;
-                        waketransmit ();        // see if anything ready to transmit
-                    }
-                    break;
-                }
-                case 5: {   // boot
-                    break;
-                }
-                case 8: {   // polling demand
-                    rcbisetinh = false;
-                    waketransmit ();            // see if anything ready to transmit
-                    break;
-                }
-                case 15: {  // stop
-                    pcsr1 &= ~ RUN;             // clear running bit (state = 2)
-                    break;
-                }
-            }
-
-            writepcsr0 (DNI | HIJK);            // set port command done bit, clear hijack bit
-        }
-
-    done:;
+        xeiothread_locked ();
         unlkit ();
     }
+}
+
+// process function (reset or port command) posted to registers by PDP
+// 'themutex' locked on entry and exit
+static void xeiothread_locked ()
+{
+    uint16_t pcsr0 = ZRD(xeat[1]);          // read PCSR0
+    if (debug > 0) fprintf (stderr, "xeiothread: PCSR0=%06o=%04X\n", pcsr0, pcsr0);
+
+    if (! (pcsr0 & HIJK)) return;           // make sure hijack bit is set, not spurious wakeup
+
+    if (pcsr0 & RSET) {                     // check for reset, can also be from bus_init just released
+        if (debug > 0) fprintf (stderr, "xeiothread:   reset\n");
+        doreset ();
+        writepcsr0 (DNI | RSET | HIJK);     // set done bit, clear reset and hijack bits
+        return;
+    }
+
+    if (debug > 0) fprintf (stderr, "xeiothread:   portcmd=%s\n", portcommands[pcsr0&PCMD]);
+    switch (pcsr0 & PCMD) {                 // decode port command
+        case 0:
+        case 6:
+        case 7: {   // nop without setting DNI
+            writepcsr0 (HIJK);
+            return;
+        }
+        case 1: {   // get pcbb
+            pcbaddr = ZRD(xeat[2]) & 0777776;
+            break;
+        }
+        case 2: {   // get cmd
+            getcommand_locked ();
+            return;
+        }
+        case 3: {   // self test
+            doreset ();
+            break;
+        }
+        case 4: {   // start
+            if (! (pcsr1 & RUN)) {          // nop if already running
+                rcbisetinh = false;
+                pcsr1 |=   RUN;             // set running bit (state = 3)
+                rdrca = ringfmt.rdrb;       // reset rings
+                tdrca = ringfmt.tdrb;
+                waketransmit ();            // see if anything ready to transmit
+            }
+            break;
+        }
+        case 5: {   // boot
+            break;
+        }
+        case 8: {   // polling demand
+            rcbisetinh = false;
+            waketransmit ();                // see if anything ready to transmit
+            break;
+        }
+        case 15: {  // stop
+            pcsr1 &= ~ RUN;                 // clear running bit (state = 2)
+            break;
+        }
+    }
+
+    writepcsr0 (DNI | HIJK);                // set port command done bit, clear hijack bit
 }
 
 // bus_init just released, RSET just set, or self-test command
@@ -463,12 +475,19 @@ static char const *const pcbfuncs[] = {
 
 // process command in PCB
 // sets DNI or PCEI bit when done (p61/v4-5)
-static void getcommand (uint32_t pcbaddr)
+// 'themutex' locked on entry and exit
+static void getcommand_locked ()
+{
+    z11page->dmalock ();
+    getcommand_dmalkd ();
+    z11page->dmaunlk ();
+}
+
+// 'themutex' and 'dmamutex' locked on entry and exit
+static void getcommand_dmalkd ()
 {
     uint16_t pcbdata[4];
     uint16_t pcbfc;
-
-    z11page->dmalock ();
 
     pcsr1 &= ~ PCTO;
 
@@ -643,50 +662,33 @@ static void getcommand (uint32_t pcbaddr)
         default: goto funceror;
     }
     writepcsr0 (DNI | HIJK);
-    goto done;
+    return;
+
 dmaerror:;
     pcsr1 |= PCTO;                  // set PCTO - set port command dma timeout
 funceror:;
     writepcsr0 (PCEI | HIJK);
-done:;
-    z11page->dmaunlk ();
 }
 
-// process incoming packets, passing them along to the PDP
-static void *receivethread (void *dummy)
-{
-    while (true) {
-        union { uint16_t w[757]; uint8_t b[1514]; } rcvb;
-
-        int rc = read (sockfd, rcvb.b, sizeof rcvb.b);
-        if (rc < 0) {
-            fprintf (stderr, "z11xe: error receiving packet: %m\n");
-            ABORT ();
-        }
-        if (rc < 14) {
-            fprintf (stderr, "z11xe: runt %d-byte packet received\n", rc);
-            continue;
-        }
-
-        if (rc < MINPKTLEN) {
-            memset (rcvb.b + rc, 0, MINPKTLEN - rc);
-            rc = MINPKTLEN;
-        }
-
-        lockit ();
-        gotincoming (rcvb.w, rc);
-        unlkit ();
-    }
-}
+///////////////////////
+//  TRANSMIT THREAD  //
+///////////////////////
 
 // wait for PDP to put buffers in ring then send out over ethernet
 static void *transmithread (void *dummy)
 {
-    bool didsomething = false;
-    int xmtlen = -1;
-    union { uint16_t w[757]; uint8_t b[1514]; } xmtb;
-
     lockit ();
+    transmithread_locked ();
+    unlkit ();
+    return NULL;
+}
+
+// process messages in transmit ring
+// 'themutex' locked on entry and exit
+static void transmithread_locked ()
+{
+    bool didsomething = false;
+
     while (true) {
 
         // p84
@@ -697,146 +699,198 @@ static void *transmithread (void *dummy)
 
             didsomething = true;
         } else {
-            uint16_t tdrb[4];
-            uint32_t segb;
-            uint32_t tdrpa;
-
             if (debug > 0) fprintf (stderr, "transmithread: trlen=%u\n", ringfmt.trlen);
 
             z11page->dmalock ();
-
-            // get descriptor
-            // p108
-            for (int i = 0; i < 4; i ++) {
-                if (z11page->dmareadlocked ((tdrca + i * 2) & 0777776, &tdrb[i]) != 0) goto dmaerror;
-            }
-
-            // OWN - stop if owned by the PDP
-            if (! (tdrb[2] & OWN)) {
-
-                // set TXI (transmit ring interrupt)
-                // p63/v4-7
-                writepcsr0 (TXI);       // transmitter going idle
-                didsomething = false;   // do the waittransmit() call above
-                goto dmaunlok;
-            }
-
-            // increment to next ring entry, wrapping if necessary
-            tdrpa = tdrca;
-            tdrca = (tdrca + ringfmt.telen * 2) & 0777776;
-            if (((tdrca - ringfmt.tdrb) & 0777776) >= (ringfmt.trlen * ringfmt.telen * 2)) {
-                tdrca = ringfmt.tdrb;
-            }
-
-            // see how many bytes in buffer and check for overflow
-            if (tdrb[2] & STP) xmtlen = 0;          // STP - start of buffer
-
-            if (xmtlen < 0) {                       // looking for start of buffer (STP)
-                if (! z11page->dmawritelocked (tdrpa + 6, tdrb[3] | BUFL)) goto dmaerror;
-                goto dmaunlok;                      // not found, set BUFL then check next descriptor
-            }
-
-            if (xmtlen + tdrb[0] > (int) sizeof xmtb) { // see if message too int
-                if (! z11page->dmawritelocked (tdrpa + 6, tdrb[3] | BUFL)) goto dmaerror;
-                xmtlen = -1;                        // search for STP
-                goto dmaunlok;                      // if so, set BUFL then check next descriptor
-            }
-
-            // transfer from unibus to xmtb.b
-            segb = ((uint32_t) tdrb[2] << 16) | tdrb[1];
-            while (tdrb[0] > 0) {
-                uint16_t word;
-                if (z11page->dmareadlocked (segb & 0777776, &word) != 0) {
-                    if (! z11page->dmawritelocked (tdrpa + 6, tdrb[3] | UBTO)) goto dmaerror;
-                    xmtlen = -1;                    // timeout reading memory, abandon this packet
-                    goto relpacket;
-                }
-                if (segb & 1) {
-                    xmtb.b[xmtlen++] = word >> 8;
-                    segb ++;
-                    tdrb[0] --;
-                    continue;
-                }
-                if (tdrb[0] == 1) {
-                    xmtb.b[xmtlen++] = word;
-                    break;
-                }
-                xmtb.b[xmtlen++] = word;
-                xmtb.b[xmtlen++] = word >> 8;
-                segb += 2;
-                tdrb[0] -= 2;
-            }
-
-            // if ENP (end of packet), transmit packet
-            if (tdrb[2] & ENP) {
-                z11page->dmaunlk ();
-
-                memcpy (xmtb.b + 6, curethaddr, 6);
-
-                if ((xmtlen < MINPKTLEN) && (modebits & MODE_TPAD)) {
-                    memset (xmtb.b + xmtlen, 0, MINPKTLEN - xmtlen);
-                    xmtlen = MINPKTLEN;
-                }
-
-                if (debug > 1) {
-                    fprintf (stderr, "transmithread: xmtlen=%d:", xmtlen);
-                    for (int i = 0; (i < 20) && (i < xmtlen); i ++) {
-                        fprintf (stderr, " %02X", xmtb.b[i]);
-                    }
-                    fputc ('\n', stderr);
-                }
-
-                if (modebits & MODE_LOOP) {
-                    gotincoming (xmtb.w, xmtlen);
-                } else {
-                    unlkit ();
-
-                    int rc = sendto (sockfd, xmtb.b, xmtlen, 0, (sockaddr const *) &sendtoaddr, sizeof sendtoaddr);
-                    if (rc != xmtlen) {
-                        if (rc < 0) {
-                            fprintf (stderr, "z11xe: error transmitting: %m\n");
-                        } else {
-                            fprintf (stderr, "z11xe: only sent %d bytes of %d byte packet\n", rc, xmtlen);
-                        }
-                        ABORT ();
-                    }
-
-                    lockit ();
-                }
-
-                // increment counters
-                uint32_t packetsxmtd   = counters.packetsxmtd   + 1;        // p89
-                uint32_t databytesxmtd = counters.databytesxmtd + xmtlen - 14;
-                if (packetsxmtd   < counters.packetsxmtd)   packetsxmtd   = 0xFFFFFFFFU;
-                if (databytesxmtd < counters.databytesxmtd) databytesxmtd = 0xFFFFFFFFU;
-                counters.packetsxmtd   = packetsxmtd;
-                counters.databytesxmtd = databytesxmtd;
-
-                // looking for an STP (start of packet) flag for another packet to send
-                xmtlen = -1;
-
-                z11page->dmalock ();
-            }
-
-            // mark packet owned by PDP
-        relpacket:;
-            if (z11page->dmawritelocked (tdrpa + 4, tdrb[2] & ~ OWN)) goto dmaunlok;
-
-        dmaerror:;
-            portst1 |= ERRS | TMOT | TRNG;  // transmit ring error (p96)
-            writepcsr0 (SERI);              // port status error
-        dmaunlok:;
+            didsomething = transmithread_dmalkd ();
             z11page->dmaunlk ();
         }
     }
-    unlkit ();
+}
+
+// process messages in transmit ring
+// 'themutex' and 'dmamutex' locked on entry and exit
+// returns:
+//  false: queue was empty, nothing processed
+//   true: something was in queue, processed
+static bool transmithread_dmalkd ()
+{
+    int xmtlen = -1;
+    uint16_t tdrb[4];
+    uint32_t segb;
+    uint32_t tdrpa;
+
+    // get descriptor
+    // p108
+    for (int i = 0; i < 4; i ++) {
+        if (z11page->dmareadlocked ((tdrca + i * 2) & 0777776, &tdrb[i]) != 0) goto dmaerror;
+    }
+
+    // OWN - stop if owned by the PDP
+    if (! (tdrb[2] & OWN)) {
+
+        // set TXI (transmit ring interrupt)
+        // p63/v4-7
+        writepcsr0 (TXI);       // transmitter going idle
+        return false;           // do the waittransmit() call above
+    }
+
+    // increment to next ring entry, wrapping if necessary
+    tdrpa = tdrca;
+    tdrca = (tdrca + ringfmt.telen * 2) & 0777776;
+    if (((tdrca - ringfmt.tdrb) & 0777776) >= (ringfmt.trlen * ringfmt.telen * 2)) {
+        tdrca = ringfmt.tdrb;
+    }
+
+    // see how many bytes in buffer and check for overflow
+    if (tdrb[2] & STP) xmtlen = 0;          // STP - start of buffer
+
+    if (xmtlen < 0) {                       // looking for start of buffer (STP)
+        if (! z11page->dmawritelocked (tdrpa + 6, tdrb[3] | BUFL)) goto dmaerror;
+        return true;                        // not found, set BUFL then check next descriptor
+    }
+
+    if (xmtlen + tdrb[0] > (int) sizeof xmtp) { // see if message too int
+        if (! z11page->dmawritelocked (tdrpa + 6, tdrb[3] | BUFL)) goto dmaerror;
+        xmtlen = -1;                        // search for STP
+        return true;                        // if so, set BUFL then check next descriptor
+    }
+
+    // transfer from unibus to xmtp.b
+    segb = ((uint32_t) tdrb[2] << 16) | tdrb[1];
+    while (tdrb[0] > 0) {
+        uint16_t word;
+        if (z11page->dmareadlocked (segb & 0777776, &word) != 0) {
+            if (! z11page->dmawritelocked (tdrpa + 6, tdrb[3] | UBTO)) goto dmaerror;
+            xmtlen = -1;                    // timeout reading memory, abandon this packet
+            goto relpacket;
+        }
+        if (segb & 1) {
+            xmtp.b[xmtlen++] = word >> 8;
+            segb ++;
+            tdrb[0] --;
+            continue;
+        }
+        if (tdrb[0] == 1) {
+            xmtp.b[xmtlen++] = word;
+            break;
+        }
+        xmtp.b[xmtlen++] = word;
+        xmtp.b[xmtlen++] = word >> 8;
+        segb += 2;
+        tdrb[0] -= 2;
+    }
+
+    // if ENP (end of packet), transmit packet
+    if (tdrb[2] & ENP) {
+
+        // transmit xmtp (xmtlen bytes)
+        z11page->dmaunlk ();
+        transmithread_dmaulk (xmtlen);
+        z11page->dmalock ();
+
+        // looking for an STP (start of packet) flag for another packet to send
+        xmtlen = -1;
+    }
+
+    // mark packet owned by PDP
+relpacket:;
+    if (z11page->dmawritelocked (tdrpa + 4, tdrb[2] & ~ OWN)) return true;
+
+dmaerror:;
+    portst1 |= ERRS | TMOT | TRNG;  // transmit ring error (p96)
+    writepcsr0 (SERI);              // port status error
+    return true;
+}
+
+// send the packet out
+// 'themutex' locked on entry and exit
+static void transmithread_dmaulk (int xmtlen)
+{
+    // fill in source mac address
+    memcpy (xmtp.b + 6, curethaddr, 6);
+
+    // pad to minimum packet length
+    if ((xmtlen < MINPKTLEN) && (modebits & MODE_TPAD)) {
+        memset (xmtp.b + xmtlen, 0, MINPKTLEN - xmtlen);
+        xmtlen = MINPKTLEN;
+    }
+
+    // maybe print out some bytes
+    if (debug > 1) {
+        fprintf (stderr, "transmithread: xmtlen=%d:", xmtlen);
+        for (int i = 0; (i < 20) && (i < xmtlen); i ++) {
+            fprintf (stderr, " %02X", xmtp.b[i]);
+        }
+        fputc ('\n', stderr);
+    }
+
+    // if loopback mode, just copy to receive queue
+    if (modebits & MODE_LOOP) {
+        memcpy (rcvp.b, xmtp.b, xmtlen);
+        gotincoming_locked (xmtlen);
+    } else {
+
+        // real transmit, releae 'themutex' (so receiver can run) while sending it
+        unlkit ();
+
+        int rc = sendto (sockfd, xmtp.b, xmtlen, 0, (sockaddr const *) &sendtoaddr, sizeof sendtoaddr);
+        if (rc != xmtlen) {
+            if (rc < 0) {
+                fprintf (stderr, "z11xe: error transmitting: %m\n");
+            } else {
+                fprintf (stderr, "z11xe: only sent %d bytes of %d byte packet\n", rc, xmtlen);
+            }
+            ABORT ();
+        }
+
+        lockit ();
+    }
+
+    // increment counters
+    uint32_t packetsxmtd   = counters.packetsxmtd   + 1;        // p89
+    uint32_t databytesxmtd = counters.databytesxmtd + xmtlen - 14;
+    if (packetsxmtd   < counters.packetsxmtd)   packetsxmtd   = 0xFFFFFFFFU;
+    if (databytesxmtd < counters.databytesxmtd) databytesxmtd = 0xFFFFFFFFU;
+    counters.packetsxmtd   = packetsxmtd;
+    counters.databytesxmtd = databytesxmtd;
+}
+
+//////////////////////
+//  RECEIVE THREAD  //
+//////////////////////
+
+// process incoming packets, passing them along to the PDP
+static void *receivethread (void *dummy)
+{
+    while (true) {
+        int rc = read (sockfd, rcvp.b, sizeof rcvp.b);
+        if (rc < 0) {
+            fprintf (stderr, "z11xe: error receiving packet: %m\n");
+            ABORT ();
+        }
+        if (rc < 14) {
+            fprintf (stderr, "z11xe: runt %d-byte packet received\n", rc);
+            continue;
+        }
+
+        if (rc < MINPKTLEN) {
+            memset (rcvp.b + rc, 0, MINPKTLEN - rc);
+            rc = MINPKTLEN;
+        }
+
+        lockit ();
+        gotincoming_locked (rc);
+        unlkit ();
+    }
 }
 
 // got an incoming packet, copy to receive ring and possibly send interrupt to pdp
-static void gotincoming (uint16_t *rcvwrd, int rc)
+// 'themutex' locked on entry and exit
+static void gotincoming_locked (int rc)
 {
     if (debug > 2) {
-        uint8_t *rcvbyt = (uint8_t *) rcvwrd;
+        uint8_t *rcvbyt = rcvp.b;
         if (rcvbyt[12] != 0x08) {   // don't dump IPs and ARPs
             fprintf (stderr, "gotincoming: rc=%05d:", rc);
             for (int i = 0; (i < 20) & (i < rc); i ++) fprintf (stderr, " %02X", ((uint8_t *)rcvbyt)[i]);
@@ -844,7 +898,7 @@ static void gotincoming (uint16_t *rcvwrd, int rc)
         }
     }
 
-    if ((pcsr1 & RUN) && matchesincoming (rcvwrd)) {
+    if ((pcsr1 & RUN) && matchesincoming (rcvp.w)) {
         if (ringfmt.rrlen == 0) {
             if (debug > 1) fprintf (stderr, "gotincoming: ring empty\n");
             if (! rcbisetinh) writepcsr0 (RCBI);
@@ -858,101 +912,105 @@ static void gotincoming (uint16_t *rcvwrd, int rc)
             counters.databytesrcvd = databytesrcvd;
 
             z11page->dmalock ();
-
-            uint16_t numbytestogo = (uint16_t) rc;
-            uint16_t index  = 0;
-            uint16_t status = 0;
-            do {
-
-                // hopefully descriptor entry pointed to by rdrca is owned by DEUNA
-                // p113/v4-57
-                uint16_t rdrb[3];
-                for (int i = 0; i < 3; i ++) {
-                    if (z11page->dmareadlocked ((rdrca + i * 2) & 0777776, &rdrb[i]) != 0) goto dmaerror;
-                }
-                if (! (rdrb[2] & OWN)) {
-                    if (debug > 1) fprintf (stderr, "gotincoming: ring overflow\n");
-                    if (! rcbisetinh) status |= RCBI;       // set RCBI - receive buffer unabailable interrupt
-                    rcbisetinh = true;                      // don't set again until told to rescan ring
-                    break;                                  // abandon incoming packet
-                }
-                if (debug > 1) fprintf (stderr, "gotincoming: packet accepted rdrca=%u index=%u\n", rdrca, index);
-
-                // compute address of next ring entry, possibly wrapping
-                uint32_t rdrna = (rdrca + ringfmt.relen * 2) & 0777776;
-                if (((rdrna - ringfmt.rdrb) & 0777776) >= (ringfmt.rrlen * ringfmt.relen * 2)) {
-                    rdrna = ringfmt.rdrb;
-                }
-
-                // set up status values
-                uint8_t  byte5 = 0;
-                uint16_t word6 = 0;
-
-                if (index == 0) byte5 |= STP >> 8;          // STP - start of packet
-                if (modebits & MODE_DRDC) word6 |= NCHN;    // NCHN - not in chaining mode
-
-                // copy as much as we can to this descriptor's buffer
-                uint16_t amountfits = (numbytestogo < (rdrb[0] & 0xFFFEU)) ? numbytestogo : (rdrb[0] & 0xFFFEU);
-                uint32_t segb = (((uint32_t) rdrb[2] << 16) | rdrb[1]) & 0777776;
-                for (uint16_t i = 0; i + 2 <= amountfits; i += 2) {
-                    if (! z11page->dmawritelocked (segb, rcvwrd[index])) {
-                        word6 |= UBTO;
-                        goto badbuf;
-                    }
-                    segb += 2;
-                    index ++;
-                }
-                if (amountfits & 1) {
-                    ASSERT (amountfits == numbytestogo);
-                    if (! z11page->dmawbytelocked (segb, rcvwrd[index])) {
-                        word6 |= UBTO;
-                    }
-                }
-            badbuf:;
-
-                // see if that was last of message
-                uint16_t nextowner;
-                if (amountfits == numbytestogo) {
-                    byte5 |= ENP >> 8;                      // ENP - end of packet
-                    word6 |= rc & 0x0FFFU;                  // MLEN - total message length in bytes
-                }
-
-                // if it didn't all fit, peek at owner of next descriptor in ring
-                // if no further entry, assume it is owned by the PDP
-                else if ((modebits & MODE_DRDC) ||
-                         (z11page->dmareadlocked ((rdrna + 4) & 0777776, &nextowner) != 0) ||
-                         ! (nextowner & OWN)) {
-                    word6 |= BUFL;                          // BUFL - buffer length error
-                    numbytestogo = amountfits;              // chop!
-                }
-
-                // write status out to memory, turning ownership over to PDP
-                if (! z11page->dmawritelocked (rdrca + 6, word6)) goto dmaerror;
-                if (! z11page->dmawbytelocked (rdrca + 5, byte5)) goto dmaerror;
-
-                // set RXI - receive ring interrupt
-                status |= RXI;
-
-                // advance on to next ring entry
-                rdrca = rdrna;
-
-                // maybe there is more of this packet to process
-                numbytestogo -= amountfits;
-            } while (numbytestogo > 0);
-
+            uint16_t status = gotincoming_dmalkd (rc);
             z11page->dmaunlk ();
 
             // set RXI (receive ring interrupt) or RCBI (receive buffer unavailable) plus INTR
             // p63
             writepcsr0 (status);
         }
-        goto done;
-    dmaerror:;
-        z11page->dmaunlk ();
-        portst1 |= ERRS | TMOT | RRNG;  // receive ring error (p96)
-        writepcsr0 (SERI);              // port status error
-    done:;
     }
+}
+
+// copy received packet to receive ring
+// 'themutex' and 'dmamutex' locked on entry and exit
+static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
+{
+    uint16_t numbytestogo = rcvlen;
+    uint16_t index  = 0;
+    uint16_t status = 0;
+    do {
+
+        // hopefully descriptor entry pointed to by rdrca is owned by DEUNA
+        // p113/v4-57
+        uint16_t rdrb[3];
+        for (int i = 0; i < 3; i ++) {
+            if (z11page->dmareadlocked ((rdrca + i * 2) & 0777776, &rdrb[i]) != 0) goto dmaerror;
+        }
+        if (! (rdrb[2] & OWN)) {
+            if (debug > 1) fprintf (stderr, "gotincoming: ring overflow\n");
+            if (! rcbisetinh) status |= RCBI;       // set RCBI - receive buffer unabailable interrupt
+            rcbisetinh = true;                      // don't set again until told to rescan ring
+            break;                                  // abandon incoming packet
+        }
+        if (debug > 1) fprintf (stderr, "gotincoming: packet accepted rdrca=%u index=%u\n", rdrca, index);
+
+        // compute address of next ring entry, possibly wrapping
+        uint32_t rdrna = (rdrca + ringfmt.relen * 2) & 0777776;
+        if (((rdrna - ringfmt.rdrb) & 0777776) >= (ringfmt.rrlen * ringfmt.relen * 2)) {
+            rdrna = ringfmt.rdrb;
+        }
+
+        // set up status values
+        uint8_t  byte5 = 0;
+        uint16_t word6 = 0;
+
+        if (index == 0) byte5 |= STP >> 8;          // STP - start of packet
+        if (modebits & MODE_DRDC) word6 |= NCHN;    // NCHN - not in chaining mode
+
+        // copy as much as we can to this descriptor's buffer
+        uint16_t amountfits = (numbytestogo < (rdrb[0] & 0xFFFEU)) ? numbytestogo : (rdrb[0] & 0xFFFEU);
+        uint32_t segb = (((uint32_t) rdrb[2] << 16) | rdrb[1]) & 0777776;
+        for (uint16_t i = 0; i + 2 <= amountfits; i += 2) {
+            if (! z11page->dmawritelocked (segb, rcvp.w[index])) {
+                word6 |= UBTO;
+                goto badbuf;
+            }
+            segb += 2;
+            index ++;
+        }
+        if (amountfits & 1) {
+            ASSERT (amountfits == numbytestogo);
+            if (! z11page->dmawbytelocked (segb, rcvp.w[index])) {
+                word6 |= UBTO;
+            }
+        }
+    badbuf:;
+
+        // see if that was last of message
+        uint16_t nextowner;
+        if (amountfits == numbytestogo) {
+            byte5 |= ENP >> 8;                      // ENP - end of packet
+            word6 |= rcvlen & 0x0FFFU;              // MLEN - total message length in bytes
+        }
+
+        // if it didn't all fit, peek at owner of next descriptor in ring
+        // if no further entry, assume it is owned by the PDP
+        else if ((modebits & MODE_DRDC) ||
+                 (z11page->dmareadlocked ((rdrna + 4) & 0777776, &nextowner) != 0) ||
+                 ! (nextowner & OWN)) {
+            word6 |= BUFL;                          // BUFL - buffer length error
+            numbytestogo = amountfits;              // chop!
+        }
+
+        // write status out to memory, turning ownership over to PDP
+        if (! z11page->dmawritelocked (rdrca + 6, word6)) goto dmaerror;
+        if (! z11page->dmawbytelocked (rdrca + 5, byte5)) goto dmaerror;
+
+        // set RXI - receive ring interrupt
+        status |= RXI;
+
+        // advance on to next ring entry
+        rdrca = rdrna;
+
+        // maybe there is more of this packet to process
+        numbytestogo -= amountfits;
+    } while (numbytestogo > 0);
+    return status;
+
+dmaerror:;
+    portst1 |= ERRS | TMOT | RRNG;  // receive ring error (p96)
+    return SERI;                    // port status error
 }
 
 // see if incoming packet matches receive filters
@@ -971,6 +1029,10 @@ static bool matchesincoming (uint16_t const *rcvwrd)
     }
     return false;
 }
+
+/////////////////
+//  UTILITIES  //
+/////////////////
 
 static void writepcsr0 (uint16_t pcsr0)
 {
