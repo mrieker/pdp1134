@@ -27,6 +27,7 @@ public class GUIZynqPage {
     public native static int getsr ();
     public native static int running ();
     public native static void setsr (int sr);
+    public native static int snapregs (int addr, short[] regs);
 
     public final static int DMAERR_TIMO = -1;   // timed out, nothing at that address
     public final static int DMAERR_PARE = -2;   // parity error, something there but corrupt

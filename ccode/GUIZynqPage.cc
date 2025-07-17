@@ -185,6 +185,24 @@ JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
 
 /*
  * Class:     GUIZynqPage
+ * Method:    snapregs
+ * Signature: (I[S)I
+ */
+JNIEXPORT jint JNICALL Java_GUIZynqPage_snapregs
+  (JNIEnv *env, jclass klass, jint addr, jshortArray regs)
+{
+    jsize count = EXCKR (env->GetArrayLength (regs));
+    jboolean iscopy;
+    jshort *regarray = EXCKR (env->GetShortArrayElements (regs, &iscopy));
+    if (regarray == NULL) ABORT ();
+    ASSERT (sizeof (jshort) == sizeof (uint16_t));
+    int rc = z11page->snapregs (addr, count, (uint16_t *) regarray);
+    env->ReleaseShortArrayElements (regs, regarray, 0);
+    return rc;
+}
+
+/*
+ * Class:     GUIZynqPage
  * Method:    rdmem
  * Signature: (I)I
  */

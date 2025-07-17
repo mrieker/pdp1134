@@ -165,6 +165,8 @@ public class Z11GUI extends JPanel {
     public static RLDrive[] rldrives = new RLDrive[4];
     public static TMDrive[] tmdrives = new TMDrive[2];
 
+    public static short[] realr0 = new short[1];
+
     // update display with processor state - runs continuously
     // if processor is running, display current processor state
     // otherwise, leave display alone so ldad/exam/dep buttons will work
@@ -176,8 +178,6 @@ public class Z11GUI extends JPanel {
                 updatetimemillis = System.currentTimeMillis ();
 
                 // read values from zynq fpga
-                int sample_addr = GUIZynqPage.addr ();
-                int sample_data = GUIZynqPage.data ();
                 int sample_lreg = GUIZynqPage.getlr ();
                 int sample_sreg = GUIZynqPage.getsr ();
                 int sample_running = GUIZynqPage.running ();
@@ -226,6 +226,14 @@ public class Z11GUI extends JPanel {
 
                 // if processor currently running, update lights from what fpga last captured from unibus
                 if (sample_running > 0) {
+                    int sample_addr = GUIZynqPage.addr ();
+                    int sample_data;
+                    if (fpgamode == FM_REAL) {
+                        int rc = GUIZynqPage.snapregs (0777700, realr0);
+                        sample_data = (rc < 0) ? rc : realr0[0];
+                    } else {
+                        sample_data = GUIZynqPage.data ();
+                    }
                     writeaddrleds (sample_addr);
                     writedataleds (sample_data);
                     berrled.setOn (false);
