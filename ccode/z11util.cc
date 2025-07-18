@@ -39,7 +39,7 @@ Z11Page *z11page;
 
 struct DMALockShm { int futex; };
 static DMALockShm *dmalockshm;
-static int mypid;
+static uint32_t mypid;
 
 Z11Page::Z11Page ()
 {
@@ -325,72 +325,33 @@ bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 // wait indefinitely in case being used by TCL scripting
 void Z11Page::dmalock ()
 {
-#if 111
-    if ((uint16_t) kyat[5] == (uint16_t) mypid) {
-        zynqpage[ILACTL] = ILACTL_AFTER0 * 3;
-        ABORT ();
-    }
+    ASSERT (kyat[5] != mypid);
     uint32_t delus = 10;
     while (true) {
-        kyat[5] = ((uint32_t) mypid << 16) | mypid;
-        uint16_t lkdby = kyat[5];
-        if (lkdby == (uint16_t) mypid) break;
+        kyat[5] = mypid;
+        uint32_t lkdby = kyat[5];
+        if (lkdby == mypid) break;
         if ((lkdby != 0) && (kill (lkdby, 0) < 0) && (errno == ESRCH)) {
             fprintf (stderr, "Z11Page::dmalock: locker %u dead\n", lkdby);
-            kyat[5] = ((uint32_t) mypid << 16) | lkdby;
+            kyat[5] = lkdby;
         }
         if (delus < 1000) delus += delus / 2;
         usleep (delus);
     }
-#else
-    int tmpfutex = 0;
-    while (! atomic_compare_exchange (&dmalockshm->futex, &tmpfutex, mypid)) {
-        ASSERT (tmpfutex != mypid);
-        if ((kill (tmpfutex, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "Z11Page::dmalock: locker %d dead\n", tmpfutex);
-        } else {
-            int rc = futex (&dmalockshm->futex, FUTEX_WAIT, tmpfutex, NULL, NULL, 0);
-            if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
-            tmpfutex = 0;
-        }
-    }
-#endif
     dmachecklocked ();
 }
 
 // release exclusive access to dma controller
 void Z11Page::dmaunlk ()
 {
-#if 111
     dmachecklocked ();
-    kyat[5] = ((uint32_t) mypid << 16) | mypid;
-    uint32_t kyat5 = kyat[5];
-    if ((uint16_t) kyat5 == (uint16_t) mypid) {
-        zynqpage[ILACTL] = ILACTL_AFTER0 * 3;
-        fprintf (stderr, "Z11Page::dmaunlk: kyat5=%08X mypid=%04X\n", kyat5, mypid);
-        ABORT ();
-    }
-#else
-    int tmpfutex = mypid;
-    if (! atomic_compare_exchange (&dmalockshm->futex, &tmpfutex, 0)) ABORT ();
-    if (futex (&dmalockshm->futex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-#endif
+    kyat[5] = mypid;
+    ASSERT (kyat[5] != mypid);
 }
 
 void Z11Page::dmachecklocked ()
 {
-#if 111
-    if ((uint16_t) kyat[5] != (uint16_t) mypid) {
-        zynqpage[ILACTL] = ILACTL_AFTER0 * 3;
-        ABORT ();
-    }
-#else
-    int lockedby = dmalockshm->futex;
-    if (lockedby != mypid) {
-        fprintf (stderr, "Z11Page::dmachecklocked: locked by %u, expected %u\n", lockedby, mypid);
-        ABORT ();
-    }
-#endif
+    ASSERT (kyat[5] == mypid);
 }
 
 // wait for interrupt(s) given in mask

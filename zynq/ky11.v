@@ -33,7 +33,6 @@ module ky11 (
     input[2:0] armraddr, armwaddr,
     input[31:00] armwdata,
     output[31:00] armrdata,
-    output reg[31:00] dmalock,
 
     input turbo,
 
@@ -78,12 +77,13 @@ module ky11 (
     reg[15:00] dmadata, lights, switches;
     reg[15:00] snapreg, snapregs[15:00];
     reg[17:00] dmaaddr;
+    reg[31:00] dmalock;
     reg[17:16] sr1716;
 
     reg[15:00] dma_d_out_h, swr_d_out_h;
     assign d_out_h = dma_d_out_h | swr_d_out_h;
 
-    assign armrdata = (armraddr == 0) ? 32'h4B592016 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h4B592015 : // [31:16] = 'KY'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? {
                             lights,         //16 ro 777570 light register
                             switches } :    //00 rw 777570 switch register
@@ -175,8 +175,8 @@ module ky11 (
                     dmadata  <= armwdata[15:00];
                 end
                 5: begin
-                    if (dmalock[15:00] == 0) dmalock <= armwdata;
-                    else if (dmalock[15:00] == armwdata[15:00]) dmalock <= { armwdata[31:16], 16'b0 };
+                         if (dmalock == 0) dmalock <= armwdata;
+                    else if (dmalock == armwdata) dmalock <= 0;
                 end
             endcase
         end

@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314024;
+    localparam VERSION = 32'h31314023;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -836,7 +836,6 @@ module Zynq (
     wire[7:2] ky_irqvec;
     wire[15:00] ky_d_out_h;
     wire[17:00] ky_a_out_h;
-    wire[31:00] kydmalock;
 
     ky11 kyinst (
         .CLOCK (CLOCK),
@@ -848,7 +847,6 @@ module Zynq (
         .armwaddr (writeaddr[4:2]),
         .armwdata (saxi_WDATA),
         .armwrite (kyarmwrite),
-        .dmalock  (kydmalock),
 
         .turbo (turbo),
 
@@ -1358,8 +1356,8 @@ module Zynq (
         lastmsyn <= dev_syn_msyn_h;
     end
 
-    wire ilatrigr = 0;
-    wire ilaenabl = kyarmwrite & (writeaddr[4:2] == 5);
+    wire ilatrigr = (sim_state == 3) & (dev_a_h == 0); // & 18'o777770) == 18'o760100) & dev_syn_msyn_h;
+    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // 1;
 
     // detect 'TSTB @R5 ; BPL .-2' to edit out lineclock testing loop
     /***
@@ -1398,8 +1396,17 @@ module Zynq (
 
     always @(*) begin
         ilacurwd = {
-            saxi_WDATA,
-            kydmalock
+            10'b0,              //54
+            sim_state,          //48
+            dev_a_h,            //30
+            dev_bg_l,           //26
+            dev_br_h,           //22
+            dev_c_h,            //20
+            dev_d_h,            //04
+            dev_syn_msyn_h,     //03
+            dev_npg_l,          //02
+            dev_npr_h,          //01
+            dev_syn_ssyn_h      //00
         };
     end
 
