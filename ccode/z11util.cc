@@ -20,6 +20,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -35,6 +36,7 @@
 
 Z11Page *z11page;
 
+static pthread_mutex_t dmamutex = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t mypid;
 
 Z11Page::Z11Page ()
@@ -308,6 +310,7 @@ bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 // wait indefinitely in case being used by TCL scripting
 void Z11Page::dmalock ()
 {
+    if (pthread_mutex_lock (&dmamutex) != 0) ABORT ();
     ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
     ASSERT (ZRD(kyat[5]) != mypid);
     uint32_t nus = 10;
@@ -331,6 +334,7 @@ void Z11Page::dmaunlk ()
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[5], mypid);
     ASSERT (ZRD(kyat[5]) != mypid);
+    if (pthread_mutex_unlock (&dmamutex) != 0) ABORT ();
 }
 
 // wait for interrupt(s) given in mask
