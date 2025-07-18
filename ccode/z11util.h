@@ -66,7 +66,6 @@ struct Z11Page {
     bool dmawritelocked (uint32_t xba, uint16_t data);
     void dmalock ();
     void dmaunlk ();
-    void dmachecklocked ();
     void waitint (uint32_t mask);
     int snapregs (uint32_t addr, int count, uint16_t *regs);
     void haltreq ();
@@ -77,6 +76,7 @@ struct Z11Page {
 private:
     int zynqfd;
     uint32_t volatile *kyat;
+    uint32_t volatile *pdpat;
     uint32_t volatile *zynqpage;
     void *zynqptr;
 };

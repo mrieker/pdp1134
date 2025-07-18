@@ -37,8 +37,6 @@
 
 Z11Page *z11page;
 
-struct DMALockShm { int futex; };
-static DMALockShm *dmalockshm;
 static uint32_t mypid;
 
 Z11Page::Z11Page ()
@@ -83,33 +81,20 @@ Z11Page::Z11Page ()
     z11page = this;
 
     mypid = getpid ();
-
-    int dmalockfd = shm_open ("/shm_zturn11_dma", O_RDWR | O_CREAT, 0666);
-    if (dmalockfd < 0) {
-        fprintf (stderr, "Z11Page::dmalock: error opening /shm_zturn11_dma: %m\n");
-        ABORT ();
-    }
-    fchmod (dmalockfd, 0666);
-    if (ftruncate (dmalockfd, sizeof *dmalockshm) < 0) {
-        fprintf (stderr, "Z11Page::dmalock: error setting /shm_zturn11_dma size: %m\n");
-        ABORT ();
-    }
-
-    dmalockshm = (DMALockShm *) mmap (NULL, sizeof *dmalockshm, PROT_READ | PROT_WRITE, MAP_SHARED, dmalockfd, 0);
-    if (dmalockshm == MAP_FAILED) ABORT ();
-
-    kyat = findev ("KY", NULL, NULL, false);
+    pdpat = findev ("11", NULL, NULL, false);
+    kyat  = findev ("KY", NULL, NULL, false);
 }
 
 Z11Page::~Z11Page ()
 {
     if (zynqptr != NULL) munmap (zynqptr, 4096);
     close (zynqfd);
-    z11page = NULL;
+    z11page  = NULL;
     zynqpage = NULL;
-    zynqptr = NULL;
-    zynqfd = -1;
-    kyat = NULL;
+    zynqptr  = NULL;
+    zynqfd   = -1;
+    pdpat    = NULL;
+    kyat     = NULL;
 }
 
 // find a device in the Z11 page
@@ -253,7 +238,7 @@ uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 
 uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
 {
-    dmachecklocked ();
+    ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
     uint32_t rc;
     for (int i = 0; ((rc = ZRD(kyat[3])) & KY3_DMASTATE) != 0; i ++) {
@@ -282,7 +267,7 @@ bool Z11Page::dmawbyte (uint32_t xba, uint8_t data)
 
 bool Z11Page::dmawbytelocked (uint32_t xba, uint8_t data)
 {
-    dmachecklocked ();
+    ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[4], KY4_DMADATA0 * 0401 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 3 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
@@ -310,7 +295,7 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 
 bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 {
-    dmachecklocked ();
+    ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[4], KY4_DMADATA0 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
@@ -325,33 +310,29 @@ bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 // wait indefinitely in case being used by TCL scripting
 void Z11Page::dmalock ()
 {
-    ASSERT (kyat[5] != mypid);
+    ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
+    ASSERT (ZRD(kyat[5]) != mypid);
     uint32_t delus = 10;
     while (true) {
-        kyat[5] = mypid;
-        uint32_t lkdby = kyat[5];
+        ZWR(kyat[5], mypid);
+        uint32_t lkdby = ZRD(kyat[5]);
         if (lkdby == mypid) break;
         if ((lkdby != 0) && (kill (lkdby, 0) < 0) && (errno == ESRCH)) {
             fprintf (stderr, "Z11Page::dmalock: locker %u dead\n", lkdby);
-            kyat[5] = lkdby;
+            ZWR(kyat[5], lkdby);
         }
         if (delus < 1000) delus += delus / 2;
         usleep (delus);
     }
-    dmachecklocked ();
+    ASSERT (ZRD(kyat[5]) == mypid);
 }
 
 // release exclusive access to dma controller
 void Z11Page::dmaunlk ()
 {
-    dmachecklocked ();
-    kyat[5] = mypid;
-    ASSERT (kyat[5] != mypid);
-}
-
-void Z11Page::dmachecklocked ()
-{
-    ASSERT (kyat[5] == mypid);
+    ASSERT (ZRD(kyat[5]) == mypid);
+    ZWR(kyat[5], mypid);
+    ASSERT (ZRD(kyat[5]) != mypid);
 }
 
 // wait for interrupt(s) given in mask
@@ -470,11 +451,11 @@ void Z11Page::resetit ()
 {
     dmalock ();
     kyat[2] |= KY2_HALTREQ;     // so it halts when started back up
-    zynqpage[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
+    pdpat[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
     usleep (200000);
-    zynqpage[Z_RA] &= ~ a_man_dc_lo_out_h;
+    pdpat[Z_RA] &= ~ a_man_dc_lo_out_h;
     usleep (1000);
-    zynqpage[Z_RA] &= ~ a_man_ac_lo_out_h;
+    pdpat[Z_RA] &= ~ a_man_ac_lo_out_h;
     dmaunlk ();
 }
 
