@@ -18,7 +18,6 @@ proc helpini {} {
     puts "                   hardreset - hard reset processor to halted state"
     puts "                     loadbin - load binary tape file, return start address"
     puts "                     loadlst - load from MACRO11 listing"
-    puts "                     lockdma - lock access to dma controller"
     puts "                     octal x - convert integer x to 6-digit octal string"
     puts "                 rdbyte addr - read byte at given physical address"
     puts "                 rdword addr - read word at given physical address"
@@ -30,7 +29,6 @@ proc helpini {} {
     puts "              sendttychar ch - send char to pdp via tty keyboard"
     puts "                   steptrace - single step with disassembly"
     puts "               steptraceloop - single step with disassembly - looped"
-    puts "                     unlkdma - unlock access to dma controller"
     puts "                      vatopa - convert virtual address to physical"
     puts "                 waitforcrlf - wait for <CR><LF> to be output to tty"
     puts "        waitforstring prompt - wait for string to be output to tty"
@@ -365,19 +363,6 @@ proc loadlst {lstname {wp wr}} {
     close $lstfile
 }
 
-# lock acess to dma controller
-proc lockdma {} {
-    set lockedby [pin ky_dmalock]
-    set mypid [pid]
-    if {$lockedby == $mypid} {error "dmalock: already locked by mypid $mypid"}
-    while true {
-        set lockedby [pin set ky_dmalock $mypid get ky_dmalock]
-        if {$lockedby == $mypid} return
-        if {! [file exists /proc/$lockedby]} {pin set ky_dmalock $lockedby}
-        if [ctrlcflag] {error "lockdma: control-C waiting for pid $lockedby to release dmalock"}
-    }
-}
-
 # convert given number to 6-digit octal string
 proc octal {x} {
     set len [llength $x]
@@ -566,14 +551,6 @@ proc steptrace {} {
 # stop on control-C or HALT instruction
 proc steptraceloop {} {
     while {! [ctrlcflag] && ! [pin ky_haltins]} steptrace
-}
-
-# unlock acess to dma controller
-proc unlkdma {} {
-    set lockedby [pin ky_dmalock]
-    set mypid [pid]
-    if {$lockedby != $mypid} {error "unlkdma: not locked by mypid $mypid"}
-    pin set ky_dmalock $mypid
 }
 
 # convert virtual address to physical address

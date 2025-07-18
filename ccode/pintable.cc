@@ -162,7 +162,6 @@ PinDef const pindefs[] = {
     { "ky_dmaaddr",      DEV_KY, 3,    0x0003FFFF,        0, true  },
     { "ky_dmadata",      DEV_KY, 4,    KY4_DMADATA,       0, true  },
     { "ky_snapreg",      DEV_KY, 4,    KY4_SNAPREG,       0, false },
-    { "ky_dmalock",      DEV_KY, 5,    0xFFFFFFFF,        0, true  },
 
     { "dl_rcsr",         DEV_DL, 1,    0x0000FFFF,        0, true  },
     { "dl_rbuf",         DEV_DL, 1,    0xFFFF0000,        0, true  },

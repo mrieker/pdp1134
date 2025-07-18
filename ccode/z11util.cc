@@ -27,16 +27,19 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
+#include "futex.h"
 #include "z11defs.h"
 #include "z11util.h"
 
 Z11Page *z11page;
 
-pthread_mutex_t Z11Page::dmamutex = PTHREAD_MUTEX_INITIALIZER;
-uint32_t Z11Page::mypid = getpid ();
+struct DMALockShm { int futex; };
+static DMALockShm *dmalockshm;
+static int mypid;
 
 Z11Page::Z11Page ()
 {
@@ -78,6 +81,24 @@ Z11Page::Z11Page ()
 
     ASSERT (z11page == NULL);
     z11page = this;
+
+    mypid = getpid ();
+
+    int dmalockfd = shm_open ("/shm_zturn11_dma", O_RDWR | O_CREAT, 0666);
+    if (dmalockfd < 0) {
+        fprintf (stderr, "Z11Page::dmalock: error opening /shm_zturn11_dma: %m\n");
+        ABORT ();
+    }
+    fchmod (dmalockfd, 0666);
+    if (ftruncate (dmalockfd, sizeof *dmalockshm) < 0) {
+        fprintf (stderr, "Z11Page::dmalock: error setting /shm_zturn11_dma size: %m\n");
+        ABORT ();
+    }
+
+    dmalockshm = (DMALockShm *) mmap (NULL, sizeof *dmalockshm, PROT_READ | PROT_WRITE, MAP_SHARED, dmalockfd, 0);
+    if (dmalockshm == MAP_FAILED) ABORT ();
+
+    kyat = findev ("KY", NULL, NULL, false);
 }
 
 Z11Page::~Z11Page ()
@@ -232,7 +253,7 @@ uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 
 uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
 {
-    ASSERT (ZRD(kyat[5]) == mypid);
+    dmachecklocked ();
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
     uint32_t rc;
     for (int i = 0; ((rc = ZRD(kyat[3])) & KY3_DMASTATE) != 0; i ++) {
@@ -261,7 +282,7 @@ bool Z11Page::dmawbyte (uint32_t xba, uint8_t data)
 
 bool Z11Page::dmawbytelocked (uint32_t xba, uint8_t data)
 {
-    ASSERT (ZRD(kyat[5]) == mypid);
+    dmachecklocked ();
     ZWR(kyat[4], KY4_DMADATA0 * 0401 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 3 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
@@ -289,7 +310,7 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 
 bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 {
-    ASSERT (ZRD(kyat[5]) == mypid);
+    dmachecklocked ();
     ZWR(kyat[4], KY4_DMADATA0 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
     for (int i = 0; (ZRD(kyat[3]) & KY3_DMASTATE) != 0; i ++) {
@@ -304,38 +325,35 @@ bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 // wait indefinitely in case being used by TCL scripting
 void Z11Page::dmalock ()
 {
-    ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
-
-    if (pthread_mutex_lock (&dmamutex) != 0) ABORT ();
-
-    // use ky11.v for dma transfers
-    if (kyat == NULL) {
-        kyat = findev ("KY", NULL, NULL, false, false);
-    }
-
-    ASSERT (ZRD(kyat[5]) != mypid);
-    int nus = 10;
-    while (true) {
-        ZWR(kyat[5], mypid);
-        uint32_t lkpid = ZRD(kyat[5]);
-        if (lkpid == mypid) break;
-        if ((lkpid != 0) && (kill (lkpid, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "Z11Page::dmalock: unlocking from dead %u\n", lkpid);
-            ZWR(kyat[5], lkpid);
+    int tmpfutex = 0;
+    while (! atomic_compare_exchange (&dmalockshm->futex, &tmpfutex, mypid)) {
+        ASSERT (tmpfutex != mypid);
+        if ((kill (tmpfutex, 0) < 0) && (errno == ESRCH)) {
+            fprintf (stderr, "Z11Page::dmalock: locker %d dead\n", tmpfutex);
+        } else {
+            int rc = futex (&dmalockshm->futex, FUTEX_WAIT, tmpfutex, NULL, NULL, 0);
+            if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();
+            tmpfutex = 0;
         }
-        if (nus < 1000) ++ nus;
-        usleep (nus);
     }
+    dmachecklocked ();
 }
 
 // release exclusive access to dma controller
 void Z11Page::dmaunlk ()
 {
-    ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
-    ASSERT (ZRD(kyat[5]) == mypid);
-    ZWR(kyat[5], mypid);
+    int tmpfutex = mypid;
+    if (! atomic_compare_exchange (&dmalockshm->futex, &tmpfutex, 0)) ABORT ();
+    if (futex (&dmalockshm->futex, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+}
 
-    if (pthread_mutex_unlock (&dmamutex) != 0) ABORT ();
+void Z11Page::dmachecklocked ()
+{
+    int lockedby = dmalockshm->futex;
+    if (lockedby != mypid) {
+        fprintf (stderr, "Z11Page::dmachecklocked: locked by %u, expected %u\n", lockedby, mypid);
+        ABORT ();
+    }
 }
 
 // wait for interrupt(s) given in mask

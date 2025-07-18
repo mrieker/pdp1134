@@ -930,6 +930,7 @@ static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
     uint16_t index  = 0;
     uint16_t status = 0;
     do {
+        z11page->dmachecklocked ();
 
         // hopefully descriptor entry pointed to by rdrca is owned by DEUNA
         // p113/v4-57
@@ -944,6 +945,7 @@ static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
             break;                                  // abandon incoming packet
         }
         if (debug > 1) fprintf (stderr, "gotincoming: packet accepted rdrca=%u index=%u\n", rdrca, index);
+        z11page->dmachecklocked ();
 
         // compute address of next ring entry, possibly wrapping
         uint32_t rdrna = (rdrca + ringfmt.relen * 2) & 0777776;
@@ -957,6 +959,7 @@ static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
 
         if (index == 0) byte5 |= STP >> 8;          // STP - start of packet
         if (modebits & MODE_DRDC) word6 |= NCHN;    // NCHN - not in chaining mode
+        z11page->dmachecklocked ();
 
         // copy as much as we can to this descriptor's buffer
         uint16_t amountfits = (numbytestogo < (rdrb[0] & 0xFFFEU)) ? numbytestogo : (rdrb[0] & 0xFFFEU);
@@ -976,6 +979,7 @@ static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
             }
         }
     badbuf:;
+        z11page->dmachecklocked ();
 
         // see if that was last of message
         uint16_t nextowner;
@@ -992,6 +996,7 @@ static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
             word6 |= BUFL;                          // BUFL - buffer length error
             numbytestogo = amountfits;              // chop!
         }
+        z11page->dmachecklocked ();
 
         // write status out to memory, turning ownership over to PDP
         if (! z11page->dmawritelocked (rdrca + 6, word6)) goto dmaerror;
@@ -1006,10 +1011,12 @@ static uint16_t gotincoming_dmalkd (uint16_t rcvlen)
         // maybe there is more of this packet to process
         numbytestogo -= amountfits;
     } while (numbytestogo > 0);
+    z11page->dmachecklocked ();
     return status;
 
 dmaerror:;
     portst1 |= ERRS | TMOT | RRNG;  // receive ring error (p96)
+    z11page->dmachecklocked ();
     return SERI;                    // port status error
 }
 

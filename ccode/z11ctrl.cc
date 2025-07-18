@@ -65,12 +65,14 @@ static Tcl_ObjCmdProc cmd_disasop;
 static Tcl_ObjCmdProc cmd_dllock;
 static Tcl_ObjCmdProc cmd_dlunlock;
 static Tcl_ObjCmdProc cmd_gettod;
+static Tcl_ObjCmdProc cmd_lockdma;
 static Tcl_ObjCmdProc cmd_msload;
 static Tcl_ObjCmdProc cmd_msstat;
 static Tcl_ObjCmdProc cmd_msunload;
 static Tcl_ObjCmdProc cmd_pin;
 static Tcl_ObjCmdProc cmd_readchar;
 static Tcl_ObjCmdProc cmd_snapregs;
+static Tcl_ObjCmdProc cmd_unlkdma;
 static Tcl_ObjCmdProc cmd_waitint;
 
 static TclFunDef const fundefs[] = {
@@ -78,6 +80,7 @@ static TclFunDef const fundefs[] = {
     { cmd_dllock,   NULL, "dllock",   "lock access to DL port" },
     { cmd_dlunlock, NULL, "dlunlock", "unlock access to DL port" },
     { cmd_gettod,   NULL, "gettod",   "get current time in us precision" },
+    { cmd_lockdma,  NULL, "lockdma",  "lock access to DMA registers" },
     { cmd_pin,      NULL, "pin",      "direct access to signals on zynq page" },
     { cmd_readchar, NULL, "readchar", "read character with timeout" },
     { cmd_msload,   (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
@@ -87,6 +90,7 @@ static TclFunDef const fundefs[] = {
     { cmd_msload,   (ClientData) &ctlidtm, "tmload",   "load file in TM drive" },
     { cmd_msstat,   (ClientData) &ctlidtm, "tmstat",   "get TM drive status" },
     { cmd_msunload, (ClientData) &ctlidtm, "tmunload", "unload file from TM drive" },
+    { cmd_unlkdma,  NULL, "unlkdma",  "unlock access to DMA registers" },
     { cmd_waitint,  NULL, "waitint",  "wait for interrupt" },
     { NULL, NULL, NULL, NULL }
 };
@@ -344,6 +348,12 @@ static int cmd_gettod (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
     struct timeval nowtv;
     if (gettimeofday (&nowtv, NULL) < 0) ABORT ();
     Tcl_SetResultF (interp, "%u.%06u", (uint32_t) nowtv.tv_sec, (uint32_t) nowtv.tv_usec);
+    return TCL_OK;
+}
+
+static int cmd_lockdma (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    z11page->dmalock ();
     return TCL_OK;
 }
 
@@ -770,6 +780,12 @@ static int cmd_snapregs (ClientData clientdata, Tcl_Interp *interp, int objc, Tc
     // some error that didn't return any registers
     Tcl_SetResultF (interp, "error %d snapping registers", rc);
     return TCL_ERROR;
+}
+
+static int cmd_unlkdma (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    z11page->dmaunlk ();
+    return TCL_OK;
 }
 
 // wait for interrupt from fpga
