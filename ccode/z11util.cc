@@ -27,11 +27,9 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
-#include "futex.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -312,17 +310,17 @@ void Z11Page::dmalock ()
 {
     ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
     ASSERT (ZRD(kyat[5]) != mypid);
-    uint32_t delus = 10;
+    uint32_t nus = 10;
     while (true) {
         ZWR(kyat[5], mypid);
-        uint32_t lkdby = ZRD(kyat[5]);
-        if (lkdby == mypid) break;
-        if ((lkdby != 0) && (kill (lkdby, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "Z11Page::dmalock: locker %u dead\n", lkdby);
-            ZWR(kyat[5], lkdby);
+        uint32_t lkpid = ZRD(kyat[5]);
+        if (lkpid == mypid) break;
+        if ((lkpid != 0) && (kill (lkpid, 0) < 0) && (errno == ESRCH)) {
+            fprintf (stderr, "Z11Page::dmalock: unlocking from dead %u\n", lkpid);
+            ZWR(kyat[5], lkpid);
         }
-        if (delus < 1000) delus += delus / 2;
-        usleep (delus);
+        if (nus < 1000) nus += nus / 2;
+        usleep (nus);
     }
     ASSERT (ZRD(kyat[5]) == mypid);
 }
