@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Encoding=UTF-8
+Name=Z11 GUI
+Comment=Z11 PDP-11/34A Panel
+Icon=/home/mrieker/nfs/1134/ccode/icon-512.png
+Exec=/home/mrieker/nfs/1134/ccode/z11guiwrap
+Terminal=false
+Categories=

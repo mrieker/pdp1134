@@ -1,0 +1,13 @@
+#!/bin/bash
+#
+#  Wrapper invoked by z11gui.desktop
+#  Does ssh as needed to access ZTurn
+#
+case `hostname` in
+    # final host that is the zturn card
+    zturn) exec `dirname $0`/z11gui "$@" ;;
+    # intermediate host connected to zturn
+    pdpi) exec ssh -X zturn $0 "$@" ;;
+    # other hosts that use intermediate
+    *) exec ssh -X pdpi $0 "$@" ;;
+esac

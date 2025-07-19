@@ -111,6 +111,7 @@ public class Z11GUI extends JPanel {
         mainframe = new JFrame ("PDP-11/34A");
         mainframe.setDefaultCloseOperation (JFrame.EXIT_ON_CLOSE);
         mainframe.setContentPane (new Z11GUI ());
+        mainframe.setIconImage (new ImageIcon (Z11GUI.class.getClassLoader ().getResource ("icon-512.png")).getImage ());
         SwingUtilities.invokeLater (new Runnable () {
             @Override
             public void run ()
@@ -662,7 +663,7 @@ public class Z11GUI extends JPanel {
             add (ckboxrow);
             ckboxrow.add (fmckbox = new FModeCkBox ("OFF   "));
             ckboxrow.add (bmckbox = new MemCkBox   ("Mem   "));
-            ckboxrow.add (xeckbox = new DevCkBox   ("DEUNA   ", "xe_enable"));
+            ckboxrow.add (xeckbox = new DevCkBox   ("DELUA   ", "xe_enable"));
             ckboxrow.add (dlckbox = new DevCkBox   ("DL-11   ", "dl_enable"));
             ckboxrow.add (dzckbox = new DZCkBox    ("DZ-11   "));
             ckboxrow.add (kwckbox = new KWCkBox    ("KW-11   "));

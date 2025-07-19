@@ -34,10 +34,12 @@ start:
 	jsr	pc,readch	; read high address vyte
 	swab	r0
 	bis	r0,r5
+	mov	r5,@#177570
 	tst	r4		; check for zero size
 	beq	done
 300$:
 	jsr	pc,readch	; read data bytes
+	mov	r5,@#177570
 	movb	r0,(r5)+
 	sob	r4,300$
 	jsr	pc,readch
