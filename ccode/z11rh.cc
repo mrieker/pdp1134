@@ -53,11 +53,11 @@
 #define SECPERTRK 22
 #define TRKPERCYL 19
 #define NSECS (NCYLS*TRKPERCYL*SECPERTRK)
-
-#define WRDPERSEC 256
+#define WRDPERSEC 256       // words per sector
 
 #define USPERCYL ((100000-15000)/(NCYLS-1))     // usec per cyl = (full seek - one seek) / (num cyls - 1)
-#define SETTLEUS (15000-USPERCYL)               // settle time = one seek - usec per cyl
+#define SEEKONEUS 7333                          // seek one cylinder
+#define SEEKEXTUS 170                           // seek extra cylinder
 #define AVGROTUS 16667                          // average rotation usec
 #define USPERWRD 4                              // usec per word
 #define USPERSEC (AVGROTUS*2/SECPERTRK)         // usec per sector
@@ -198,6 +198,7 @@ static void *rhiothread (void *dummy)
 
         // check for 'clear controller' command
         uint16_t rpcs2 = (ZRD(rhat[3]) & RH3_RPCS2) / RH3_RPCS20;
+        if (debug > 0) fprintf (stderr, "z11rh: rpcs2=%06o\n", rpcs2);
         if (rpcs2 & 040) {
 
             // clear RPDA, RPBA
@@ -209,14 +210,12 @@ static void *rhiothread (void *dummy)
                 // select per-drive registers
                 ZWR(rhat[6], ARMDS (drsel));
 
-#if 000
                 // cancel any seek in progress
-                cancelseek (drsel);
-#endif
+                seekdoneats[drsel] = 0;
 
                 // preserve RPWC
                 // preserve RPCS1<IE>, set RPCS1<DVA> (per drive), clear rest of RPCS1
-                ZWR(rhat[1], (ZRD(rhat[1]) & (RH1_RPWC | 0100 * RH1_RPCS10)) | (04000 * RH1_RPCS10));
+                ZWR(rhat[1], (ZRD(rhat[1]) & (~ RH1_RPCS1 | 0100 * RH1_RPCS10)) | (04000 * RH1_RPCS10));
 
                 // update RPDS, RPCS2 (also clears RPCS2<CLR> 'clear controller' command bit)
                 uint16_t rpds = getdrivestat (drsel);
@@ -229,14 +228,18 @@ static void *rhiothread (void *dummy)
                 uint16_t rpsn = getdrivesern (drsel);
                 uint16_t rpdt = getdrivetype (drsel);
                 ZWR(rhat[7], rpsn * RH7_RPSN0 | rpdt * RH7_RPDT0);
+
+                // clear RPDC
+                ZWR(rhat[8], ZRD(rhat[8]) & ~ RH8_RPDC);
             }
 
-            // set RPCS1<RDY>
+            // set RPCS1<RDY> indicating clear is complete, ready to accept command
             ZWR(rhat[1], ZRD(rhat[1]) | 0200 * RH1_RPCS10);
         } else {
 
-            // see if command from pdp waiting to be processed
+            // see if command from pdp waiting to be processed (RPCS1<RDY> is clear)
             uint16_t rpcs1 = (ZRD(rhat[1]) & RH1_RPCS1) / RH1_RPCS10;
+            if (debug > 0) fprintf (stderr, "z11rh: rpcs1=%06o\n", rpcs1);
             if (! (rpcs1 & 0200)) {
 
                 // do i/o for any drive with a GO bit set
@@ -245,14 +248,14 @@ static void *rhiothread (void *dummy)
                     // select drive-specific registers to access
                     ZWR(rhat[6], ARMDS (drsel));
 
-                    // check GO bit for drive, if so, do command
+                    // check GO bit for drive, if set, do command
                     rpcs1 = (ZRD(rhat[1]) & RH1_RPCS1) / RH1_RPCS10;
                     if (rpcs1 & 1) {
                         docommand (drsel, rpcs1);
                     }
                 }
 
-                // set RPCS1<RDY>
+                // set RPCS1<RDY> indicating controller ready to accept new command
                 ZWR(rhat[1], ZRD(rhat[1]) | 0200 * RH1_RPCS10);
             }
         }
@@ -265,8 +268,24 @@ static void *rhiothread (void *dummy)
 //  input:
 //   rpcs1 = RPCS1 contents specific to selected drive (GO bit known to be set)
 //   RH6_ARMDS = same as drsel
+//   GO bit set
+//   DRY (drive ready) clear
+//   RDY (ctrlr ready) clear
+//   data transfer command: MCPE,DLT,TRE,PE,NED,NXM,PGE,MXF,MDPE clear
+//  output:
+//   GO bit clear
+//   DRY usually set, but still clear for seek
+//   RDY still clear
 static void docommand (int drsel, uint16_t rpcs1)
 {
+    ShmMSDrive *dr = &shmms->drives[drsel];
+
+    uint32_t rh8  = ZRD(rhat[8]);
+    uint32_t rhdc = (rh8 & RH8_RPDC) / RH8_RPDC0;
+    uint32_t rhcc = (rh8 & RH8_RPCC) / RH8_RPCC0;
+    uint32_t ncyl = (rhcc > rhdc) ? (rhcc - rhdc) : (rhdc - rhcc);
+    uint32_t seekus = (ncyl == 0) ? 0 : SEEKONEUS + SEEKEXTUS * (ncyl - 1);
+
     switch ((rpcs1 >> 1) & 31) {
 
         // nop
@@ -282,10 +301,20 @@ static void docommand (int drsel, uint16_t rpcs1)
 
         // seek
         case  2: {
-            uint32_t rh8  = ZRD(rhat[8]);
-            uint32_t rhdc = (rh8 & RH8_RPDC) / RH8_RPDC0;
-            ZWR(rhat[8], (rh8 & ~ RH8_RPCC) | (rhdc * RH8_RPCC0));
-            break;
+            struct timespec nowts;
+            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
+            uint64_t nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
+
+            int doneat = (int) seekdoneats[drsel];
+            seekdoneats[drsel] = nowus + seekus;
+            if (doneat == (int) seekdoneats[drsel]) seekdoneats[drsel] ++;
+
+            int rc = futex ((int *)&seekdoneats[drsel], FUTEX_WAKE, 1000000000, NULL, NULL, 0);
+            if (rc < 0) ABORT ();
+
+            // set PIP - position in progress
+            ZWR(rhat[3], ZRD(rhat[3]) | 020000 * RH3_RPDS0);
+            goto clrgo;
         }
 
 #if 000
@@ -358,9 +387,10 @@ static void docommand (int drsel, uint16_t rpcs1)
 
         // write data
         case 24: {
-            uint32_t rh8  = ZRD(rhat[8]);
-            uint32_t rhdc = (rh8 & RH8_RPDC) / RH8_RPDC0;
+            if (seekus > 0) usleep (seekus);
+
             ZWR(rhat[8], (rh8 & ~ RH8_RPCC) | (rhdc * RH8_RPCC0));
+            dr->curposn = rhdc;
 
             uint16_t rpwc   = (ZRD(rhat[1]) & RH1_RPWC) / RH1_RPWC0;
             uint32_t wrdcnt = 65536 - rpwc;
@@ -400,9 +430,10 @@ static void docommand (int drsel, uint16_t rpcs1)
 
         // read data
         case 28: {
-            uint32_t rh8  = ZRD(rhat[8]);
-            uint32_t rhdc = (rh8 & RH8_RPDC) / RH8_RPDC0;
+            if (seekus > 0) usleep (seekus);
+
             ZWR(rhat[8], (rh8 & ~ RH8_RPCC) | (rhdc * RH8_RPCC0));
+            dr->curposn = rhdc;
 
             uint16_t rpwc   = (ZRD(rhat[1]) & RH1_RPWC) / RH1_RPWC0;
             uint32_t wrdcnt = 65536 - rpwc;
@@ -458,18 +489,23 @@ miscerror:;
     goto alldone;
 
 dmaerror:;
-    // set ATA,ERR,NXM - attention, error
+    // set ATA,ERR,NXM - attention, error, non-existant memory
     ZWR(rhat[3], ZRD(rhat[3]) | 0140000 * RH3_RPDS0 | 0004000 * RH3_RPCS20);
 
 alldone:;
-    // clear GO bit
+    // set DRY (drive ready)
+    ZWR(rhat[3], ZRD(rhat[3]) | 0200 * RH3_RPDS0);
+
+clrgo:;
+    // clear drive-specific GO bit
     ZWR(rhat[1], ZRD(rhat[1]) & ~ (1 * RH1_RPCS10));
 }
 
 static uint16_t getdrivestat (int drsel)
 {
     ShmMSDrive *dr = &shmms->drives[drsel];
-    uint16_t stat = 000400;                 // DPR - drive present
+    uint16_t stat = 000600;                 // DPR,DRY - drive present, drive ready
+    if (seekdoneats[drsel] != 0) stat ^= 020200;  // PIP - position in progress
     if (fds[drsel] >= 0) stat |= 010000;    // MOL - medium online
     if (dr->readonly)    stat |= 004000;    // WRL - write locked
     if (vvs[drsel])      stat |= 000100;    // VV  - volume valid
@@ -507,17 +543,18 @@ static void updatecounts (uint16_t rpwc, uint32_t rpba, uint32_t wrdcnt, uint32_
     ZWR(rhat[8], (ZRD(rhat[8]) & ~ RH8_RPCC) | rpcc * RH8_RPCC0);
 
     // word count RPWC, bus address extension bits RPCS1<09:08>
-    ZWR(rhat[1], (rhat[1] & ~ RH1_RPWC & ~ (01400 * RH1_RPCS10)) | rpwc * RH1_RPWC0 | ((rpba >> 8) & 01400) * RH1_RPCS10);
+    ZWR(rhat[1], (ZRD(rhat[1]) & ~ RH1_RPWC & ~ (01400 * RH1_RPCS10)) | rpwc * RH1_RPWC0 | ((rpba >> 8) & 01400) * RH1_RPCS10);
 
     // disk address RPDA, bus address RPBA
     ZWR(rhat[2], rpda * RH2_RPDA0 | (rpba & 0177777) * RH2_RPBA0);
 }
 
 // wait for changes in seekdoneats[drsel]
-// when time is up, set RH4_DRDY<drsel> and clear seekdoneats[drsel]
+// when time is up, set DRY,ATA and clear seekdoneats[drsel]
 static void *timerthread (void *dsptr)
 {
     int drsel = (int)(long)dsptr;
+    ShmMSDrive *dr = &shmms->drives[drsel];
 
     while (true) {
 
@@ -540,10 +577,17 @@ static void *timerthread (void *dsptr)
                 tsptr = &timeout;
             }
 
-            // seek complete, mark drive ready
+            // seek complete, update drive state
             // then leave tsptr NULL to wait indefinitely for next seek to begin
             else {
-                ////???? ZWR(rhat[4], ZRD(rhat[4]) | (RH4_DRDY0 << drsel));
+                ZWR(rhat[6], ARMDS (drsel));
+                // update current cylinder
+                uint32_t rh8  = ZRD(rhat[8]);
+                uint32_t rhdc = (rh8 & RH8_RPDC) / RH8_RPDC0;
+                ZWR(rhat[8], (rh8 & ~ RH8_RPCC) | (rhdc * RH8_RPCC0));
+                dr->curposn = rhdc;
+                // clear PIP - position in progress; set ATA,DRY - attention, drive ready
+                ZWR(rhat[3], (ZRD(rhat[3]) & ~ (0020000 * RH3_RPDS0)) | 0100200 * RH3_RPDS0);
                 seekdoneats[drsel] = doneat = 0;
             }
         }

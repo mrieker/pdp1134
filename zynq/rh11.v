@@ -59,6 +59,15 @@ module rh11
     // all others - per-drive register
     // cheat with just one rpla
 
+    // rpcs1[15:13] = common
+    // rpcs1[12]    = zero
+    // rpcs1[11]    = DVA for drive armds
+    // rpcs1[10:06] = common
+    // rpcs1[05:00] = Fn,GO for drive armds
+
+    // rpcs1s[pdpds][6]   = DVA for drive pdpds
+    // rpcs1s[pdpds][5:0] = Fn,GO for drive pdpds
+
     assign armrdata = (armraddr ==  0) ? 32'h52483001 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr ==  1) ? { rpwc,    rpcs1    } :
                       (armraddr ==  2) ? { rpdaarm, rpba     } :
@@ -152,7 +161,7 @@ module rh11
                     rpwc <= armwdata[31:16];
                     rpcs1[13]     <= armwdata[13];      // MCPE
                     rpcs1[11]     <= armwdata[11];      // DVA
-                    rpcs1[07]     <= armwdata[07];      // RDY
+                    rpcs1[09:07]  <= armwdata[09:07];   // A17,A16,RDY
                     rpcs1[00]     <= armwdata[00];      // GO
                     rpcs1s[armds][6] <= armwdata[11];   // per-drive DVA
                     rpcs1s[armds][0] <= armwdata[00];   // per-drive GO
@@ -180,11 +189,13 @@ module rh11
                     qtrsectimem1  <= armwdata[19:00];
 
                     armds         <= armwdata[31:29];
-                    rpdsarm       <= { rpas[armwdata[29:27]], rpdss[armwdata[29:27]] };
-                    rpsnarm       <= rpsns[armwdata[29:27]];
-                    rpdtarm       <= rpdts[armwdata[29:27]];
-                    rpccarm       <= rpccs[armwdata[29:27]];
-                    rpdcarm       <= rpdcs[armwdata[29:27]];
+                    rpcs1[11]     <= rpcs1s[armwdata[31:29]][11];
+                    rpcs1[05:00]  <= rpcs1s[armwdata[31:29]][05:00];
+                    rpdsarm       <= { rpas[armwdata[31:29]], rpdss[armwdata[31:29]] };
+                    rpsnarm       <= rpsns[armwdata[31:29]];
+                    rpdtarm       <= rpdts[armwdata[31:29]];
+                    rpccarm       <= rpccs[armwdata[31:29]];
+                    rpdcarm       <= rpdcs[armwdata[31:29]];
                 end
                 7: begin
                     rpsns[armds]  <= armwdata[31:16];
@@ -258,8 +269,9 @@ module rh11
                                     rpcs2[10] <= 1;         // ctrlr or drive bussy, set PGE
                                 end
                             end
-                            rpcs1[06] <= d_in_h[06];                    // IE
-                            rpcs1s[pdpds][5:0] <= d_in_h[05:00];        // FC,GO
+                            rpcs1[06] <= d_in_h[06];                    // IE - common to all drives
+                            rpcs1s[pdpds][5:0] <= d_in_h[05:00];        // FC,GO - update what pdp is seeing
+                            if (armds == pdpds) rpcs1[05:00] <= d_in_h[05:00]; // update what arm is seeing
                         end
                     end
 
