@@ -189,6 +189,9 @@ PinDef const pindefs[] = {
     { "rl_enable",       DEV_RL, 5,    RL5_ENAB,          0, true  },
     { "rl_fastio",       DEV_RL, 5,    RL5_FAST,          0, true  },
 
+    { "rh_enable",       DEV_RH, 9,    0x80000000,        0, true  },
+    { "rh_fastio",       DEV_RH, 9,    0x40000000,        0, true  },
+
     { "pc_rcsr",         DEV_PC, 1,    0x0000FFFF,        0, true  },
     { "pc_rbuf",         DEV_PC, 1,    0xFFFF0000,        0, true  },
     { "pc_pcsr",         DEV_PC, 2,    0x0000FFFF,        0, true  },

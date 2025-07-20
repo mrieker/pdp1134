@@ -59,7 +59,7 @@ module rh11
     // all others - per-drive register
     // cheat with just one rpla
 
-    // rpcs1[15:13] = common
+    // rpcs1[15:13] = common ([15:14] = automatically computed)
     // rpcs1[12]    = zero
     // rpcs1[11]    = DVA for drive armds
     // rpcs1[10:06] = common
@@ -68,7 +68,7 @@ module rh11
     // rpcs1s[pdpds][6]   = DVA for drive pdpds
     // rpcs1s[pdpds][5:0] = Fn,GO for drive pdpds
 
-    assign armrdata = (armraddr ==  0) ? 32'h52483001 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr ==  0) ? 32'h52483002 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr ==  1) ? { rpwc,    rpcs1    } :
                       (armraddr ==  2) ? { rpdaarm, rpba     } :
                       (armraddr ==  3) ? { rpdsarm, rpcs2    } :
@@ -247,6 +247,10 @@ module rh11
                     // RPCS1
                      0: begin
                         if (wrhi) begin
+                            if (d_in_h[14]) begin           // writing <14> = 1 clears controller error bits
+                                rpcs1[13]    <= 0;          // clear MCPE
+                                rpcs2[15:08] <= 0;          // clear DLT,TRE,PE,NED,NXM,PGE,MXF,MDPE
+                            end
                             rpcs1[10:08] <= d_in_h[10:08];
                         end
                         if (wrlo) begin

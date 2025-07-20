@@ -24,6 +24,10 @@ proc probedevsandmem {} {
     if {[rdwordtimo 0777550] < 0} {
         pin set pc_enable 1
     }
+    pin set rh_enable 0             ;# same with rh controller
+    if {[rdwordtimo 0776700] < 0} {
+        pin set rh_enable 1
+    }
     pin set rl_enable 0             ;# same with rl controller
     if {[rdwordtimo 0774400] < 0} {
         pin set rl_enable 1
