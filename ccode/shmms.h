@@ -25,9 +25,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define SHMMS_NAME_RH "/shm_zturn11_rh"
 #define SHMMS_NAME_RL "/shm_zturn11_rl"
 #define SHMMS_NAME_TM "/shm_zturn11_tm"
 
+#define SHMMS_CTLID_RH (('R'<<8)|'H')
 #define SHMMS_CTLID_RL (('R'<<8)|'L')
 #define SHMMS_CTLID_TM (('T'<<8)|'M')
 

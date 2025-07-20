@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314023;
+    localparam VERSION = 32'h31314024;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -529,7 +529,7 @@ module Zynq (
     //  arm reading/writing registers  //
     /////////////////////////////////////
 
-    wire[31:00] bmarmrdata, dlarmrdata, dzarmrdata, kwarmrdata, kyarmrdata, pcarmrdata, rlarmrdata, tmarmrdata, xearmrdata;
+    wire[31:00] rharmrdata, bmarmrdata, dlarmrdata, dzarmrdata, kwarmrdata, kyarmrdata, pcarmrdata, rlarmrdata, tmarmrdata, xearmrdata;
 
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION      :
@@ -551,28 +551,30 @@ module Zynq (
         (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
         (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
-        (readaddr[11:05] ==  7'b0000100)    ? bmarmrdata   :
-        (readaddr[11:05] ==  7'b0000101)    ? rlarmrdata   :
-        (readaddr[11:05] ==  7'b0000110)    ? kyarmrdata   :
-        (readaddr[11:05] ==  7'b0000111)    ? dzarmrdata   :
-        (readaddr[11:05] ==  7'b0001000)    ? tmarmrdata   :
-        (readaddr[11:04] ==  8'b00010010)   ? pcarmrdata   :
-        (readaddr[11:04] ==  8'b00010011)   ? dlarmrdata   :
-        (readaddr[11:04] ==  8'b00010100)   ? xearmrdata   :
-        (readaddr[11:03] ==  9'b000101010)  ? kwarmrdata   :
+        (readaddr[11:06] ==  6'b000010)     ? rharmrdata   :
+        (readaddr[11:05] ==  7'b0000110)    ? bmarmrdata   :
+        (readaddr[11:05] ==  7'b0000111)    ? rlarmrdata   :
+        (readaddr[11:05] ==  7'b0001000)    ? kyarmrdata   :
+        (readaddr[11:05] ==  7'b0001001)    ? dzarmrdata   :
+        (readaddr[11:05] ==  7'b0001010)    ? tmarmrdata   :
+        (readaddr[11:04] ==  8'b00010110)   ? pcarmrdata   :
+        (readaddr[11:04] ==  8'b00010111)   ? dlarmrdata   :
+        (readaddr[11:04] ==  8'b00011000)   ? xearmrdata   :
+        (readaddr[11:03] ==  9'b000110010)  ? kwarmrdata   :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
-    wire bmarmwrite = armwrite & (writeaddr[11:05] == 7'b0000100);
-    wire rlarmwrite = armwrite & (writeaddr[11:05] == 7'b0000101);
-    wire kyarmwrite = armwrite & (writeaddr[11:05] == 7'b0000110);
-    wire dzarmwrite = armwrite & (writeaddr[11:05] == 7'b0000111);
-    wire tmarmwrite = armwrite & (writeaddr[11:05] == 7'b0001000);
-    wire pcarmwrite = armwrite & (writeaddr[11:04] == 8'b00010010);
-    wire dlarmwrite = armwrite & (writeaddr[11:04] == 8'b00010011);
-    wire xearmwrite = armwrite & (writeaddr[11:04] == 8'b00010100);
-    wire kwarmwrite = armwrite & (writeaddr[11:03] == 9'b000101010);
+    wire rharmwrite = armwrite & (writeaddr[11:06] == 6'b000010);
+    wire bmarmwrite = armwrite & (writeaddr[11:05] == 7'b0000110);
+    wire rlarmwrite = armwrite & (writeaddr[11:05] == 7'b0000111);
+    wire kyarmwrite = armwrite & (writeaddr[11:05] == 7'b0001000);
+    wire dzarmwrite = armwrite & (writeaddr[11:05] == 7'b0001001);
+    wire tmarmwrite = armwrite & (writeaddr[11:05] == 7'b0001010);
+    wire pcarmwrite = armwrite & (writeaddr[11:04] == 8'b00010110);
+    wire dlarmwrite = armwrite & (writeaddr[11:04] == 8'b00010111);
+    wire xearmwrite = armwrite & (writeaddr[11:04] == 8'b00011000);
+    wire kwarmwrite = armwrite & (writeaddr[11:03] == 9'b000110010);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -668,7 +670,7 @@ module Zynq (
     wire irq4_intr_out_h, irq5_intr_out_h, irq6_intr_out_h, irq7_intr_out_h;
     wire[7:0] irq4_d70_out_h, irq5_d70_out_h, irq6_d70_out_h, irq7_d70_out_h;
 
-    assign regarmintreq[29:03] = 0;
+    assign regarmintreq[29:04] = 0;
 
     // big memory
     wire bm_pb_out_h, bm_ssyn_out_h;
@@ -732,6 +734,37 @@ module Zynq (
 
         .d_out_h (pc_d_out_h),
         .ssyn_out_h (pc_ssyn_out_h));
+
+    // rh-11 disk controller
+    wire rhintreq, rh_ssyn_out_h;
+    wire[7:0] rhintvec;
+    wire[15:00] rh_d_out_h;
+    wire rhtrigger;
+
+    rh11 rhinst (
+        .CLOCK (CLOCK),
+        .RESET (fpgaoff),
+
+        .armraddr (readaddr[5:2]),
+        .armrdata (rharmrdata),
+        .armwaddr (writeaddr[5:2]),
+        .armwdata (saxi_WDATA),
+        .armwrite (rharmwrite),
+        .armintrq (regarmintreq[03]),
+
+        .intreq (rhintreq),
+        .irvec  (rhintvec),
+        .intgnt (irq5_intr_out_h),
+        .igvec  (irq5_d70_out_h),
+
+        .a_in_h (dev_a_h),
+        .c_in_h (dev_c_h),
+        .d_in_h (dev_d_h),
+        .init_in_h (dev_init_h),
+        .msyn_in_h (dev_del_msyn_h),
+
+        .d_out_h (rh_d_out_h),
+        .ssyn_out_h (rh_ssyn_out_h));
 
     // rl01/2 disk controller
     wire rlintreq, rl_ssyn_out_h;
@@ -979,7 +1012,7 @@ module Zynq (
     // generate interrupt request cycles from simple request/vector lines from internal devices
 
     wire[7:0] intvec4 = (ky_irqlev == 4) ? { ky_irqvec, 2'b0 } : pcintreq ? pcintvec : dlintreq ? dlintvec : 1;
-    wire[7:0] intvec5 = (ky_irqlev == 5) ? { ky_irqvec, 2'b0 } : dzintreq ? dzintvec : xeintreq ? xeintvec : tmintreq ? tmintvec : rlintreq ? rlintvec : 1;
+    wire[7:0] intvec5 = (ky_irqlev == 5) ? { ky_irqvec, 2'b0 } : dzintreq ? dzintvec : xeintreq ? xeintvec : tmintreq ? tmintvec : rlintreq ? rlintvec : rhintreq ? rhintvec : 1;
     wire[7:0] intvec6 = (ky_irqlev == 6) ? { ky_irqvec, 2'b0 } : kwintreq ? kwintvec : 1;
     wire[7:0] intvec7 = (ky_irqlev == 7) ? { ky_irqvec, 2'b0 } : 1;
 
@@ -1137,6 +1170,7 @@ module Zynq (
                               kw_d_out_h      |
                               ky_d_out_h      |
                               pc_d_out_h      |
+                              rh_d_out_h      |
                               rl_d_out_h      |
                             ~ sim_d_out_l     |
                               tm_d_out_h      |
@@ -1189,6 +1223,7 @@ module Zynq (
                               kw_ssyn_out_h   |
                               ky_ssyn_out_h   |
                               pc_ssyn_out_h   |
+                              rh_ssyn_out_h   |
                               rl_ssyn_out_h   |
                             ~ sim_ssyn_out_l  |
                               tm_ssyn_out_h   |

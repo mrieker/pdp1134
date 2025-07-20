@@ -52,6 +52,10 @@ struct MSCDat {
     uint32_t posdiv;
 };
 
+static MSCDat const ctlidrh = { "rh", 7, SHMMS_CTLID_RH,
+    "[cylinder] [fault] [file] [readonly] [ready] [type]",
+    "cylinder", 1 };  // curpos is cylinder
+
 static MSCDat const ctlidrl = { "rl", 3, SHMMS_CTLID_RL,
     "[cylinder] [fault] [file] [readonly] [ready] [type]",
     "cylinder", 128 };  // curpos is 0000.0000.0000.0000.cccc.cccc.chss.ssss
@@ -83,8 +87,11 @@ static TclFunDef const fundefs[] = {
     { cmd_lockdma,  NULL, "lockdma",  "lock access to DMA registers" },
     { cmd_pin,      NULL, "pin",      "direct access to signals on zynq page" },
     { cmd_readchar, NULL, "readchar", "read character with timeout" },
+    { cmd_msload,   (ClientData) &ctlidrh, "rhload",   "load file in RH drive" },
     { cmd_msload,   (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
+    { cmd_msstat,   (ClientData) &ctlidrh, "rhstat",   "get RH drive status" },
     { cmd_msstat,   (ClientData) &ctlidrl, "rlstat",   "get RL drive status" },
+    { cmd_msunload, (ClientData) &ctlidrh, "rhunload", "unload file from RH drive" },
     { cmd_msunload, (ClientData) &ctlidrl, "rlunload", "unload file from RL drive" },
     { cmd_snapregs, NULL, "snapregs", "snapshot registers while running" },
     { cmd_msload,   (ClientData) &ctlidtm, "tmload",   "load file in TM drive" },
@@ -453,7 +460,7 @@ static int cmd_msstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
 
         char fnbuf[SHMMS_FNSIZE];
         uint32_t curpos;
-        rc = shmms_stat (SHMMS_CTLID_RL, drive, fnbuf, sizeof fnbuf, &curpos);
+        rc = shmms_stat (mscdat->ctlid, drive, fnbuf, sizeof fnbuf, &curpos);
         if (rc < 0) {
             Tcl_SetResultF (interp, "%s", strerror (- rc));
             return TCL_ERROR;

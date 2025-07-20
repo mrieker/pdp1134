@@ -27,6 +27,7 @@
 #define ZGINT_RL  0x00000001U   // rl11.v interrupt
 #define ZGINT_TM  0x00000002U   // tm11.v interrupt
 #define ZGINT_XE  0x00000004U   // xe11.v interrupt
+#define ZGINT_RH  0x00000008U   // rh11.v interrupt
 #define ZGINT_ARM 0x40000000U   // arm interrupts itself (km probing)
 #define ZGINT_REQ 0x80000000U   // composite request (in ZG_INTFLAGS)
 

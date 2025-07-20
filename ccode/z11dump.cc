@@ -235,6 +235,12 @@ int main (int argc, char **argv)
                     printf ("                    haltreq=%o halted=%o stepreq=%u haltstate=%o haltins=%o%s",
                         FIELD(i+2,KY2_HALTREQ), FIELD(i+2,KY2_HALTED), FIELD(i+2,KY2_STEPREQ), FIELD(i+2,KY2_HALTSTATE), FIELD(i+2,KY2_HALTINS), eol);
                 }
+                if ((idver & 0xF000U) == 0x3000U) {
+                    printf ("%sVERSION=%08X %c%c %08X %08X %08X %08X %08X %08X %08X%s", eol, idver, idch1, idch2,
+                        z11s[i+1], z11s[i+2], z11s[i+3], z11s[i+4], z11s[i+5], z11s[i+6], z11s[i+7], eol);
+                    printf ("           %08X %08X %08X %08X %08X %08X %08X %08X%s",
+                        z11s[i+8], z11s[i+9], z11s[i+10], z11s[i+11], z11s[i+12], z11s[i+13], z11s[i+14], z11s[i+15], eol);
+                }
                 i = j;
             }
             itwirly = (itwirly + 1) & 3;

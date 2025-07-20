@@ -34,8 +34,9 @@
 #include "z11util.h"
 
 static int mypid;
-static ShmMS *shmrl = NULL;
-static ShmMS *shmtm = NULL;
+static ShmMS *shmrh;
+static ShmMS *shmrl;
+static ShmMS *shmtm;
 static uint32_t volatile *rlat;
 static uint32_t volatile *tmat;
 
@@ -199,6 +200,11 @@ static ShmMS *getshmms (int ctlid)
     char const *shmname;
     ShmMS **ptr;
     switch (ctlid) {
+        case SHMMS_CTLID_RH: {
+            ptr = &shmrh;
+            shmname = SHMMS_NAME_RH;
+            break;
+        }
         case SHMMS_CTLID_RL: {
             ptr = &shmrl;
             shmname = SHMMS_NAME_RL;
