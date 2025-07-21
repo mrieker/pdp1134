@@ -37,6 +37,7 @@ static int mypid;
 static ShmMS *shmrh;
 static ShmMS *shmrl;
 static ShmMS *shmtm;
+static uint32_t volatile *rhat;
 static uint32_t volatile *rlat;
 static uint32_t volatile *tmat;
 
@@ -160,6 +161,16 @@ int shmms_stat (int ctlid, int drive, char *buff, int size, uint32_t *curpos_r)
             z11page = new Z11Page ();
         }
         switch (ctlid) {
+
+            case SHMMS_CTLID_RH: {
+                if (rhat == NULL) {
+                    rhat = z11page->findev ("RH", NULL, NULL, false);
+                }
+                ZWR(rhat[6], (ZRD(rhat[6]) & ~ RH6_ARMDS) | (drive * RH6_ARMDS0));
+                uint16_t rpds = ZRD(rhat[3]) / RH3_RPDS0;
+                if (rpds & 0200) statbits |= MSSTAT_READY;          // ready (not seeking etc)
+                break;
+            }
 
             case SHMMS_CTLID_RL: {
                 if (rlat == NULL) {
@@ -411,8 +422,10 @@ static int forkserver (ShmMS *shmms)
 
     // form server program name
     char const *z11name = NULL;
+    if (shmms == shmrh) z11name = "/z11rh";
     if (shmms == shmrl) z11name = "/z11rl";
     if (shmms == shmtm) z11name = "/z11tm";
+    if (z11name == NULL) ABORT ();
     strcat (exebuf, z11name);
 
     // close any fds except stdin,stdout,stderr

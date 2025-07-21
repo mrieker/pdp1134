@@ -46,12 +46,12 @@ module rh11
     output reg ssyn_out_h);
 
     reg enable, fastio, lastinit;
-    reg[15:00] rpcs1, rpwc, rpba, rpdaarm, rpcs2, rpdsarm, rper1arm, rpas, rpla, rpdb, rpdtarm, rpsnarm, rpdcarm, rpccarm;
+    reg[15:00] rpcs1, rpwc, rpba, rpdaarm, rpcs2, rpdsarm, rper1arm, rpla, rpdb, rpdtarm, rpsnarm, rpdcarm, rpccarm;
     reg[6:0] rpcs1s[7:0];
     reg[15:00] rpdas[7:0], rper1s[7:0], rpdts[7:0], rpsns[7:0], rpdcs[7:0], rpccs[7:0];
     reg[14:00] rpdss[7:0];
     reg[2:0] armds;
-    reg[7:0] secpertrkm1;
+    reg[7:0] rpgs, rpas, secpertrkm1;
     reg[19:00] qtrsectimem1, qtrsectimer;
     wire[2:0] pdpds = rpcs2[02:00];
 
@@ -63,25 +63,28 @@ module rh11
     // rpcs1[12]    = zero
     // rpcs1[11]    = DVA for drive armds
     // rpcs1[10:06] = common
-    // rpcs1[05:00] = Fn,GO for drive armds
+    // rpcs1[05:00] = FC,GO for drive armds
 
     // rpcs1s[pdpds][6]   = DVA for drive pdpds
-    // rpcs1s[pdpds][5:0] = Fn,GO for drive pdpds
+    // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr ==  0) ? 32'h52483002 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      (armraddr ==  1) ? { rpwc,    rpcs1    } :
-                      (armraddr ==  2) ? { rpdaarm, rpba     } :
-                      (armraddr ==  3) ? { rpdsarm, rpcs2    } :
-                      (armraddr ==  4) ? { rpas,    rper1arm } :
-                      (armraddr ==  5) ? { rpdb,    rpla     } :
+    // rpgs[pdpds] = set when pdpds GO bit is set, wakes up arm (z11rh.cc)
+    //               cleared by arm when it starts processing the request
+
+    assign armrdata = (armraddr ==  0) ? 32'h52483003 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+                      (armraddr ==  1) ? { rpwc,       rpcs1    } :
+                      (armraddr ==  2) ? { rpdaarm,    rpba     } :
+                      (armraddr ==  3) ? { rpdsarm,    rpcs2    } :
+                      (armraddr ==  4) ? { rpgs, rpas, rper1arm } :
+                      (armraddr ==  5) ? { rpdb,       rpla     } :
                       (armraddr ==  6) ? { armds, 1'b0, secpertrkm1, qtrsectimem1 } :
-                      (armraddr ==  7) ? { rpsnarm, rpdtarm  } :
-                      (armraddr ==  8) ? { rpccarm, rpdcarm  } :
+                      (armraddr ==  7) ? { rpsnarm,    rpdtarm  } :
+                      (armraddr ==  8) ? { rpccarm,    rpdcarm  } :
                       (armraddr ==  9) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
                       32'hDEADBEEF;
 
-    // wake arm when command written or controller clear set
-    assign armintrq = ~ rpcs1[07] | rpcs2[05];
+    // wake arm when go bit set or controller clear set
+    assign armintrq = (rpgs != 0) | rpcs2[05];
 
     intreq rpintreq (
         .CLOCK    (CLOCK),
@@ -143,6 +146,7 @@ module rh11
             rpcs2        <= 0;
             rpdsarm      <= 0;
             rper1arm     <= 0;
+            rpgs         <= 0;
             rpas         <= 0;
             rpdb         <= 0;
             rpdtarm      <= 0;
@@ -178,6 +182,7 @@ module rh11
                     rpcs2         <= armwdata[15:00];
                 end
                 4: begin
+                    rpgs <= rpgs & ~ armwdata[31:24];
                     rper1s[armds] <= armwdata[15:00];
                     rper1arm      <= armwdata[15:00];
                 end
@@ -234,7 +239,7 @@ module rh11
         end
 
         // pdp or something else is accessing an i/o register
-        else if (~ msyn_in_h) begin
+        else if (~ msyn_in_h & ssyn_out_h) begin
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end else if (enable & (a_in_h[17:06] == ADDR[17:06]) & ~ ssyn_out_h) begin
@@ -255,10 +260,13 @@ module rh11
                         end
                         if (wrlo) begin
                             if (d_in_h[00]) begin                       // check for GO bit
-                                if (rpcs1[07] & rpdss[pdpds][07]) begin // make sure ctrlr and drive ready
+                                if (~ rpdss[pdpds][07] |                // must always have drive ready
+                                    d_in_h[05] & ~ rpcs1[07]) begin     // if data xfer, must have ctrlr ready
+                                    rpcs2[10] <= 1;                     // ctrlr or drive bussy, set PGE
+                                end else begin
                                     rpdss[pdpds][07] <= 0;  // clear DRY
-                                    rpcs1[07] <= 0;         // clear RDY
                                     if (d_in_h[05]) begin   // check for data transfer command
+                                        rpcs1[07] <= 0;     // clear RDY
                                         rpcs1[13] <= 0;     // clear MCPE
                                         rpcs2[15] <= 0;     // clear DLT
                                         rpcs2[14] <= 0;     // clear TRE
@@ -269,8 +277,7 @@ module rh11
                                         rpcs2[09] <= 0;     // clear MXF
                                         rpcs2[08] <= 0;     // clear MDPE
                                     end
-                                end else begin
-                                    rpcs2[10] <= 1;         // ctrlr or drive bussy, set PGE
+                                    rpgs[pdpds] <= 1;       // wake arm processor up
                                 end
                             end
                             rpcs1[06] <= d_in_h[06];                    // IE - common to all drives
@@ -314,7 +321,7 @@ module rh11
 
                     // RPAS
                      7: begin
-                        if (wrlo) rpas[07:00]  <= rpas[07:00] & ~ d_in_h[07:00];
+                        if (wrlo) rpas <= rpas & ~ d_in_h[07:00];
                     end
 
                     // RPDC
@@ -336,7 +343,7 @@ module rh11
                      4: d_out_h <= rpcs2;
                      5: d_out_h <= { rpas[pdpds], rpdss[pdpds] };
                      6: d_out_h <= rper1s[pdpds];
-                     7: d_out_h <= rpas;
+                     7: d_out_h <= { 8'b0, rpas };
                      8: d_out_h <= rpla;
                      9: d_out_h <= rpdb;
                     11: d_out_h <= rpdts[pdpds];
