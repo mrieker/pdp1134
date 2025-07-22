@@ -1391,8 +1391,8 @@ module Zynq (
         lastmsyn <= dev_syn_msyn_h;
     end
 
-    wire ilatrigr = (sim_state == 3) & (dev_a_h == 0); // & 18'o777770) == 18'o760100) & dev_syn_msyn_h;
-    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // 1;
+    wire ilatrigr = 0; // (sim_state == 3) & (dev_a_h == 0); // & 18'o777770) == 18'o760100) & dev_syn_msyn_h;
+    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h) & (dev_a_h[17:06] == 12'o7767); // 1;
 
     // detect 'TSTB @R5 ; BPL .-2' to edit out lineclock testing loop
     /***

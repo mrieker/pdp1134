@@ -65,7 +65,12 @@
 
 #define ARMDS(n) ((n) * RH6_ARMDS0 | SECPERTRKM1 * RH6_SECPERTRKM10 | QTRSECTIMEM1 * RH6_QTRSECTIMEM10)
 
-static bool vvs[8];
+static char const *const functbl[] = {
+    "NOP", "UNLD", "SEEK", "RECAL", "DRCLR", "REL", "OFFS", "RTCTR",
+    "RDPR", "PKACK", "?10", "?11", "SRCH", "?13", "?14", "?15",
+    "?16", "?17", "?18", "?19", "WCDAT", "WCHDAT", "?22", "?23",
+    "WRDAT", "WRHDAT", "?26", "?27", "RDDAT", "RDHDAT", "?30", "?31" };
+
 static char fns[8][SHMMS_FNSIZE];
 static int debug;
 static int fds[8];
@@ -83,7 +88,7 @@ static void docommand (int drsel, uint16_t rpcs1);
 static int setdrivetype (void *param, int drsel);
 static int fileloaded (void *param, int drsel, int fd);
 static int writebadblocks (ShmMSDrive *dr, int fd);
-static uint16_t getdrivestat (int drsel);
+static uint16_t getdrivestat (int drsel, bool clrvv);
 static uint16_t getdrivesern (int drsel);
 static uint16_t getdrivetype (int drsel);
 static void startseek (int drsel, uint16_t cylno, uint32_t seekus);
@@ -96,6 +101,9 @@ static void wrreg (int index, uint32_t value);
 
 int main (int argc, char **argv)
 {
+    setlinebuf (stderr);
+    setlinebuf (stdout);
+
     memset (fds, -1, sizeof fds);
 
     bool resetit = (argc > 1) && (strcasecmp (argv[1], "-reset") == 0);
@@ -163,40 +171,25 @@ static void *rhiothread (void *dummy)
         if (debug > 0) fprintf (stderr, "z11rh: rpcs2=%06o\n", rpcs2);
         if (rpcs2 & 040) {
 
-            // clear RPDA, RPBA
-            wrreg (2, 0 * RH2_RPDA | 0 * RH2_RPBA);
+            // clear RPCS2<CLR>, unlocking our writing of the rest of the registers
+            // fpga has cleared all the registers and blocked any writing until now
+            wrreg (3, 040 * RH3_RPCS20);
 
             // go through per-drive clears
             for (int drsel = 0; drsel < 8; drsel ++) {
 
-                // select per-drive registers
-                wrreg (6, ARMDS (drsel));
-
                 // cancel any seek in progress
                 seekdoneats[drsel] = 0;
 
-                // preserve RPWC
-                // preserve RPCS1<IE>, set RPCS1<DVA> (per drive), clear rest of RPCS1
-                wrreg (1, (ZRD(rhat[1]) & (~ RH1_RPCS1 | 0100 * RH1_RPCS10)) | (04000 * RH1_RPCS10));
-
-                // update RPDS, RPCS2 (also clears RPCS2<CLR> 'clear controller' command bit)
-                uint16_t rpds = getdrivestat (drsel);
+                // update RPDS (clears RPCS2 as well)
+                uint16_t rpds = getdrivestat (drsel, false);
                 wrreg (3, rpds * RH3_RPDS0 | 0 * RH3_RPCS20);
-
-                // clear RPER1
-                wrreg (4, 0 * RH4_RPER1);
 
                 // update RPSN, RPDT
                 uint16_t rpsn = getdrivesern (drsel);
                 uint16_t rpdt = getdrivetype (drsel);
                 wrreg (7, rpsn * RH7_RPSN0 | rpdt * RH7_RPDT0);
-
-                // clear RPDC
-                wrreg (8, ZRD(rhat[8]) & ~ RH8_RPDC);
             }
-
-            // set RPCS1<RDY> indicating clear is complete, ready to accept command
-            wrreg (1, ZRD(rhat[1]) | 0200 * RH1_RPCS10);
         } else {
 
             // see if command from pdp waiting to be processed (some drive's GO bit set)
@@ -251,7 +244,8 @@ static void docommand (int drsel, uint16_t rpcs1)
     uint32_t rpba = ((rpcs1 << 8) & 0600000) + (ZRD(rhat[2]) & RH2_RPBA) / RH2_RPBA0;
     uint32_t rpbi = (ZRD(rhat[3]) & 8 * RH3_RPCS20) ? 0 : 2;
 
-    if (debug > 0) fprintf (stderr, "docommand: [%d] rpcs1=%06o rpdc=%06o rpba=%06o\n", drsel, rpcs1, rpdc, rpba);
+    if (debug > 0) fprintf (stderr, "docommand: [%d] rpcs1=%06o rpdc=%06o rpba=%06o  %s\n", drsel, rpcs1, rpdc, rpba,
+        functbl[(rpcs1>>1)&31]);
 
     switch ((rpcs1 >> 1) & 31) {
 
@@ -282,7 +276,7 @@ static void docommand (int drsel, uint16_t rpcs1)
         // drive clear
         case  4: {
             // clear ATA,ERR
-            uint32_t rpds = getdrivestat (drsel);
+            uint32_t rpds = getdrivestat (drsel, false);
             wrreg (3, (ZRD(rhat[3]) & ~ RH3_RPDS) | rpds * RH3_RPDS0);
             // clear RPER1
             wrreg (4, ZRD(rhat[4]) & ~ RH4_RPER1);
@@ -308,7 +302,6 @@ static void docommand (int drsel, uint16_t rpcs1)
         case  8: {
 
             // set volume valid
-            vvs[drsel] = true;
             wrreg (3, ZRD(rhat[3]) | 0100 * RH3_RPDS0);
 
             // clear sector, track
@@ -322,7 +315,7 @@ static void docommand (int drsel, uint16_t rpcs1)
         // pack acknowledge
         // - set volume valid
         case  9: {
-            vvs[drsel] = true;
+            ABORT ();   // - should be handled in rh11.v
             wrreg (3, ZRD(rhat[3]) | 0100 * RH3_RPDS0);
             break;
         }
@@ -516,14 +509,18 @@ clrgo:;
 }
 
 // compute RPDS contents
-static uint16_t getdrivestat (int drsel)
+//  input:
+//   ARMDS = drsel = which drive
+//   clrvv = true: clear VV - volume valid
+//          flase: preserve VV
+static uint16_t getdrivestat (int drsel, bool clrvv)
 {
     ShmMSDrive *dr = &shmms->drives[drsel];
-    uint16_t stat = 000600;                 // DPR,DRY - drive present, drive ready
+    uint16_t stat = clrvv ? 0 : (ZRD(rhat[3] & RH3_RPDS) / RH3_RPDS0 & 0100);
+    stat |= 000600;                         // DPR,DRY - drive present, drive ready
     if (seekdoneats[drsel] != 0) stat ^= 020200;  // PIP - position in progress
     if (fds[drsel] >= 0) stat |= 010000;    // MOL - medium online
     if (dr->readonly)    stat |= 004000;    // WRL - write locked
-    if (vvs[drsel])      stat |= 000100;    // VV  - volume valid
     return stat;
 }
 
@@ -698,15 +695,20 @@ static int fileloaded (void *param, int drsel, int fd)
         }
     }
     fds[drsel] = fd;
+    bool clrvv = false;
     if (strcmp (fns[drsel], dr->filename) != 0) {
         strcpy (fns[drsel], dr->filename);
-        vvs[drsel] = false;
+        clrvv = true;
         dr->curposn = 0;
     }
 
     // update RPDS and set ATA - attention active
     wrreg (6, ARMDS (drsel));
-    wrreg (3, (rhat[3] & ~ RH3_RPDS) | getdrivestat (drsel) * RH3_RPDS0 | 0100000 * RH3_RPDS0);
+    uint32_t rh3 = ZRD(rhat[3]);
+    rh3 &= ~ RH3_RPDS;                              // clear all RPDS bits, leave non-RPDS bits alone
+    rh3 |= getdrivestat (drsel, clrvv) * RH3_RPDS0; // generate RPDS bits
+    rh3 |= 0100000 * RH3_RPDS0;                     // set ATA
+    wrreg (3, rh3);
 
     return 0;
 }
@@ -760,14 +762,79 @@ static void unloadfileata (int drsel, uint16_t ata)
 
     // update RPDS and maybe set ATA - attention active
     wrreg (6, ARMDS (drsel));
-    wrreg (3, (rhat[3] & ~ RH3_RPDS) | getdrivestat (drsel) * RH3_RPDS0 | ata * RH3_RPDS0);
+    wrreg (3, (rhat[3] & ~ RH3_RPDS) | getdrivestat (drsel, true) * RH3_RPDS0 | ata * RH3_RPDS0);
 }
 
+#define RF(f) (value & f) / (f & - f)
 static void wrreg (int index, uint32_t value)
 {
     ZWR(rhat[index], value);
     if (debug > 2) {
-        fprintf (stderr, "z11rh: rhat[%d] <= %08X\n", index, value);
+        fprintf (stderr, "z11rh: rhat[%d] <= %08X", index, value);
+        value = ZRD(rhat[index]);
+        switch (index) {
+            case 1: {
+                uint16_t rpcs1 = RF(RH1_RPCS1);
+                fprintf (stderr, "  RPWC=%06o  RPCS1=%06o", RF(RH1_RPWC), rpcs1);
+                fprintf (stderr, "  %s %s A=%o %s F=%02o=%s\n",
+                    (rpcs1 & 0100000) ? "SC" : "  ",
+                    (rpcs1 & 0040000) ? "TRE" : "   ",
+                    (rpcs1 >> 8) & 3,
+                    (rpcs1 & 0000200) ? "RDY" : "   ",
+                    (rpcs1 & 077),
+                    functbl[(rpcs1>>1)&31]);
+                break;
+            }
+            case 2: {
+                fprintf (stderr, "  RPDA=%06o  RPBA=%06o\n", RF(RH2_RPDA), RF(RH2_RPBA));
+                break;
+            }
+            case 3: {
+                uint16_t rpds  = RF(RH3_RPDS);
+                uint16_t rpcs2 = RF(RH3_RPCS2);
+                fprintf (stderr, "  RPDS=%06o  RPCS2=%06o", rpds, rpcs2);
+                fprintf (stderr, "  %s %s %s %s %s %s %s %s",
+                    (rpds & 0100000) ? "ATA" : "   ",
+                    (rpds & 0040000) ? "ERR" : "   ",
+                    (rpds & 0020000) ? "PIP" : "   ",
+                    (rpds & 0010000) ? "MOL" : "   ",
+                    (rpds & 0004000) ? "WRL" : "   ",
+                    (rpds & 0001000) ? "PGM" : "   ",
+                    (rpds & 0000200) ? "DRY" : "   ",
+                    (rpds & 0000100) ? "VV"  : "  ");
+                fprintf (stderr, "  %s %s %s U=%o\n",
+                    (rpcs2 & 0040000) ? "WCE" : "   ",
+                    (rpcs2 & 0004000) ? "NXM" : "   ",
+                    (rpcs2 & 0002000) ? "PGE" : "   ",
+                    (rpcs2 & 7));
+                break;
+            }
+            case 4: {
+                uint16_t rper1 = RF(RH4_RPER1);
+                fprintf (stderr, "  RPGS=%03o  RPAS=%03o  RPER1=%06o", RF(RH4_RPGS), RF(RH4_RPAS), rper1);
+                fprintf (stderr, "  %s %s %s\n",
+                    (rper1 & 0040000) ? "WLE" : "   ",
+                    (rper1 & 0000100) ? "ECH" : "   ",
+                    (rper1 & 0000001) ? "ILF" : "   ");
+                break;
+            }
+            case 6: {
+                fprintf (stderr, "  ARMDS=%o\n", RF(RH6_ARMDS));
+                break;
+            }
+            case 7: {
+                fprintf (stderr, "  RPSN=%06o  RPDT=%06o\n", RF(RH7_RPSN), RF(RH7_RPDT));
+                break;
+            }
+            case 8: {
+                fprintf (stderr, "  RPCC=%06o  RPDC=%06o\n", RF(RH8_RPCC), RF(RH8_RPDC));
+                break;
+            }
+            default: {
+                fprintf (stderr, "\n");
+                break;
+            }
+        }
     }
 }
 
