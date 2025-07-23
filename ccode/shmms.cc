@@ -166,9 +166,9 @@ int shmms_stat (int ctlid, int drive, char *buff, int size, uint32_t *curpos_r)
                 if (rhat == NULL) {
                     rhat = z11page->findev ("RH", NULL, NULL, false);
                 }
-                ZWR(rhat[6], (ZRD(rhat[6]) & ~ RH6_ARMDS) | (drive * RH6_ARMDS0));
-                uint16_t rpds = ZRD(rhat[3]) / RH3_RPDS0;
-                if (rpds & 0200) statbits |= MSSTAT_READY;          // ready (not seeking etc)
+//              ZWR(rhat[6], (ZRD(rhat[6]) & ~ RH6_ARMDS) | (drive * RH6_ARMDS0));
+//              uint16_t rpds = ZRD(rhat[3]) / RH3_RPDS0;
+//              if (rpds & 0200) statbits |= MSSTAT_READY;          // ready (not seeking etc)
                 break;
             }
 

@@ -45,63 +45,61 @@ module rh11
     output reg[15:00] d_out_h,
     output reg ssyn_out_h);
 
-    reg dobusini, doctlclr, enable, fastio;
-    reg[15:00] rpcs1, rpwc, rpba, rpdaarm, rpcs2, rpdsarm, rper1arm, rpla, rpdb, rpdtarm, rpsnarm, rpdcarm, rpccarm;
-    reg[6:0] rpcs1s[7:0];
-    reg[15:00] rpdas[7:0], rper1s[7:0], rpdts[7:0], rpsns[7:0], rpdcs[7:0], rpccs[7:0];
-    reg[14:00] rpdss[7:0];
-    reg[2:0] armds;
-    reg[7:0] rpgs, rpas, secpertrkm1;
-    reg[19:00] qtrsectimem1, qtrsectimer;
+    reg enable, fastio;
+    reg[15:00] rpwc, rpcs2, rpla;
+    reg[15:01] rpba;
+    reg[15:06] rpcs1;
+    reg[5:0] rpcs1s[7:0];
+    reg[15:00] rpdas[7:0], rper1s[7:0], rpsns[7:0];
+    reg[9:0] rpdcs[7:0], rpccs[7:0];
+    reg[7:0] rpgs, rpas, secpertrkm1, fins;
+    reg[14:00] qtrsectimer;
     wire[2:0] pdpds = rpcs2[02:00];
+    wire[3:0] pdpdsp1 = { 1'b0, pdpds } + 1;
+
+    reg[7:0] mols, wrls, dts, vvs, drys, errs, pips, lsts;
+    reg wrt, per, nxm, fer, xgo, wce, armctlclr, doctlclr;
+    reg[2:0] drv, exeds;
+    reg[4:0] sec, trk;
+    reg[9:0] cyl;
+    reg[10:00] seekctr;
+    reg[5:0] sins[7:0];
+
+    localparam[14:00] qtrsectimem1 = 18847;     // 753.92 uS / 4 - 1 (p43/v3-7)
+    localparam[4:0]   maxsec = 21;              // 22 sectors per track
+    localparam[4:0]   maxtrk = 18;              // 19 tracks per cylinder
+    wire[9:0]         maxcyl = dts[exeds] ? 814 : 410;
 
     // rpcs1(partial),rhwc,rhba,rhcs2,rhdb - controller registers
     // all others - per-drive register
     // cheat with just one rpla
 
-    // rpcs1[15:13] = common ([15:14] = automatically computed)
+    // rpcs1[15:14] = common (automatically computed)
+    // rpcs1[13]    = MCPE always 0
     // rpcs1[12]    = zero
-    // rpcs1[11]    = DVA for drive armds
-    // rpcs1[10:06] = common
-    // rpcs1[05:00] = FC,GO for drive armds
-
-    // rpcs1s[pdpds][6]   = DVA for drive pdpds
+    // rpcs1[11]    = DVA always 1 (we don't do dual porting)
+    // rpcs1[10]    = PSEL always 0 (we don't do dual porting)
+    // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    // rpgs[pdpds] = set when pdpds GO bit is set, wakes up arm (z11rh.cc)
-    //               cleared by arm when it starts processing the request
-
-    assign armrdata = (armraddr ==  0) ? 32'h52483004 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      (armraddr ==  1) ? { rpwc,       rpcs1    } :
-                      (armraddr ==  2) ? { rpdaarm,    rpba     } :
-                      (armraddr ==  3) ? { rpdsarm,    rpcs2    } :
-                      (armraddr ==  4) ? { rpgs, rpas, rper1arm } :
-                      (armraddr ==  5) ? { rpdb,       rpla     } :
-                      (armraddr ==  6) ? { armds, 1'b0, secpertrkm1, qtrsectimem1 } :
-                      (armraddr ==  7) ? { rpsnarm,    rpdtarm  } :
-                      (armraddr ==  8) ? { rpccarm,    rpdcarm  } :
-                      (armraddr ==  9) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
+    assign armrdata = (armraddr == 0) ? 32'h52483006 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+                      (armraddr == 1) ? { mols, wrls, dts, vvs } :
+                      (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
+                      (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
+                      (armraddr == 4) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
+                      (armraddr == 5) ? { 24'b0, rpas } :
                       32'hDEADBEEF;
 
-    // wake arm when go bit set or controller clear set
-    assign armintrq = (rpgs != 0) | rpcs2[05];
+    // wake arm when transfer go bit set or controller clear set
+    assign armintrq = xgo | armctlclr;
 
-    // block arm from writing registers if doing a 'controller clear'
-    wire armcanwrite = ~ doctlclr & ~ rpcs2[05];
-
-    intreq rpintreq (
-        .CLOCK    (CLOCK),
-        .RESET    (init_in_h),
-        .INTVEC   (INTVEC),
-        .rirqlevl ((rpcs1[07] | (rpas != 0)) & rpcs1[06]),
-        .xirqlevl (0),
-        .intreq   (intreq),
-        .irvec    (irvec),
-        .intgnt   (intgnt),
-        .igvec    (igvec)
-    );
+    // interrupt pdp when controller ready or any drive attention
+    // - edge triggered by IE bit automatically turned off when granted
+    assign intreq = rpcs1[06] & (rpcs1[07] | (rpas != 0));
+    assign irvec  = INTVEC;
 
     // continuously update sector-under-head number
+    // same for all drives
     always @(*) begin
         rpla[15:14] = 0;
         rpla[03:00] = 0;
@@ -136,13 +134,17 @@ module rh11
     always @(posedge CLOCK) begin
         if (init_in_h) begin
             if (RESET) begin
-                enable <= 0;
-                fastio <= 0;
+                enable  <= 0;
+                fastio  <= 0;
+                exeds   <= 0;
+                seekctr <= 0;
             end
 
-            dobusini   <= 1;
-            doctlclr   <= 1;
-            rpcs2      <= 0;
+            doctlclr <= 1;
+            mols     <= 0;
+            rpcs2    <= 0;
+            wrls     <= 0;
+            dts      <= 0;
 
             d_out_h    <= 0;
             ssyn_out_h <= 0;
@@ -152,116 +154,69 @@ module rh11
         else if (armwrite) begin
             case (armwaddr)
                 1: begin
-                    if (armcanwrite) begin
-                        rpwc <= armwdata[31:16];
-                        rpcs1[13]     <= armwdata[13];      // MCPE
-                        rpcs1[11]     <= armwdata[11];      // DVA
-                        rpcs1[09:07]  <= armwdata[09:07];   // A17,A16,RDY
-                        rpcs1[00]     <= armwdata[00];      // GO
-                        rpcs1s[armds][6] <= armwdata[11];   // per-drive DVA
-                        rpcs1s[armds][0] <= armwdata[00];   // per-drive GO
-                    end
+                    mols <= armwdata[31:24];            // media onlines
+                    wrls <= armwdata[23:16];            // write locks
+                    dts  <= armwdata[15:08];            // drive types (0=RP04; 1=RP06)
+                    vvs  <= vvs & ~ armwdata[07:00];    // volume valids
                 end
                 2: begin
-                    if (armcanwrite) begin
-                        rpdas[armds]  <= armwdata[31:16];
-                        rpba[15:01]   <= armwdata[15:01];
-                        rpdaarm       <= armwdata[31:16];
-                    end
+                    cyl          <= armwdata[27:18];    // cylinder at end of transfer
+                    rpcs1[09:08] <= armwdata[17:16];    // bus address at end of transfer
+                    rpba         <= armwdata[15:01];
                 end
                 3: begin
-                    if (armcanwrite) begin
-                        rpdss[armds]  <= armwdata[30:16];   // update per-drive drive status
-                        rpas[armds]   <= armwdata[31];      // update per-drive atten summary bit
-                        rpdsarm       <= armwdata[31:16];   // update drive status readback
-                        rpcs2         <= armwdata[15:00];
+                    if (armwdata[21]) begin
+                        armctlclr <= 0;                 // arm is just clearing the RH3_CLR bit
                     end else begin
-                        rpcs2[05]     <= rpcs2[05] & ~ armwdata[05];  // clear 'controller clear' bit
+                        per  <= armwdata[31];           // parity error
+                        nxm  <= armwdata[30];           // non-existant memory
+                        fer  <= armwdata[29];           // file io error
+                        xgo  <= armwdata[28];           // transfer go
+                        wce  <= armwdata[27];           // write check error
+                        trk  <= armwdata[26:22];        // track
+                        sec  <= armwdata[20:16];        // sector
+                        rpwc <= armwdata[15:00];        // word count
                     end
                 end
                 4: begin
-                    if (armcanwrite) begin
-                        rpgs <= rpgs & ~ armwdata[31:24];
-                        rper1s[armds] <= armwdata[15:00];
-                        rper1arm      <= armwdata[15:00];
-                    end
+                    enable <= armwdata[31];             // enable unibus access
+                    fastio <= armwdata[30];             // disable seek delays
                 end
                 5: begin
-                    if (armcanwrite) begin
-                        rpdb          <= armwdata[31:16];
-                    end
-                end
-                6: begin
-                    if (armcanwrite) begin
-                        secpertrkm1   <= armwdata[27:20];
-                        qtrsectimem1  <= armwdata[19:00];
-
-                        armds         <= armwdata[31:29];
-                        rpcs1[11]     <= rpcs1s[armwdata[31:29]][11];
-                        rpcs1[05:00]  <= rpcs1s[armwdata[31:29]][05:00];
-                        rpdsarm       <= { rpas[armwdata[31:29]], rpdss[armwdata[31:29]] };
-                        rpsnarm       <= rpsns[armwdata[31:29]];
-                        rpdtarm       <= rpdts[armwdata[31:29]];
-                        rpccarm       <= rpccs[armwdata[31:29]];
-                        rpdcarm       <= rpdcs[armwdata[31:29]];
-                    end
-                end
-                7: begin
-                    rpsns[armds]  <= armwdata[31:16];
-                    rpdts[armds]  <= armwdata[15:00];
-                    rpsnarm       <= armwdata[31:16];
-                    rpdtarm       <= armwdata[15:00];
-                end
-                8: begin
-                    if (armcanwrite) begin
-                        rpccs[armds]  <= armwdata[31:16];
-                        rpdcs[armds]  <= armwdata[15:00];
-                        rpccarm       <= armwdata[31:16];
-                        rpdcarm       <= armwdata[15:00];
-                    end
-                end
-                9: begin
-                    enable <= armwdata[31];
-                    fastio <= armwdata[30];
+                    rpas   <= rpas | armwdata[07:00];   // set ATA - attention active
                 end
             endcase
         end
 
-        // init released:
+        // RH-11 does its own edge-triggered interrupts by clearing IE bit when interrupt granted
+        else if (intgnt & rpcs1[06] & (igvec == irvec)) begin
+            rpcs1[06] <= 0;
+        end
+
+        // init released / controller clear:
         //  clear per-drive registers
         //  set controller clear to tell arm to reset
         else if (doctlclr) begin
-            rpcs1[13:00] <= 14'o00200;
+            rpcs1[09:06] <= 4'b0010;
             rpwc         <= 0;
             rpba         <= 0;
-            rpdaarm      <= 0;
-            rpdsarm      <= 0;
-            rper1arm     <= 0;
             rpgs         <= 0;
             rpas         <= 0;
-            rpdb         <= 0;
-            rpdtarm      <= 0;
-            rpsnarm      <= 0;
-            rpdcarm      <= 0;
-            rpccarm      <= 0;
 
             rpcs1s[pdpds] <= 0;
             rpdcs[pdpds]  <= 0;
             rpccs[pdpds]  <= 0;
             rpcs2[02:00]  <= rpcs2[02:00] + 1;
 
-            rpdss[pdpds][15:13] <= 3'b000;
-            rpdss[pdpds][10:07] <= 4'b0011;
-            rpdss[pdpds][05:00] <= 6'b000000;
-            if (dobusini) begin
-                rpdss[pdpds][12:11] <= 2'b00;
-                rpdss[pdpds][06]    <= 1'b0;
-            end
+            drys <= 8'o377;
+            errs <= 0;
+            lsts <= 0;
+            pips <= 0;
+            vvs  <= 0;
 
             if (pdpds == 7) begin
-                dobusini  <= 0;
                 doctlclr  <= 0;     // we are done with our controller clear processing
-                rpcs2[05] <= 1;     // wake arm to do its controller clear processing
+                armctlclr <= 1;     // wake arm to do its controller clear processing
             end
         end
 
@@ -269,7 +224,7 @@ module rh11
         else if (~ msyn_in_h & ssyn_out_h) begin
             d_out_h    <= 0;
             ssyn_out_h <= 0;
-        end else if (enable & (a_in_h[17:06] == ADDR[17:06]) & ~ ssyn_out_h) begin
+        end else if (enable & msyn_in_h & (a_in_h[17:06] == ADDR[17:06]) & ~ ssyn_out_h) begin
             ssyn_out_h <= 1;
             if (c_in_h[1]) begin
 
@@ -280,38 +235,24 @@ module rh11
                      0: begin
                         if (wrhi) begin
                             if (d_in_h[14]) begin           // writing <14> = 1 clears controller error bits
-                                rpcs1[13]    <= 0;          // clear MCPE
-                                rpcs2[15:08] <= 0;          // clear DLT,TRE,PE,NED,NXM,PGE,MXF,MDPE
+                                rpcs2[15:08] <= 0;          // clear DLT,WCE,UPE,NED,NXM,PGE,MXF,MDPE
                             end
-                            rpcs1[10:08] <= d_in_h[10:08];
+                            rpcs1[09:08] <= d_in_h[09:08];  // A17,A16
                         end
                         if (wrlo) begin
                             rpcs1[06] <= d_in_h[06];                    // IE - common to all drives
                             if (d_in_h[00]) begin                       // check for GO bit
-                                if (~ rpdss[pdpds][07] |                // must always have drive ready
+                                if (~ drys[pdpds] |                     // must always have drive ready
                                     d_in_h[05] & ~ rpcs1[07]) begin     // if data xfer, must have ctrlr ready
                                     rpcs2[10] <= 1;                     // ctrlr or drive bussy, set PGE
                                 end else begin
-                                    if (d_in_h[05:00] == 6'o23) begin   // check for 'pack ack'
-                                        rpdss[pdpds][06] <= 1;          // set VV - volume valid
-                                    end else begin
-                                        rpdss[pdpds][07] <= 0;  // clear DRY
-                                        if (d_in_h[05]) begin   // check for data transfer command
-                                            rpcs1[07] <= 0;     // clear RDY
-                                            rpcs1[13] <= 0;     // clear MCPE
-                                            rpcs2[15] <= 0;     // clear DLT
-                                            rpcs2[14] <= 0;     // clear TRE
-                                            rpcs2[13] <= 0;     // clear PE
-                                            rpcs2[12] <= 0;     // clear NED
-                                            rpcs2[11] <= 0;     // clear NXM
-                                            rpcs2[10] <= 0;     // clear PGE
-                                            rpcs2[09] <= 0;     // clear MXF
-                                            rpcs2[08] <= 0;     // clear MDPE
-                                        end
-                                        rpcs1s[pdpds][5:0] <= d_in_h[05:00];  // FC,GO - update what pdp is seeing
-                                        if (armds == pdpds) rpcs1[05:00] <= d_in_h[05:00];  // update what arm is seeing
-                                        rpgs[pdpds] <= 1;       // wake arm processor up
+                                    drys[pdpds]      <= 0;  // clear DRY
+                                    if (d_in_h[05]) begin   // check for data transfer command
+                                        rpcs1[07]    <= 0;  // clear RDY
+                                        rpcs2[15:08] <= 0;  // clear DLT,WCE,UPE,NED,NXM,PGE,MXF,MDPE
                                     end
+                                    rpcs1s[pdpds] <= d_in_h[05:00];     // FC,GO
+                                    fins[pdpds]   <= 1;
                                 end
                             end
                         end
@@ -333,19 +274,18 @@ module rh11
                      3: begin
                         if (wrhi) rpdas[pdpds][15:08] <= d_in_h[15:08];
                         if (wrlo) rpdas[pdpds][07:00] <= d_in_h[07:00];
-                        if (wrhi & (armds == pdpds)) rpdaarm[15:08] <= d_in_h[15:08];
-                        if (wrlo & (armds == pdpds)) rpdaarm[07:00] <= d_in_h[07:00];
                     end
 
                     // RPCS2
                      4: begin
                         if (wrlo) begin
                             if (d_in_h[05]) begin
-                                doctlclr     <= 1;
-                                rpcs2[05:00] <= 0;
+                                doctlclr <= 1;
+                                rpcs2    <= 0;
                             end else begin
-                                // leave [05] alone in case arm is still doing its controller clear stuff
-                                rpcs2[04:00] <= d_in_h[04:00];
+                                rpcs2[13]    <= d_in_h[13];
+                                rpcs2[09]    <= d_in_h[09];
+                                rpcs2[05:00] <= d_in_h[05:00];
                             end
                         end
                     end
@@ -354,8 +294,6 @@ module rh11
                      6: begin
                         if (wrhi) rper1s[pdpds][15:08] <= d_in_h[15:08];
                         if (wrlo) rper1s[pdpds][07:00] <= d_in_h[07:00];
-                        if (wrhi & (armds == pdpds)) rper1arm[15:08] <= d_in_h[15:08];
-                        if (wrlo & (armds == pdpds)) rper1arm[07:00] <= d_in_h[07:00];
                     end
 
                     // RPAS
@@ -365,34 +303,228 @@ module rh11
 
                     // RPDC
                     14: begin
-                        if (wrhi) rpdcs[pdpds][15:08] <= d_in_h[15:08];
-                        if (wrlo) rpdcs[pdpds][07:00] <= d_in_h[07:00];
-                        if (wrhi & (armds == pdpds)) rpdcarm[15:08] <= d_in_h[15:08];
-                        if (wrlo & (armds == pdpds)) rpdcarm[07:00] <= d_in_h[07:00];
+                        if (wrhi) rpdcs[pdpds][9:8] <= d_in_h[09:08];
+                        if (wrlo) rpdcs[pdpds][7:0] <= d_in_h[07:00];
                     end
                 endcase
             end else begin
 
                 // pdp reading a register
                 case (a_in_h[05:01])
-                     0: d_out_h <= { rpcs1[15:13], 1'b0, rpcs1s[pdpds][6], rpcs1[10:06], rpcs1s[pdpds][5:0] };
+                     0: d_out_h <= { rpcs1[15:14], 3'b0010, rpcs1[09:06], rpcs1s[pdpds] };
                      1: d_out_h <= rpwc;
-                     2: d_out_h <= rpba;
+                     2: d_out_h <= { rpba, 1'b0 };
                      3: d_out_h <= rpdas[pdpds];
-                     4: d_out_h <= rpcs2 & 16'o177737;  // RPCS2<05> will be set while arm is doing controller clear
-                                                        // ...but don't let the pdp see it
-                     5: d_out_h <= { rpas[pdpds], rpdss[pdpds] };
+                     4: d_out_h <= rpcs2;
+                     5: d_out_h <= { rpas[pdpds],               // ATA
+                                     errs[pdpds],               // ERR
+                                     pips[pdpds],               // PIP
+                                     mols[pdpds],               // MOL
+                                     wrls[pdpds],               // WRL
+                                     lsts[pdpds],               // LST
+                                     2'b01,                     // PGM,DPR
+                                     drys[pdpds],               // DRY
+                                     vvs[pdpds],                // VV
+                                     6'b0 };
                      6: d_out_h <= rper1s[pdpds];
                      7: d_out_h <= { 8'b0, rpas };
                      8: d_out_h <= rpla;
-                     9: d_out_h <= rpdb;
-                    11: d_out_h <= rpdts[pdpds];
-                    12: d_out_h <= rpsns[pdpds];
-                    13: d_out_h <= 16'o010000;  // RPOF<12>=1 : 16-bit word format
-                    14: d_out_h <= rpdcs[pdpds];
-                    15: d_out_h <= rpccs[pdpds];
+                    11: d_out_h <= dts[pdpds] ? 16'o020022 :    // RP06
+                                                16'o020020;     // RP04
+                    12: d_out_h <= { 4 { pdpdsp1 } };           // RPSN
+                    13: d_out_h <= 16'o010000;                  // RPOF<12>=1 : 16-bit word format
+                    14: d_out_h <= { 6'b0, rpdcs[pdpds] };
+                    15: d_out_h <= { 6'b0, rpccs[pdpds] };
                 endcase
             end
+        end
+
+        // nothing else to do, execute functions with go bit set
+        else begin
+
+            // stepping for explicit or implied seek
+            if (pips[exeds]) begin
+                if (seekctr == 0) begin                         // step every 163.84 uS
+                    if (rpccs[exeds] == rpdcs[exeds]) begin
+                        pips[exeds]  <= 0;                      // - cyls match, done stepping
+                    end else if (sins[exeds] != 42) begin       // - 7 mS for first step
+                        sins[exeds]  <= sins[exeds] + 1;
+                    end else if (rpccs[exeds] < rpdcs[exeds]) begin
+                        rpccs[exeds] <= rpccs[exeds] + 1;       // - step inward one cylinder
+                    end else begin
+                        rpccs[exeds] <= rpccs[exeds] - 1;       // - step outward one cylinder
+                    end
+                end
+            end
+
+            // not stepping, process command if GO bit set
+            else if (rpcs1s[exeds][00]) begin
+                case (rpcs1s[exeds][05:01])
+
+                    // 01 - nop
+                    0: begin
+                        rpcs1s[exeds][00] <= 0;                 // clear GO
+                        drys[exeds]       <= 1;                 // set DRY
+                    end
+
+                    // 03 - unload
+                    // 07 - recal
+                    //   seek to cyl 0 but take 500 mS
+                    1, 3: begin
+                        if (fins[exeds]) begin
+                            rpccs[exeds] <= 384;                // will take 500mS to seek to 0 from here
+                            fins[exeds]  <= 0;                  // init complete
+                        end else if (seekctr == 0) begin        // step every 163.84 uS
+                            if (rpccs[exeds] == 0) begin
+                                rpcs1s[exeds][00] <= 0;         // clear GO
+                                drys[exeds]       <= 1;         // set DRY
+                                rpas[exeds]       <= 1;         // set ATA
+                            end else begin
+                                rpccs[exeds] <= rpccs[exeds] - 1;
+                            end
+                        end
+                    end
+
+                    // 05 - seek
+                    // 31 - search
+                    2, 12: begin
+                        if (rpccs[exeds] != rpdcs[exeds]) begin
+                            pips[exeds]       <= 1;             // positioning in progress
+                            sins[exeds]       <= 0;             // take 7 mS for first step
+                        end else begin
+                            rpcs1s[exeds][00] <= 0;             // clear GO
+                            drys[exeds]       <= 1;             // set DRY
+                            rpas[exeds]       <= 1;             // set ATA
+                        end
+                    end
+
+                    // 11 - drive clear
+                    // 13 - release
+                    4, 5: begin
+                        rpas[exeds]       <= 0;                 // clear ATA
+                        errs[exeds]       <= 0;                 // clear ERR
+                        rper1s[exeds]     <= 0;                 // clear RPER1
+                        rpcs1s[exeds][00] <= 0;                 // clear GO
+                        drys[exeds]       <= 1;                 // set DRY
+                    end
+
+                    // 15 - offset
+                    // 17 - return to centerline
+                    //  10mS delay, but we just do 1.31 mS
+                    6, 7: begin
+                        if (seekctr == 0) begin                 // step every 163.84 uS
+                            if (fins[exeds]) begin
+                                fins[exeds] <= 0;               // init complete
+                            end else begin
+                                rpcs1s[exeds][00] <= 0;         // clear GO
+                                drys[exeds]       <= 1;         // set DRY
+                                rpas[exeds]       <= 1;         // set ATA
+                            end
+                        end
+                    end
+
+                    // 21 - read-in-preset (p3-9)
+                    8: begin
+                        vvs[pdpds]        <= 1;                 // set VV - volume valid
+                        rpdas[pdpds]      <= 0;                 // clear sector, track
+                        rpdcs[pdpds]      <= 0;                 // clear cylinder
+                        rpcs1s[exeds][00] <= 0;                 // clear GO
+                        drys[exeds]       <= 1;                 // set DRY
+                    end
+
+                    // 23 - pack ack
+                    9: begin
+                        vvs[pdpds]        <= 1;                 // set VV - volume valid
+                        rpcs1s[exeds][00] <= 0;                 // clear GO
+                        drys[exeds]       <= 1;                 // set DRY
+                    end
+
+                    // 51 - write check
+                    // 61 - write data
+                    // 71 - read data
+                    20, 24, 28: begin
+                        if ((rpdcs[exeds] > maxcyl) | (rpdas[exeds][12:08] > maxtrk) | (rpdas[exeds][04:00] > maxsec)) begin
+                            rper1s[exeds][10] <= 1;             // IAE - invalid (disk) address error
+                            rpcs1[07]         <= 1;             // RDY - controller ready
+                            errs[exeds]       <= 1;             // ERR - error summary
+                            drys[exeds]       <= 1;             // DRY - drive ready
+                            rpas[exeds]       <= 1;             // ATA - attention
+                            rpcs1s[exeds][00] <= 0;             // clear GO
+                        end else if (~ rpcs1s[exeds][3] & wrls[exeds]) begin
+                            rper1s[exeds][11] <= 1;             // WLE - write lock error
+                            rpcs1[07]         <= 1;             // RDY - controller ready
+                            errs[exeds]       <= 1;             // ERR - error summary
+                            drys[exeds]       <= 1;             // DRY - drive ready
+                            rpas[exeds]       <= 1;             // ATA - attention
+                            rpcs1s[exeds][00] <= 0;             // clear GO
+                        end else if (~ xgo & ~ armctlclr) begin
+
+                            //               xgo = 0 : transfer not currently in progress (either hasn't been started or has finished)
+                            //         armctlclr = 0 : controller clear not currently in progress
+                            // rpcs1s[exeds][00] = 1 : GO bit still set, keep processing command
+                            //       fins[exeds] = 1 : command starting
+                            //                     0 : command finished
+
+                            // note: xgo = 1 means arm is busy doing transfer
+                            //       armctlclr = 1 means arm is still processing controller clear
+                            //         so delay starting transfer until it finishes
+
+                            if (fins[exeds]) begin
+
+                                // command starting, arm hasn't been told to start transfer yet
+                                if (rpccs[exeds] != rpdcs[exeds]) begin
+                                    pips[exeds] <= 1;           // cyl mismatch, do implied seek
+                                    sins[exeds] <= 0;           // take 7 mS for first step
+                                end else begin
+                                    wrt <= ~ rpcs1s[exeds][3];  // doing write
+                                    drv <= exeds;               // drive number
+                                    cyl <= rpdcs[exeds];        // starting cylinder
+                                    xgo <= 1;                   // tell arm to start transfer
+                                    wce <= ~ rpcs1s[exeds][4];  // doing write check
+                                    trk <= rpdas[exeds][12:08]; // starting track
+                                    sec <= rpdas[exeds][04:00]; // starting sector
+                                    fins[exeds] <= 0;
+                                end
+                            end else begin
+
+                                // command finished, arm has completed transfer - post final status
+                                rpdcs[exeds] <= cyl;            // final cylinder
+                                if (cyl > maxcyl) begin
+                                    lsts[exeds]  <= 1;          // last sector on disk
+                                    rpccs[exeds] <= maxcyl;     // current cyl pegged at max
+                                end else begin
+                                    lsts[exeds]  <= 0;          // more sectors on disk
+                                    rpccs[exeds] <= cyl;        // actual current cyl
+                                end
+                                rpdas[exeds][12:08] <= trk;     // final track
+                                rpdas[exeds][04:00] <= sec;     // final sector
+                                rpcs2[14] <= wce;               // write check error
+                                rpcs2[13] <= per;               // memory parity error
+                                rpcs2[11] <= nxm;               // non-existant memory
+                                rper1s[exeds][06] <= fer;       // hard ecc error
+                                rpcs1s[exeds][00] <= 0;         // clear GO
+                                drys[exeds]       <= 1;         // set DRY
+                                rpcs1[07]         <= 1;         // set RDY
+                            end
+                        end
+                    end
+
+                    // unknown/unsupported command
+                    default: begin
+                        if (rpcs1s[exeds][5]) rpcs1[07] <= 1;   // RDY - controller ready to do transfer
+                        errs[exeds]   <= 1;                     // ERR - error summary
+                        drys[exeds]   <= 1;                     // DRY - drive ready
+                        rpas[exeds]   <= 1;                     // ATA - attention
+                        rper1s[exeds] <= 1;                     // ILF - illegal function
+                    end
+                endcase
+            end
+
+            // seekctr rolls over every 163.84 uS
+            if (exeds == 0) seekctr <= seekctr + 1;
+
+            // do next drive next cycle
+            exeds <= exeds + 1;
         end
     end
 endmodule
