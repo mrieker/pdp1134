@@ -140,7 +140,7 @@ int shmms_stat (int ctlid, int drive, char *buff, int size, uint32_t *curpos_r)
         ShmMSDrive *dr = &shmms->drives[drive];
         if (dr->filename[0] != 0) statbits |= MSSTAT_LOAD;  // something loaded
         if (dr->readonly)    statbits |= MSSTAT_WRPROT;     // write protected
-        if (dr->rl01)        statbits |= MSSTAT_RL01;       // RL01 drive
+        if (dr->rl01)        statbits |= MSSTAT_RL01;       // RL01 (RP04) drive
         statbits |= dr->fnseq * (MSSTAT_FNSEQ & - MSSTAT_FNSEQ);
         *curpos_r = dr->curposn;                            // current position
         if (dr->rewendsat != 0) {                           // see if tape rewinding
@@ -166,9 +166,16 @@ int shmms_stat (int ctlid, int drive, char *buff, int size, uint32_t *curpos_r)
                 if (rhat == NULL) {
                     rhat = z11page->findev ("RH", NULL, NULL, false);
                 }
-//              ZWR(rhat[6], (ZRD(rhat[6]) & ~ RH6_ARMDS) | (drive * RH6_ARMDS0));
-//              uint16_t rpds = ZRD(rhat[3]) / RH3_RPDS0;
-//              if (rpds & 0200) statbits |= MSSTAT_READY;          // ready (not seeking etc)
+
+                ZWR(rhat[5], drive * RH5_ARMDS0);
+                uint32_t rh1 = ZRD(rhat[1]);
+                uint32_t rh5 = ZRD(rhat[5]);
+
+                uint8_t drys = (rh5 & RH5_DRYS) / RH5_DRYS0 & (rh1 & RH1_MOLS) / RH1_MOLS0;
+                if ((drys >> drive) & 1) statbits |= MSSTAT_READY;  // ready (not seeking etc)
+
+                *curpos_r = (rh5 & RH5_RPCC) / RH5_RPCC0;           // current cylinder
+
                 break;
             }
 
@@ -202,7 +209,8 @@ int shmms_stat (int ctlid, int drive, char *buff, int size, uint32_t *curpos_r)
 
 // point to shared memory for the given controller
 //  input:
-//   ctlid = SHMMS_CTLID_RL : use RL controller
+//   ctlid = SHMMS_CTLID_RH : use RH controller
+//           SHMMS_CTLID_RL : use RL controller
 //           SHMMS_CTLID_TM : use TM controller
 //  output:
 //   pointer to shared memory
@@ -262,7 +270,7 @@ static int msunload (ShmMS *shmms, int drive)
     return rc;
 }
 
-// lock RL shared memory and wait for it to be idle
+// lock RH/RL/TM shared memory and wait for it to be idle
 static int mswaitidle (ShmMS *shmms)
 {
     for (int i = 1000; i < 2000; i ++) {
@@ -312,8 +320,8 @@ static int mswaitdone (ShmMS *shmms)
     return 0;
 }
 
-// lock RL/TM shared memory
-// spawn z11rl/tm if it isn't running
+// lock RH/RL/TM shared memory
+// spawn z11rh/rl/tm if it isn't running
 static int mslock (ShmMS *shmms)
 {
     if (mypid == 0) mypid = getpid ();
@@ -658,7 +666,7 @@ void shmms_svr_mutexlock (ShmMS *shmms)
     while (true) {
         if (atomic_compare_exchange (&shmms->msfutex, &tmpfutex, newfutex)) break;
         if ((kill (tmpfutex, 0) < 0) && (errno == ESRCH)) {
-            fprintf (stderr, "z11rl: locker %d dead\n", tmpfutex);
+            fprintf (stderr, "z11rh/rl/tm: locker %d dead\n", tmpfutex);
         } else {
             int rc = futex (&shmms->msfutex, FUTEX_WAIT, tmpfutex, NULL, NULL, 0);
             if ((rc < 0) && (errno != EAGAIN) && (errno != EINTR)) ABORT ();

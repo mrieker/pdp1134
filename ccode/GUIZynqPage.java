@@ -40,8 +40,9 @@ public class GUIZynqPage {
     public native static int pinget (int index);
     public native static boolean pinset (int index, int value);
 
-    public final static int MSCTLID_RL = ('R' << 8) | 'L'; 
-    public final static int MSCTLID_TM = ('T' << 8) | 'M'; 
+    public final static int MSCTLID_RH = ('R' << 8) | 'H';
+    public final static int MSCTLID_RL = ('R' << 8) | 'L';
+    public final static int MSCTLID_TM = ('T' << 8) | 'M';
 
     public final static int MSSTAT_LOAD  = 000000001;
     public final static int MSSTAT_WRPRT = 000000002;

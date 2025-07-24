@@ -300,8 +300,10 @@ JNIEXPORT jboolean JNICALL Java_GUIZynqPage_pinset
 //  MASS STORAGE DEVICES  //
 ////////////////////////////
 
+static char const *rhfileutfstrings[8];
 static char const *rlfileutfstrings[4];
 static char const *tmfileutfstrings[8];
+static jstring rhfilejavstrings[8];
 static jstring rlfilejavstrings[4];
 static jstring tmfilejavstrings[8];
 
@@ -364,15 +366,24 @@ JNIEXPORT jstring JNICALL Java_GUIZynqPage_msfile
 
     char const **msfileutfstrings = NULL;
     jstring *msfilejavstrings = NULL;
-    if (ctlid == SHMMS_CTLID_RL) {
-        ASSERT ((drive >= 0) && (drive <= 3));
-        msfileutfstrings = rlfileutfstrings;
-        msfilejavstrings = rlfilejavstrings;
-    }
-    if (ctlid == SHMMS_CTLID_TM) {
-        ASSERT ((drive >= 0) && (drive <= 7));
-        msfileutfstrings = tmfileutfstrings;
-        msfilejavstrings = tmfilejavstrings;
+    switch (ctlid) {
+        case SHMMS_CTLID_RH: {
+            ASSERT ((drive >= 0) && (drive <= 7));
+            msfileutfstrings = rhfileutfstrings;
+            msfilejavstrings = rhfilejavstrings;
+        }
+        case SHMMS_CTLID_RL: {
+            ASSERT ((drive >= 0) && (drive <= 3));
+            msfileutfstrings = rlfileutfstrings;
+            msfilejavstrings = rlfilejavstrings;
+        }
+        case SHMMS_CTLID_TM: {
+            ASSERT ((drive >= 0) && (drive <= 7));
+            msfileutfstrings = tmfileutfstrings;
+            msfilejavstrings = tmfilejavstrings;
+            break;
+        }
+        default: ABORT ();
     }
 
     // see if we have a string from last call

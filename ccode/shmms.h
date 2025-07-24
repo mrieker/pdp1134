@@ -53,18 +53,18 @@ struct ShmMSDrive {
     uint64_t rewendsat;     // rewind ends at (0 if not rewinding)
     uint32_t curposn;       // current position
     bool readonly;          // write protected
-    bool rl01;              // is an RL01
+    bool rl01;              // is an RL01 (or RP04)
     uint8_t fnseq;          // incremented each change in filename
     char filename[SHMMS_FNSIZE];  // "" for unloaded, else filename loaded
 };
 
 struct ShmMS {
     int msfutex;        // pid of what has it locked
-    int svrpid;         // z11rl/tm process id
+    int svrpid;         // z11rh/rl/tm process id
     int cmdpid;         // what is sending command in some command
-    int command;        // command to be processed by z11rl/tm
+    int command;        // command to be processed by z11rh/rl/tm
     int negerr;         // negative errno for load commands (0 if success)
-    int ndrives;        // actual number of drives supported by z11rl/tm
+    int ndrives;        // actual number of drives supported by z11rh/rl/tm
     ShmMSDrive drives[SHMMS_NDRIVES];
 };
 

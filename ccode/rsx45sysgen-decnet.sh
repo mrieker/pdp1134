@@ -1,4 +1,4 @@
 #!/bin/bash
 cd `dirname $0`
-nohup ./z11xe -killit < /dev/null > ~/z11xe.log 2>&1 &
+./z11xe -daemon -killit
 exec ./z11ctrl rsx45sysgen-decnet.tcl

@@ -160,10 +160,12 @@ public class Z11GUI extends JPanel {
     public static KWCkBox    kwckbox;
     public static DevCkBox   kyckbox;
     public static DevCkBox   pcckbox;
+    public static DevCkBox   rhckbox;
     public static DevCkBox   rlckbox;
     public static DevCkBox   tmckbox;
 
-    public static RLDrive[] rldrives = new RLDrive[4];
+    public static RHDrive[] rhdrives = new RHDrive[2];
+    public static RLDrive[] rldrives = new RLDrive[2];
     public static TMDrive[] tmdrives = new TMDrive[2];
 
     public static short[] realr0 = new short[1];
@@ -296,6 +298,7 @@ public class Z11GUI extends JPanel {
                 kwckbox.update ();
                 kyckbox.update ();
                 pcckbox.update ();
+                rhckbox.update ();
                 rlckbox.update ();
                 tmckbox.update ();
 
@@ -458,10 +461,10 @@ public class Z11GUI extends JPanel {
         ProcPanel procpanel = new ProcPanel ();
         add (procpanel);
 
+        add (rhdrives[0] = new RHDrive (0));
+        add (rhdrives[1] = new RHDrive (1));
         add (rldrives[0] = new RLDrive (0));
         add (rldrives[1] = new RLDrive (1));
-        add (rldrives[2] = new RLDrive (2));
-        add (rldrives[3] = new RLDrive (3));
         add (tmdrives[0] = new TMDrive (0));
         add (tmdrives[1] = new TMDrive (1));
     }
@@ -669,6 +672,7 @@ public class Z11GUI extends JPanel {
             ckboxrow.add (kwckbox = new KWCkBox    ("KW-11   "));
             ckboxrow.add (kyckbox = new DevCkBox   ("KY-11   ", "ky_enable"));
             ckboxrow.add (pcckbox = new DevCkBox   ("PC-11   ", "pc_enable"));
+            ckboxrow.add (rhckbox = new RHDevCkBox ("RH-11   "));
             ckboxrow.add (rlckbox = new RLDevCkBox ("RL-11   "));
             ckboxrow.add (tmckbox = new TMDevCkBox ("TM-11"));
         }
@@ -1485,7 +1489,6 @@ public class Z11GUI extends JPanel {
         }
     }
 
-
     // KW-11 line clock enable checkbox
     public static class KWCkBox extends JCheckBox implements ItemListener {
         private boolean suppress;
@@ -1560,69 +1563,62 @@ public class Z11GUI extends JPanel {
         }
     }
 
-    // RL-11 controller enable checkbox
-    public static class RLDevCkBox extends DevCkBox {
+    // RH-11 controller enable checkbox
+    public static class RHDevCkBox extends MSDevCkBox {
+        public RHDevCkBox (String label)
+        {
+            super (label, "rh_enable", rhdrives);
+        }
+    }
 
+    // RL-11 controller enable checkbox
+    public static class RLDevCkBox extends MSDevCkBox {
         public RLDevCkBox (String label)
         {
-            super (label, "rl_enable");
-        }
-
-        // called several times per second to update the display to match fpga & shm state
-        @Override   // DevCkBox
-        public void update ()
-        {
-            // update RL-11 checkbox to match fpga rl_enable
-            super.update ();
-
-            // if checkbox changed, update visibility of drives
-            int nowvisible = isenab ? 1 : 0;
-            if (rldrives[0].isvisible != nowvisible) {
-                for (RLDrive rldrive : rldrives) {
-                    rldrive.isvisible = nowvisible;
-                    rldrive.setVisible (isenab);
-                }
-                mainframe.pack ();
-            }
-
-            // if checked, update the per-drive displays
-            if (isenab) {
-                for (RLDrive rldrive : rldrives) {
-                    rldrive.update ();
-                }
-            }
+            super (label, "rl_enable", rldrives);
         }
     }
 
     // TM-11 controller enable checkbox
-    public static class TMDevCkBox extends DevCkBox {
-
+    public static class TMDevCkBox extends MSDevCkBox {
         public TMDevCkBox (String label)
         {
-            super (label, "tm_enable");
+            super (label, "tm_enable", tmdrives);
+        }
+    }
+
+    // mass storage controller enable checkbox
+    public static class MSDevCkBox extends DevCkBox {
+
+        private MSDrive[] msdrives;
+
+        public MSDevCkBox (String label, String enabpin, MSDrive[] msdrives)
+        {
+            super (label, enabpin);
+            this.msdrives = msdrives;
         }
 
         // called several times per second to update the display to match fpga & shm state
         @Override   // DevCkBox
         public void update ()
         {
-            // update TM-11 checkbox to match fpga tm_enable
+            // update RH/RL/TM-11 checkbox to match fpga rh/rl/tm_enable
             super.update ();
 
             // if checkbox changed, update visibility of drives
             int nowvisible = isenab ? 1 : 0;
-            if (tmdrives[0].isvisible != nowvisible) {
-                for (TMDrive tmdrive : tmdrives) {
-                    tmdrive.isvisible = nowvisible;
-                    tmdrive.setVisible (isenab);
+            if (msdrives[0].isvisible != nowvisible) {
+                for (MSDrive msdrive : msdrives) {
+                    msdrive.isvisible = nowvisible;
+                    msdrive.setVisible (isenab);
                 }
                 mainframe.pack ();
             }
 
             // if checked, update the per-drive displays
             if (isenab) {
-                for (TMDrive tmdrive : tmdrives) {
-                    tmdrive.update ();
+                for (MSDrive msdrive : msdrives) {
+                    msdrive.update ();
                 }
             }
         }
@@ -1655,8 +1651,17 @@ public class Z11GUI extends JPanel {
         {
             boolean en = isSelected ();
             if (isenab != en) {
-                isenab = en;
-                GUIZynqPage.pinset (enabpinindex, isenab ? 1 : 0);
+                if ((GUIZynqPage.running () <= 0) ||
+                    (JOptionPane.showConfirmDialog (this,
+                            "Are you sure you want to " + (en ? "plug" : "unplug") +
+                                    " the " + getText () + (en ? " into" : " from") +
+                                    " the Unibus?",
+                            "Plug Controller",
+                            JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION)) {
+                    isenab = en;
+                    GUIZynqPage.pinset (enabpinindex, isenab ? 1 : 0);
+                }
+                setSelected (isenab);
             }
         }
     }
@@ -1664,6 +1669,61 @@ public class Z11GUI extends JPanel {
     ///////////////////////////
     //  MASS STORAGE DRIVES  //
     ///////////////////////////
+
+    public static class RHDrive extends MSDrive {
+        private final static int RP04DISKSIZE = 411*19*22*512;  // bytes in RP04 disk file
+        private final static int RP06DISKSIZE = 815*19*22*512;  // bytes in RP06 disk file
+
+        protected int getCtrlrID () { return GUIZynqPage.MSCTLID_RH; }
+        protected String getCtlName () { return "RH"; }
+        protected FileFilter getFileFilter () { return new FileNameExtensionFilter ("RP04/RP06 disk image", "rp04", "rp06"); }
+        protected boolean verifyFile (File ff)
+        {
+            long issize = ff.length ();
+            long sbsize = 0;
+            String ffname = ff.getName ();
+            if (ffname.toUpperCase ().endsWith (".RP04")) {
+                sbsize = RP04DISKSIZE;
+            }
+            if (ffname.toUpperCase ().endsWith (".RP06")) {
+                sbsize = RP06DISKSIZE;
+            }
+            if (sbsize == 0) {
+                JOptionPane.showMessageDialog (this, "filename " + ffname + " must end with .r;04 or .rp06",
+                    "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+            if (! ff.exists ()) {
+                try { ff.createNewFile (); } catch (IOException ioe) {
+                    JOptionPane.showMessageDialog (this, "error creating " + ffname + ": " + ioe.getMessage(),
+                        "Loading Drive", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                return true;
+            }
+            return (issize == sbsize) || (JOptionPane.showConfirmDialog (RHDrive.this,
+                    ffname + " size " + issize + " is not " + sbsize + "\nAre you sure you want to load it?",
+                    "Loading Drive", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION);
+        }
+        protected String fmtCylNo (long cylno) { return (cylno < 0) ? "       " : String.format ("  %03d  ", cylno); }
+        protected boolean hasFaultLt () { return true; }
+        protected String getDriveLbl ()
+        {
+            boolean rp04 = (GUIZynqPage.msstat (getCtrlrID (), drive) & GUIZynqPage.MSSTAT_RL01) != 0;
+            return rp04 ? " RP04 " : " RP06 ";
+        }
+
+        @Override   // MSDrive
+        public void update ()
+        {
+            update (GUIZynqPage.msposn (getCtrlrID (), drive));
+        }
+
+        public RHDrive (int d)
+        {
+            super (d);
+        }
+    }
 
     public static class RLDrive extends MSDrive {
         private final static int RL01DISKSIZE = 256*2*40*256;  // bytes in RL01 disk file
@@ -1708,6 +1768,7 @@ public class Z11GUI extends JPanel {
             return rl01 ? " RLO1 " : " RLO2 ";  // yes 'O' looks more like real drive logo
         }
 
+        @Override   // MSDrive
         public void update ()
         {
             update (GUIZynqPage.msposn (getCtrlrID (), drive) / 128);
@@ -1746,6 +1807,7 @@ public class Z11GUI extends JPanel {
         protected boolean hasFaultLt () { return false; }
         protected String getDriveLbl () { return " TU10 "; }
 
+        @Override   // MSDrive
         public void update ()
         {
             update (GUIZynqPage.msposn (getCtrlrID (), drive));
@@ -1799,13 +1861,14 @@ public class Z11GUI extends JPanel {
         private MSButton wprtswitch;
         private String lastdrvlbl;
 
-        protected abstract int getCtrlrID ();   // MSRL or MSTM
-        protected abstract String getCtlName (); // "RL" or "TM"
+        protected abstract int getCtrlrID ();   // MSRH or MSRL or MSTM
+        protected abstract String getCtlName (); // "RH" or "RL" or "TM"
         protected abstract FileFilter getFileFilter ();
         protected abstract boolean verifyFile (File ff);
         protected abstract String fmtCylNo (long cylno);
         protected abstract boolean hasFaultLt ();
         protected abstract String getDriveLbl ();
+        public abstract void update ();
 
         public MSDrive (int d)
         {

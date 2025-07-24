@@ -26,7 +26,7 @@ module rh11
     input CLOCK, RESET,
 
     input armwrite,
-    input[3:0] armraddr, armwaddr,
+    input[2:0] armraddr, armwaddr,
     input[31:00] armwdata,
     output[31:00] armrdata,
     output armintrq,
@@ -51,7 +51,7 @@ module rh11
     reg[15:06] rpcs1;
     reg[5:0] rpcs1s[7:0];
     reg[15:00] rpdas[7:0], rper1s[7:0], rpsns[7:0];
-    reg[9:0] rpdcs[7:0], rpccs[7:0];
+    reg[9:0] rpdcs[7:0], rpccs[7:0], rpccarm;
     reg[7:0] rpgs, rpas, secpertrkm1, fins;
     reg[14:00] qtrsectimer;
     wire[2:0] pdpds = rpcs2[02:00];
@@ -82,12 +82,12 @@ module rh11
     // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr == 0) ? 32'h52483006 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h52482006 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mols, wrls, dts, vvs } :
                       (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
                       (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
                       (armraddr == 4) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
-                      (armraddr == 5) ? { 24'b0, rpas } :
+                      (armraddr == 5) ? { 6'b0, rpccarm, drys, rpas } :
                       32'hDEADBEEF;
 
     // wake arm when transfer go bit set or controller clear set
@@ -183,7 +183,8 @@ module rh11
                     fastio <= armwdata[30];             // disable seek delays
                 end
                 5: begin
-                    rpas   <= rpas | armwdata[07:00];   // set ATA - attention active
+                    rpas    <= rpas | armwdata[07:00];  // set ATA - attention active
+                    rpccarm <= rpccs[armwdata[31:29]];  // current cylinder for drive [31:29]
                 end
             endcase
         end

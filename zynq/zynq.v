@@ -551,30 +551,30 @@ module Zynq (
         (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
         (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
-        (readaddr[11:06] ==  6'b000010)     ? rharmrdata   :
-        (readaddr[11:05] ==  7'b0000110)    ? bmarmrdata   :
-        (readaddr[11:05] ==  7'b0000111)    ? rlarmrdata   :
-        (readaddr[11:05] ==  7'b0001000)    ? kyarmrdata   :
-        (readaddr[11:05] ==  7'b0001001)    ? dzarmrdata   :
-        (readaddr[11:05] ==  7'b0001010)    ? tmarmrdata   :
-        (readaddr[11:04] ==  8'b00010110)   ? pcarmrdata   :
-        (readaddr[11:04] ==  8'b00010111)   ? dlarmrdata   :
-        (readaddr[11:04] ==  8'b00011000)   ? xearmrdata   :
-        (readaddr[11:03] ==  9'b000110010)  ? kwarmrdata   :
+        (readaddr[11:05] ==  6'b0000100)    ? rharmrdata   :
+        (readaddr[11:05] ==  7'b0000101)    ? bmarmrdata   :
+        (readaddr[11:05] ==  7'b0000110)    ? rlarmrdata   :
+        (readaddr[11:05] ==  7'b0000111)    ? kyarmrdata   :
+        (readaddr[11:05] ==  7'b0001000)    ? dzarmrdata   :
+        (readaddr[11:05] ==  7'b0001001)    ? tmarmrdata   :
+        (readaddr[11:04] ==  8'b00010100)   ? pcarmrdata   :
+        (readaddr[11:04] ==  8'b00010101)   ? dlarmrdata   :
+        (readaddr[11:04] ==  8'b00010110)   ? xearmrdata   :
+        (readaddr[11:03] ==  9'b000101110)  ? kwarmrdata   :
         32'hDEADBEEF;
 
     wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
 
-    wire rharmwrite = armwrite & (writeaddr[11:06] == 6'b000010);
-    wire bmarmwrite = armwrite & (writeaddr[11:05] == 7'b0000110);
-    wire rlarmwrite = armwrite & (writeaddr[11:05] == 7'b0000111);
-    wire kyarmwrite = armwrite & (writeaddr[11:05] == 7'b0001000);
-    wire dzarmwrite = armwrite & (writeaddr[11:05] == 7'b0001001);
-    wire tmarmwrite = armwrite & (writeaddr[11:05] == 7'b0001010);
-    wire pcarmwrite = armwrite & (writeaddr[11:04] == 8'b00010110);
-    wire dlarmwrite = armwrite & (writeaddr[11:04] == 8'b00010111);
-    wire xearmwrite = armwrite & (writeaddr[11:04] == 8'b00011000);
-    wire kwarmwrite = armwrite & (writeaddr[11:03] == 9'b000110010);
+    wire rharmwrite = armwrite & (writeaddr[11:05] == 7'b0000100);
+    wire bmarmwrite = armwrite & (writeaddr[11:05] == 7'b0000101);
+    wire rlarmwrite = armwrite & (writeaddr[11:05] == 7'b0000110);
+    wire kyarmwrite = armwrite & (writeaddr[11:05] == 7'b0000111);
+    wire dzarmwrite = armwrite & (writeaddr[11:05] == 7'b0001000);
+    wire tmarmwrite = armwrite & (writeaddr[11:05] == 7'b0001001);
+    wire pcarmwrite = armwrite & (writeaddr[11:04] == 8'b00010100);
+    wire dlarmwrite = armwrite & (writeaddr[11:04] == 8'b00010101);
+    wire xearmwrite = armwrite & (writeaddr[11:04] == 8'b00010110);
+    wire kwarmwrite = armwrite & (writeaddr[11:03] == 9'b000101110);
 
     always @(posedge CLOCK) begin
         if (~ RESET_N) begin
@@ -745,9 +745,9 @@ module Zynq (
         .CLOCK (CLOCK),
         .RESET (fpgaoff),
 
-        .armraddr (readaddr[5:2]),
+        .armraddr (readaddr[4:2]),
         .armrdata (rharmrdata),
-        .armwaddr (writeaddr[5:2]),
+        .armwaddr (writeaddr[4:2]),
         .armwdata (saxi_WDATA),
         .armwrite (rharmwrite),
         .armintrq (regarmintreq[03]),

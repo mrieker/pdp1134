@@ -50,19 +50,23 @@ struct MSCDat {
     char const *sthelp;
     char const *poskw;
     uint32_t posdiv;
+    char type1[5];
+    char type0[5];
 };
 
 static MSCDat const ctlidrh = { "rh", 7, SHMMS_CTLID_RH,
     "[cylinder] [fault] [file] [readonly] [ready] [type]",
-    "cylinder", 1 };  // curpos is cylinder
+    "cylinder", 1,      // curpos is cylinder
+    "RP04", "RP06" };
 
 static MSCDat const ctlidrl = { "rl", 3, SHMMS_CTLID_RL,
     "[cylinder] [fault] [file] [readonly] [ready] [type]",
-    "cylinder", 128 };  // curpos is 0000.0000.0000.0000.cccc.cccc.chss.ssss
+    "cylinder", 128,    // curpos is 0000.0000.0000.0000.cccc.cccc.chss.ssss
+    "RL01", "RL02" };
 
 static MSCDat const ctlidtm = { "tm", 7, SHMMS_CTLID_TM,
-    "[kbytes] [file] [readonly] [ready]",
-    "kbytes", 1024 };
+    "[bytes] [file] [readonly] [ready]",
+    "bytes", 1 };
 
 // internal TCL commands
 static Tcl_ObjCmdProc cmd_disasop;
@@ -88,10 +92,10 @@ static TclFunDef const fundefs[] = {
     { cmd_pin,      NULL, "pin",      "direct access to signals on zynq page" },
     { cmd_readchar, NULL, "readchar", "read character with timeout" },
     { cmd_msload,   (ClientData) &ctlidrh, "rhload",   "load file in RH drive" },
-    { cmd_msload,   (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
     { cmd_msstat,   (ClientData) &ctlidrh, "rhstat",   "get RH drive status" },
-    { cmd_msstat,   (ClientData) &ctlidrl, "rlstat",   "get RL drive status" },
     { cmd_msunload, (ClientData) &ctlidrh, "rhunload", "unload file from RH drive" },
+    { cmd_msload,   (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
+    { cmd_msstat,   (ClientData) &ctlidrl, "rlstat",   "get RL drive status" },
     { cmd_msunload, (ClientData) &ctlidrl, "rlunload", "unload file from RL drive" },
     { cmd_snapregs, NULL, "snapregs", "snapshot registers while running" },
     { cmd_msload,   (ClientData) &ctlidtm, "tmload",   "load file in TM drive" },
@@ -493,8 +497,8 @@ static int cmd_msstat (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
                 vals[nvals++] = Tcl_NewIntObj (val);
                 continue;
             }
-            if ((mscdat->ctlid == SHMMS_CTLID_RL) && (strcasecmp (stri, "type") == 0)) {
-                vals[nvals++] = Tcl_NewStringObj ((rc & MSSTAT_RL01) ? "RL01" : "RL02", -1);
+            if ((mscdat->type1[0] != 0) && (strcasecmp (stri, "type") == 0)) {
+                vals[nvals++] = Tcl_NewStringObj ((rc & MSSTAT_RL01) ? mscdat->type1 : mscdat->type0, -1);
                 continue;
             }
             Tcl_SetResultF (interp, "unknown keyword %s", stri);
