@@ -143,14 +143,13 @@ module rh11
                 fastio  <= 0;
                 exeds   <= 0;
                 seekctr <= 0;
+                mols    <= 0;
+                wrls    <= 0;
+                dts     <= 0;
             end
 
-            doctlclr <= 1;
-            mols     <= 0;
-            rpcs2    <= 0;
-            wrls     <= 0;
-            dts      <= 0;
-
+            doctlclr   <= 1;
+            rpcs2      <= 0;
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end

@@ -1,5 +1,5 @@
 
-# create RSX-11M V4.5 disk set with DECnet
+# install RSX-11M V4.5 with DECnet onto an RP04
 
 # defines this node as PDP11 address 1.11
 # assumes there is a PDPI at address 1.1 on the ethernet
@@ -7,7 +7,8 @@
 # provides NCP, NCT, NFT commands
 
 #  ./z11gui &  (optional)
-#  ./rsx45sysgen-decnet.sh
+#  ./z11xe -daemon
+#  ./z11ctrl rsx45sysgen-rp04.tcl
 
 # start with:
 #  disks/rsx45-rh/dlsys.rl02  (used to copy .tap files to new rp04 file, can be any version that works)
@@ -15,7 +16,7 @@
 #  disks/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
 #  disks/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
 
-#  disks should probably be softlink to magnetic disk
+#  disks/ should probably be softlink to magnetic disk
 
 # outputs:
 #  disks/rsx45-db/dbsys.rp04
@@ -35,9 +36,6 @@
 #  https://github.com/JohnForecast/LinuxDECnet.git
 #   build and config so remote node is pdp11 1.11
 #   then do 'dnping pdp11' to ping the pdp
-
-# >NCP SET EXEC STATE OFF
-# >NCP SET EXEC STATE ON
 
 source boots.tcl
 
@@ -418,7 +416,7 @@ replytoprompt ">" "SET /UIC=\[5,1\]"
 replytoprompt ">" "@NETINS"
 replytoprompt "Do you want to install and load the CEX system? \[Y/N\]: " "Y"
 replytoprompt "Do you want to install and start DECnet? \[Y/N\]: " "Y"
-replytoprompt "On what device are the network tasks \[D=DL0:\] \[S\]: " "LB0:"
+replytoprompt "On what device are the network tasks \[D=DB0:\] \[S\]: " "LB0:"
 waitforstring ">@ <EOF>"
 replytoprompt ">" "ACS SY:/BLKS=0"
 replytoprompt ">" "SAV"
