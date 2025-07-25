@@ -20,6 +20,11 @@
 
 // PDP-11 RH-11 disk interface
 
+// Most of the RH-11 controller is implemented in the FPGA
+// The ARM is used for the transfer parts once the implied seek is complete
+// Mostly done because the PDP expects some of the comands be completed immediately
+// ...without testing a ready bit
+
 module rh11
     #(parameter[17:00] ADDR=18'o776700,
       parameter[7:0] INTVEC=8'o254) (
@@ -82,7 +87,7 @@ module rh11
     // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr == 0) ? 32'h52482006 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h52482007 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mols, wrls, dts, vvs } :
                       (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
                       (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
@@ -128,8 +133,8 @@ module rh11
         rpcs1[14] = (rpcs2[15:08] != 0);
     end
 
-    assign wrhi = ~ c_in_h[0] |   a_in_h[00];
-    assign wrlo = ~ c_in_h[0] | ~ a_in_h[00];
+    wire wrhi = ~ c_in_h[0] |   a_in_h[00];
+    wire wrlo = ~ c_in_h[0] | ~ a_in_h[00];
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin
@@ -373,7 +378,7 @@ module rh11
                     //   seek to cyl 0 but take 500 mS
                     1, 3: begin
                         if (fins[exeds]) begin
-                            rpccs[exeds] <= 384;                // will take 500mS to seek to 0 from here
+                            rpccs[exeds] <= 999;                // will take 164mS to seek to 0 from here
                             fins[exeds]  <= 0;                  // init complete
                         end else if (seekctr == 0) begin        // step every 163.84 uS
                             if (rpccs[exeds] == 0) begin
@@ -389,7 +394,13 @@ module rh11
                     // 05 - seek
                     // 31 - search
                     2, 12: begin
-                        if (rpccs[exeds] != rpdcs[exeds]) begin
+                        if (rpdcs[exeds] > maxcyl) begin
+                            rper1s[exeds][10] <= 1;             // IAE - invalid (disk) address error
+                            errs[exeds]       <= 1;             // ERR - error summary
+                            drys[exeds]       <= 1;             // DRY - drive ready
+                            rpas[exeds]       <= 1;             // ATA - attention
+                            rpcs1s[exeds][00] <= 0;             // clear GO
+                        end else if (rpccs[exeds] != rpdcs[exeds]) begin
                             pips[exeds]       <= 1;             // positioning in progress
                             sins[exeds]       <= 0;             // take 7 mS for first step
                         end else begin
@@ -522,7 +533,8 @@ module rh11
             end
 
             // seekctr rolls over every 163.84 uS
-            if (exeds == 0) seekctr <= seekctr + 1;
+            // ...but with fastio set, 0.08 uS
+            if (exeds == 7) seekctr <= fastio ? 0 : seekctr + 1;
 
             // do next drive next cycle
             exeds <= exeds + 1;

@@ -119,7 +119,7 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314024;
+    localparam VERSION = 32'h31314025;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
@@ -1392,7 +1392,7 @@ module Zynq (
     end
 
     wire ilatrigr = 0; // (dev_a_h[17:06] == 12'o7767);
-    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h) & (dev_a_h[17:06] == 12'o7767);
+    wire ilaenabl = (lastmsyn & ~ dev_syn_msyn_h); // & (dev_a_h[17:06] == 12'o7767);
 
     // detect 'TSTB @R5 ; BPL .-2' to edit out lineclock testing loop
     /***

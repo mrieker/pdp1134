@@ -1,0 +1,104 @@
+	.title	M9312 'DB' BOOT prom for RH11 controller
+
+	; This boot PROM is for the RH11 controller with RP04/RP06 drives.
+
+romadr	= 161000
+
+rhcsr	= 176700 			; std RH11 csrbase
+
+	.asect
+	; ---- Simple boot drive 0 from 0
+	. = romadr + 0
+	jmp	@#start0
+
+	; ---- Reboot drive 0 on power event
+	. = romadr + 24			; Power ON/OFF
+	.word	     start0		; PC
+	.word	     340		; PSW priority level 7
+
+	; ----- Main boot addresses
+	. = romadr + 40
+
+start:
+	; 8 unit numbers => 8 entry addresses
+start0:
+	mov	#0,r0
+	br	dlnr
+	nop
+start1:
+	mov	#1,r0
+	br	dlnr
+	nop
+start2:
+	mov	#2,r0
+	br	dlnr
+	nop
+start3:
+	mov	#3,r0
+	br	dlnr
+	nop
+start4:
+	mov	#4,r0
+	br	dlnr
+	nop
+start5:
+	mov	#5,r0
+	br	dlnr
+	nop
+start6:
+	mov	#6,r0
+	br	dlnr
+	nop
+start7:
+	mov	#7,r0
+
+dlnr:
+	mov	#rhcsr,r1		; boot std csr, unit <R0>
+	mov	#4000,sp
+	mov	#trap4,@#4
+	mov	#340,@#6
+
+	; --------------------------------------------------
+
+	mov	r0,10(r1)		; set RPCS2 = unit number
+	mov	#21,(r1)		; 'read in preset'
+	mov	#10000,32(r1)		; set fmt22 mode
+	clr	4(r1)			; read into address 0
+	mov	#-400,2(r1)		; read one block (256 words)
+	mov	#71,(r1)		; start reading
+
+	jsr	pc,@#wait		; (yes the assembler goes out if its way to bung up mode 67 so use 37)
+
+	clr	pc			; jump to bootstrap at zero
+
+wait:
+	clr	r4
+100$:
+	mov	(r1),r2			; get status
+	bmi	200$			; test for error
+	tstb	r2			; test for ready
+	bpl	180$			; wait some more
+	rts	pc
+180$:
+	sob	r4,100$			; only wait so long
+200$:
+	bisb	r0,@#msgdrv
+	mov	#msgbuf,r2
+prtmsg:
+300$:
+	tstb	@#177564
+	bpl	300$
+	movb	(r2)+,@#177566
+	bne	300$
+	halt
+
+trap4:
+	mov	#t4msg,r2
+	br	prtmsg
+
+msgbuf:	.ascii	"rhboot: error reading RP drive "
+msgdrv:	.asciz	"0, check then reboot"<15><12>
+
+t4msg:	.asciz	"rhboot: trap 4"<15><12>
+
+	.end

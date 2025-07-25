@@ -47,6 +47,7 @@ wrtty "guiboot.tcl: Select\n"
 wrtty "  0) cancel boot\n"
 wrtty "  1) boot from RL-11 drive 0\n"
 wrtty "  2) boot from paper tape bin file\n"
+wrtty "  3) boot from RH-11 drive 0\n"
 wrtty "> "
 
 while {! [ctrlcflag]} {
@@ -63,6 +64,11 @@ while {! [ctrlcflag]} {
     if {$by == 062} {
         wrtty "2\nbooting from paper tape bin file\n"
         prboot
+        break
+    }
+    if {$by == 063} {
+        wrtty "3\nbooting RH-11 drive 0\n"
+        rhboot
         break
     }
 }

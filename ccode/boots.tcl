@@ -176,6 +176,13 @@ proc prboot {} {
     }
 }
 
+# boot RH disk 0
+proc rhboot {} {
+    global Z11HOME
+    loadlst $Z11HOME/rhboot.lst bmwr
+    startbootmem 0761000
+}
+
 # boot RL disk 0
 proc rlboot {} {
     global Z11HOME

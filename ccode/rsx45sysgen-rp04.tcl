@@ -1,0 +1,440 @@
+
+# create RSX-11M V4.5 disk set with DECnet
+
+# defines this node as PDP11 address 1.11
+# assumes there is a PDPI at address 1.1 on the ethernet
+
+# provides NCP, NCT, NFT commands
+
+#  ./z11gui &  (optional)
+#  ./rsx45sysgen-decnet.sh
+
+# start with:
+#  disks/rsx45-rh/dlsys.rl02  (used to copy .tap files to new rp04 file, can be any version that works)
+#  disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
+#  disks/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
+#  disks/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
+
+#  disks should probably be softlink to magnetic disk
+
+# outputs:
+#  disks/rsx45-db/dbsys.rp04
+
+# some install instructions
+#  https://pdp2011.sytse.net/wordpress/pdp-11/sessions/rsx-11m-plus/install-5/
+#  https://supratim-sanyal.blogspot.com/2019/07/installing-rsx-11m-plus-on-dec-pdp-1124.html
+#  https://www.9track.net/pdp11/decnet4_netgen
+
+# RSX 40 disks:  rsx11m40.zip
+#  https://pdp-11.org.ru/en/files.pl
+
+# RSX 45 tape files:  BB-J050G-BC BB-L974F-BC BB-M461E-BC
+#  https://www.9track.net/bits/
+
+# install as root on other computer plugged into zturn's ethernet:
+#  https://github.com/JohnForecast/LinuxDECnet.git
+#   build and config so remote node is pdp11 1.11
+#   then do 'dnping pdp11' to ping the pdp
+
+# >NCP SET EXEC STATE OFF
+# >NCP SET EXEC STATE ON
+
+source boots.tcl
+
+if {[pin get fpgamode] == 0} {
+    pin set fpgamode 1
+}
+hardreset       ;# make sure processor halted
+rhunload 0      ;# make sure drives unloaded
+rhunload 1
+rlunload 0
+rlunload 1
+tmunload 0
+tmunload 1
+dllock -killit  ;# make sure nothing else using DL-11
+
+exec rm -rf disks/rsx45-db
+exec mkdir -p disks/rsx45-db
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "MAKE BOOTABLE V4.5 SYSTEM DISK"
+puts ""
+
+probedevsandmem
+pin set turbo 1 rh_fastio 1 rl_fastio 1 tm_fastio 1
+rlload 0 disks/rsx45-rh/dlsys.rl02
+rhload 0 -create disks/rsx45-db/dbsys.rp04
+tmload 0 -readonly disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
+rlboot
+
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+replytoprompt ">" "MOU MT0:/FOR"
+replytoprompt ">" "MOU DB0:/FOR"
+replytoprompt ">" "INS \$BRU"
+replytoprompt ">" "BRU /REW/INI/BAC:DBSYS MT0: DB0:"
+replytoprompt ">" "DMO MT0:"
+replytoprompt ">" "DMO DB0:"
+waitforcrlf
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "COPYING FROM TAPE TO DISKS"
+puts ""
+
+hardreset
+rlunload 0
+
+rhboot
+
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+replytoprompt ">" "LOA MT:"
+replytoprompt ">" "@TAPEKIT"
+replytoprompt "Enter drive and unit with tape distribution kit \[ddn:\] \[S\]: " "MT0:"
+
+# same tape file works for part 2
+tmload 0 -readonly disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
+waitforstring "Load tape labeled RSXM50 2/2 on MT0:"
+replytoprompt "Is MT0: ready? \[Y/N\]: " "Y"
+waitforstring ">@ <EOF>"
+waitforcrlf
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "RUNNING SYSGEN"
+puts ""
+
+hardreset
+tmunload 0
+
+rhboot
+
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+replytoprompt ">" "@SYSGEN"
+
+replytoprompt "Autoconfigure the host system hardware? \[Y/N\]: " "Y"
+replytoprompt "Do you want to override Autoconfigure results? \[Y/N\]: " "N"
+replytoprompt "Do you want to inhibit execution of MCR commands (PREPGEN)? \[Y/N\]: " "N"
+replytoprompt "Have you made a copy of the distribution kit? \[Y/N\]: " "Y"
+replytoprompt "Are you generating an unmapped system? \[Y/N\]: " "N"
+replytoprompt "Use an input saved answer file? \[Y/N\]: " "N"
+replytoprompt "Do you want a Standard Function System? \[Y/N\]: " "Y"
+replytoprompt "Name of output saved answer file \[D: SYSSAVED.CMD\] \[S\]: " ""
+replytoprompt "Clean up files from previous GENs? \[Y/N\]: " "Y"
+replytoprompt "Chain to Phase II after Phase I completes? \[Y/N\]: " "Y"
+
+replytoprompt "Line frequency:   A- 60 Hz    B- 50 Hz   \[D: A\] \[S\]: " ""
+replytoprompt "Highest interrupt vector \[O R:0-774 D:0\]: " ""
+replytoprompt "Devices \[S\]: " "."
+
+replytoprompt "Is a line printer available? \[Y/N\]: " "N"
+replytoprompt "Does the listing/map device have at least 120 columns? \[Y/N\]: " "Y"
+replytoprompt "Assembly listings device (ddu:) \[D: \"NL:\"\] \[S\]: " ""
+replytoprompt "Map device for Executive and device drivers (ddu:) \[D: SY0:\] \[S\]: " ""
+replytoprompt "Executive Debugging Tool (XDT)? \[Y/N\]: " "N"
+replytoprompt "Include support for communications products (such as DECnet)? \[Y/N\]: " "Y"
+replytoprompt "Include Network Command Terminal support? \[Y/N\]: " "Y"
+replytoprompt "Enter CDA memory dump device mnemonic (ddu:) \[S R:3-4\]: " "DL3:"
+replytoprompt "Enter CDA memory dump device CSR \[O R:160000-177700 D:174400\]: " ""
+replytoprompt "RT-11 emulation support? \[Y/N\]: " "N"
+replytoprompt "Include support for the IP11 Industrial I/O Subsystem? \[Y/N\]: " "N"
+replytoprompt "What name would you like to give your system \[D: RSX11M\] \[S R:0-6\]: " ""
+replytoprompt "Do you want SPM-11 support? \[Y/N\]: " "N"
+replytoprompt "MT controller 0 \[D: 224,172522\]              \[S\]: " "224,172522,2"
+replytoprompt "YZ controller 0 \[D: ,,,0\]                    \[S\]: " "300,160100,7"
+
+waitforstring "End of SYSGEN phase II at"
+waitforstring ">@ <EOF>"
+replytoprompt ">" "BOO \[1,54\]RSX11M"
+waitforstring "RSX11M V4.5 BL50"
+replytoprompt ">" ""
+replytoprompt ">" "TIM [rsxdatetime]"
+replytoprompt ">" "SAV /WB"
+waitforstring "RSX-11M V4.5 BL50"
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+waitforcrlf
+
+# dbsys-01.gz
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "SYSGEN PHASE III"
+puts ""
+
+# phase iii
+# sysgen guide 6-1,7-1
+replytoprompt ">" "INS \$PIP"
+replytoprompt ">" "PIP \[*,*\]*.*/PU"
+replytoprompt ">" "SET /UIC=\[200,200\]"
+replytoprompt ">" "@SYSGEN3"
+replytoprompt "In what UIC is SGNPARM.CMD if not in \[200,200\] \[S\]: " ""
+replytoprompt "Are you building nonprivileged tasks? \[Y/N\]: " "Y"
+replytoprompt "Enter map device (ddu:) \[D: NL:\] \[S\]: " ""
+replytoprompt "Enter task name(s) \[S\]: " "%"
+replytoprompt "Use \[1,1\]FCSRES.STB when building those tasks? \[Y/N\]: " "Y"
+replytoprompt "Pause to edit any task build .CMD or .ODL files? \[Y/N\]: " "N"
+replytoprompt "Delete task build .CMD and .ODL files after task building? \[Y/N\]: " "Y"
+
+waitforstring ">@ <EOF>"
+replytoprompt ">" "SET /UIC=\[1,54\]"
+replytoprompt ">" "PIP \[*,*\]*.*/PU"
+replytoprompt ">" "PIP ACF.BSL;1/DE"
+replytoprompt ">" "PIP DPDRV.*;1/DE"
+replytoprompt ">" "PIP FCPSML.TSK;1/DE"
+replytoprompt ">" ""
+waitforcrlf
+
+# dbsys-02.gz
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "CREATE DECNET PARTITION (CEXPAR)"
+puts ""
+
+# see DL0:[5,24]CEXBLD.CMD PAR=CEXPAR:113500:4300 for magic numbers used below
+
+replytoprompt ">" "SET /UIC=\[1,54\]"
+replytoprompt ">" "INS \$EDT"
+replytoprompt ">" "INS \$PIP"
+replytoprompt ">" "INS \$VMR"
+replytoprompt ">" "EDT SYSVMR.CMD"
+replytoprompt "\n*" "'/POOL="
+replytoprompt "\n*" "S/*/1135"
+replytoprompt "\n*" ""
+replytoprompt "\n*" "I;SET /MAIN=CEXPAR:*:43:COM"
+replytoprompt "\n*" "EX"
+replytoprompt ">" "PIP RSX11M.SYS/CO/BL:498.=RSX11M.TSK"
+replytoprompt ">" "VMR @SYSVMR"
+replytoprompt ">" "BOO \[1,54\]RSX11M"
+waitforstring "RSX11M V4.5 BL50"
+replytoprompt ">" ""
+replytoprompt ">" "TIM [rsxdatetime]"
+replytoprompt ">" "SAV /WB"
+waitforstring "RSX-11M V4.5 BL50"
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+waitforcrlf
+
+# dbsys-03.gz
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "RUNNING DECNET PREGEN"
+puts ""
+
+tmload 0 -readonly disks/rsxtapes/decnet-netkit-45-BB-M461E-BC.tap
+
+replytoprompt ">" "INS \$FLX"
+replytoprompt ">" "UFD SY0:\[137,10\]"
+replytoprompt ">" "SET /UIC=\[137,10\]"
+replytoprompt ">" "FLX SY0:/UI=MT0:\[137,10\]PREGEN.CMD/RW"
+replytoprompt ">" "ALL DL1:"
+replytoprompt ">" "@SY0:PREGEN"
+
+replytoprompt "Do you wish to see the PREGEN notes? \[Y/N\]: " "N"
+replytoprompt "Are you running on a small dual-disk system? \[Y/N\]: " "N"
+replytoprompt "Where is the Network distribution kit loaded \[S\]: " "MT0:"
+replytoprompt "Is the tape already loaded in MT0:? \[Y/N\]: " "Y"
+replytoprompt "Is the tape 1600 BPI? \[Y/N\]: " "N"
+replytoprompt "Where is the NETGEN disk loaded \[S\]: " "DB0:"
+replytoprompt "Is the disk already loaded in DB0:? \[Y/N\]: " "Y"
+replytoprompt "Should the Network object files be moved to the NETGEN Disk? \[Y/N\]: " "Y"
+
+replytoprompt "Copy the DECnet distribution kit? \[Y/N\]: " "Y"
+replytoprompt "Where is the DECnet distribution kit loaded \[S\]: " "MT0:"
+tmload 0 -readonly disks/rsxtapes/decnet-deckit-45-BB-J050G-BC.tap
+replytoprompt "Is the tape already loaded in MT0:? \[Y/N\]: " "Y"
+replytoprompt "Is the tape 1600 BPI? \[Y/N\]: " "N"
+replytoprompt "Should the DECnet object files be moved to the NETGEN Disk? \[Y/N\]: " "Y"
+replytoprompt "Copy the PSI distribution kit? \[Y/N\]: " "N"
+waitforstring ">@ <EOF>"
+waitforcrlf
+
+# dbsys-04.gz
+
+tmunload 0
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "RUNNING DECNET NETGEN"
+puts ""
+
+replytoprompt ">" "SET /UIC=\[137,10\]"
+replytoprompt ">" "@DB0:NETGEN"
+
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, E-Exit \[S\]: " ""
+
+# NET - Section  1 - General Initialization
+
+replytoprompt "01.00 Do you want to see the NETGEN notes/cautions \[D=N\]? \[Y/N\]: " "N"
+replytoprompt "02.00 Target system device \[dduu, D=SY:\] \[S\]: " ""
+replytoprompt "03.00 Listing/map device \[dduu, D=None\] \[S\]: " ""
+replytoprompt "04.00 UIC Group Code for NETGEN output \[O R:1-377 D:5\]: " ""
+waitforstring "07.00 User ID to be used to identify your new responses"
+replytoprompt "\[D=None\] \[S R:0.-30.\]: " "ZYNQ_DELUA"
+replytoprompt "08.00 Is this generation to be a dry run \[D=N\]? \[Y/N\]: " ""
+replytoprompt "09.00 Do you want a standard function network \[D=N\]? \[Y/N\]: " "N"
+replytoprompt "10.00 Should all components be generated \[D=N\]? \[Y/N\]: " "N"
+replytoprompt "11.00 Should old files be deleted \[D=N\]? \[Y/N\]: " "Y"
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  2 - Define the target system
+
+replytoprompt "02.00 RSXMC.MAC location (ddu:\[g,m\], D=SY:\[011,010\]) \[S\]: " ""
+replytoprompt "04.00 RSX11M.STB location (ddu:\[g,m\], D=SY00:\[001,054\]) \[S\]: " ""
+replytoprompt "06.00 Should tasks link to the Memory Resident FCS library \[D=N\]? \[Y/N\]: " "Y"
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  3 - Define the system lines
+
+replytoprompt "01.00 Device Driver Process name \[<RET>=Done\] \[S R:0-3\]: " "UNA"
+replytoprompt "02.00 How many UNA controllers are there \[D R:1.-16. D:1.\]: " ""
+replytoprompt "03.01 CSR address for UNA-0 \[O R:160000-177777 D:174510\]: " ""
+replytoprompt "03.02 Vector address for UNA-0 \[O R:0-774 D:120\]: " ""
+replytoprompt "03.03 Device priority for UNA-0 \[O R:4-6 D:5\]: " ""
+replytoprompt "04.07 Set the state for UNA-0 ON when loading the network \[D=N\]? \[Y/N\]: " "Y"
+replytoprompt "01.00 Device Driver Process name \[<RET>=Done\] \[S R:0-3\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  4 - Define the CEX System
+
+replytoprompt "01.00 Base address for partition CEXPAR \[O R:14000-113700 D:113500\]: " ""
+replytoprompt "01.01 Length of partition CEXPAR \[O R:4100-4300 D:4300\]: " ""
+replytoprompt "02.00 Do you want network event logging \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  5 - Define the Comm Exec Support Components
+
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  6 - Define the System Management Utilities
+
+replytoprompt "08.00 Do you want EVF \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  7 - Define the CEX Products
+
+# DEC - Section  1 - Define the target and remote nodes
+
+replytoprompt "01.00 What is the target node name \[S R:0-6\]: " "PDP11"
+replytoprompt "02.00 What is the target node address \[S R:0.-8.\]: " "1.11"
+replytoprompt "03.00 Target node ID \[D=None\] \[S R:0.-32.\]: " "PDP11"
+replytoprompt "04.00 Do you want to generate a routing node \[D=N\]? \[Y/N\]: " ""
+replytoprompt "06.00 Do you want to include this extended network support \[D=Y\]? \[Y/N\]: " ""
+replytoprompt "07.00 Remote node name \[<RET>=Done\] \[S R:0-6\]: " "PDPI"
+replytoprompt "07.01 What is the remote node address \[D=1.1\] \[S R:0.-8.\]: " "1.1"
+replytoprompt "07.00 Remote node name \[<RET>=Done\] \[S R:0-6\]: " ""
+replytoprompt "08.00 Do you want the language interface libraries \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# DEC - Section  2 - Define the DECnet Communications Components
+
+replytoprompt "05.01 Should NETACP be checkpointable \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# DEC - Section  3 - Define the DECnet Network Management Components
+
+replytoprompt "02.00 Do you want NICE \[D=N\]? \[Y/N\]: " ""
+replytoprompt "03.00 Do you want EVR \[D=N\]? \[Y/N\]: " ""
+replytoprompt "04.00 Do you want NTD \[D=N\]? \[Y/N\]: " ""
+replytoprompt "05.00 Do you want NTDEMO \[D=N\]? \[Y/N\]: " ""
+replytoprompt "06.00 Do you want LIN \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# DEC - Section  4 - Define the DECnet Satellite Support Components
+
+replytoprompt "03.00 Do you want DLL \[D=N\]? \[Y/N\]: " ""
+replytoprompt "05.00 Do you want CCR \[D=N\]? \[Y/N\]: " ""
+replytoprompt "06.00 Do you want HLD \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# DEC - Section  5 - Define the DECnet File Utilities
+
+replytoprompt "02.00 Do you want NFT \[D=N\]? \[Y/N\]: " "Y"
+replytoprompt "03.00 Do you want FTS \[D=N\]? \[Y/N\]: " ""
+replytoprompt "04.00 Do you want FAL \[D=N\]? \[Y/N\]: " ""
+replytoprompt "05.00 Do you want MCM \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# DEC - Section  6 - Define the DECnet Terminal and Control Utilities
+
+replytoprompt "02.00 Do you want RMT/RMTACP \[D=N\]? \[Y/N\]: " ""
+replytoprompt "03.00 Do you want HT:/RMHACP \[D=N\]? \[Y/N\]: " ""
+replytoprompt "04.00 Do you want NCT \[D=N\]? \[Y/N\]: " "Y"
+replytoprompt "05.00 Do you want RTH \[D=N\]? \[Y/N\]: " ""
+replytoprompt "06.00 Do you want TLK \[D=N\]? \[Y/N\]: " ""
+replytoprompt "07.00 Do you want LSN \[D=N\]? \[Y/N\]: " ""
+replytoprompt "10.00 Do you want TCL \[D=N\]? \[Y/N\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  8 - Complete the CEX System Definitions
+
+replytoprompt "02.00 What is the Large Data Buffer (LDB) size \[D R:192.-1484. D:292.\]: " ""
+waitforstring "<EOS>  Do you want to:"
+replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
+
+# NET - Section  9 - Build the CEX System at 12:47:45 on 14-JUL-25
+
+# NET - Section 10 - Generation Clean Up
+
+waitforstring ">@ <EOF>"
+waitforcrlf
+
+# dbsys-05.gz
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "STARTING DECNET"
+puts ""
+
+replytoprompt ">" "BOO \[1,54\]RSX11M"
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+replytoprompt ">" "SET /NETUIC=\[5,54\]"
+replytoprompt ">" "SET /UIC=\[5,1\]"
+replytoprompt ">" "@NETINS"
+replytoprompt "Do you want to install and load the CEX system? \[Y/N\]: " "Y"
+replytoprompt "Do you want to install and start DECnet? \[Y/N\]: " "Y"
+replytoprompt "On what device are the network tasks \[D=DL0:\] \[S\]: " "LB0:"
+waitforstring ">@ <EOF>"
+replytoprompt ">" "ACS SY:/BLKS=0"
+replytoprompt ">" "SAV"
+waitforstring "RSX-11M V4.5 BL50"
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+waitforcrlf
+
+# dbsys-06.gz
+
+puts ""
+puts "= = = = = = = = = = = = = = = ="
+puts "ALL DONE"
+puts ""
+puts "  try 'dnping pdp11' from another computer on ethernet"
+puts ""
+puts "  do ./z11dl to access tty"
+puts ""
