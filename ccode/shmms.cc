@@ -634,7 +634,7 @@ lockit:;
     if (fcntl (fd, F_OFD_SETLK, &flockit) < 0) {
         int rc = - errno;
         ASSERT (rc < 0);
-        if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_GETLK, &flockit) >= 0)) {
+        if (((errno == EACCES) || (errno == EAGAIN)) && (fcntl (fd, F_OFD_GETLK, &flockit) >= 0)) {
             if (flockit.l_type == F_UNLCK) goto lockit;
             fprintf (stderr, "%s: [%u] error locking %s: locked by pid %d\n", z11name, drivesel, filenm, (int) flockit.l_pid);
         } else {

@@ -172,11 +172,6 @@ static void unlkit ();
 static void waketransmit ();
 static void waittransmit ();
 
-static void sigcrash (int signum)
-{
-    ABORT ();
-}
-
 int main (int argc, char **argv)
 {
     setlinebuf (stderr);
@@ -185,18 +180,22 @@ int main (int argc, char **argv)
     bool daemfl = false;
     bool killit = false;
     bool macopt = false;
+    int xgid = -1;
+    int xuid = -1;
     char const *ethdev = "eth0";
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
             puts ("  Handle DEUNA/DELUA ethernet I/O");
             puts ("");
-            puts ("    sudo ./z11xe [-daemon] [-eth <device>] [-killit] [-mac <address>]");
+            puts ("    sudo ./z11xe [-daemon] [-eth <device>] [-gid <gid>] [-killit] [-mac <address>] [-uid <uid>]");
             puts ("");
             puts ("      -daemon = daemonize, redirect log to /tmp/z11xe.log.(time)");
             puts ("      -eth    = use given ethernet device (default eth0)");
+            puts ("      -gid    = set group id after opening ethernet");
             puts ("      -killit = kill other instance already running");
             puts ("      -mac    = use given mac address");
+            puts ("      -uid    = set user id after opening ethernet");
             puts ("");
             return 0;
         }
@@ -210,6 +209,14 @@ int main (int argc, char **argv)
                 return 1;
             }
             ethdev = argv[i];
+            continue;
+        }
+        if (strcasecmp (argv[i], "-gid") == 0) {
+            if ((++ i >= argc) || (argv[i][0] == '-')) {
+                fprintf (stderr, "missing group id after -gid\n");
+                return 1;
+            }
+            xgid = atoi (argv[i]);
             continue;
         }
         if (strcasecmp (argv[i], "-killit") == 0) {
@@ -237,6 +244,14 @@ int main (int argc, char **argv)
         gotmacaddr:;
             memcpy (((uint8_t *)defethaddr) + 6 - j, addr, j);
             macopt = true;
+            continue;
+        }
+        if (strcasecmp (argv[i], "-uid") == 0) {
+            if ((++ i >= argc) || (argv[i][0] == '-')) {
+                fprintf (stderr, "missing user id after -uid\n");
+                return 1;
+            }
+            xuid = atoi (argv[i]);
             continue;
         }
         fprintf (stderr, "unknown option/argument %s\n", argv[i]);
@@ -279,11 +294,6 @@ int main (int argc, char **argv)
         return 1;
     }
 
-    // access fpga register set for the DEUNA controller
-    // lock it so we are only process accessing it
-    z11page = new Z11Page ();
-    xeat = z11page->findev ("XE", NULL, NULL, true, killit);
-
     // man 7 packet
     sockfd = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
     if (sockfd < 0) {
@@ -301,17 +311,19 @@ int main (int argc, char **argv)
         ABORT ();
     }
 
+    // maybe set uid & gid now that we don't need root access any more
+    if (((xgid >= 0) && (setresgid (xgid, xgid, xgid) < 0)) ||
+        ((xuid >= 0) && (setresuid (xuid, xuid, xuid) < 0))) {
+        fprintf (stderr, "z11xe: failed to set uid,gid to %d,%d: %m\n", xuid, xgid);
+        ABORT ();
+    }
+
     // set up default mac address to be current mac address
     memcpy (curethaddr, defethaddr, 6);
 
     fprintf (stderr, "z11xe: mac %02X:%02X:%02X:%02X:%02X:%02X on line %s\n",
         curethaddr[0] & 0xFF, curethaddr[0] >> 8, curethaddr[1] & 0xFF, curethaddr[1] >> 8,
         curethaddr[2] & 0xFF, curethaddr[2] >> 8, ethdev);
-
-    // enable board to process io instructions
-    pcsr1 = DELU;   // 0=DEUNA - rsx4.5 decnet works with DELUA, not DEUNA (tries to upload mystery microcode)
-    ZWR(xeat[1], pcsr1 << 16);
-    ZWR(xeat[3], XE3_ENAB);
 
     debug = 0;
     char const *dbgenv = getenv ("z11xe_debug");
@@ -332,7 +344,7 @@ int main (int argc, char **argv)
         }
 
         // fork/exit to create detached process
-        if (daemon (1, 1) < 0) {
+        if (daemon (0, 1) < 0) {
             fprintf (stderr, "z11xe: error daemonizing: %m\n");
             ABORT ();
         }
@@ -345,20 +357,15 @@ int main (int argc, char **argv)
         close (logfd);
     }
 
-    // enable core dumps to /tmp
-    // set up SIGUSR1 to test it
-    {
-        char oldcore[20];
-        chdir ("/tmp");
-        sprintf (oldcore, "core.%u", (unsigned) time (NULL));
-        rename ("core", oldcore);
-        struct rlimit corelimit;
-        memset (&corelimit, 0, sizeof corelimit);
-        corelimit.rlim_cur = RLIM_INFINITY;
-        corelimit.rlim_max = RLIM_INFINITY;
-        setrlimit (RLIMIT_CORE, &corelimit);
-        signal (SIGUSR1, sigcrash);
-    }
+    // access fpga register set for the DEUNA controller
+    // lock it so we are only process accessing it
+    z11page = new Z11Page ();
+    xeat = z11page->findev ("XE", NULL, NULL, true, killit);
+
+    // enable board to process io instructions
+    pcsr1 = DELU;   // 0=DEUNA - rsx4.5 decnet works with DELUA, not DEUNA (tries to upload mystery microcode)
+    ZWR(xeat[1], pcsr1 << 16);
+    ZWR(xeat[3], XE3_ENAB);
 
     pthread_t tid;
     int rc = pthread_create (&tid, NULL, receivethread, NULL);

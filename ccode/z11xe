@@ -10,4 +10,4 @@ then
     dbg='gdb --args'
     shift
 fi
-exec sudo --preserve-env=z11xe_debug $dbg $0.`uname -m` "$@"
+exec sudo --preserve-env=z11xe_debug $dbg $0.`uname -m` -uid $UID -gid "$GROUPS" "$@"
