@@ -61,6 +61,9 @@ puts ""
 
 probedevsandmem
 pin set turbo 1 rh_fastio 1 rl_fastio 1 tm_fastio 1
+
+if true {
+
 rlload 0 disks/rsx45-rh/dlsys.rl02
 rhload 0 -create disks/rsx45-db/dbsys.rp04
 tmload 0 -readonly disks/rsxtapes/rsx11m-45-BB-L974F-BC-bruhdr.tap
@@ -160,7 +163,7 @@ replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-# dbsys-01.gz
+exec -ignorestderr tar czvf disks/rsx45-db-01.tgz disks/rsx45-db/
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -190,7 +193,7 @@ replytoprompt ">" "PIP FCPSML.TSK;1/DE"
 replytoprompt ">" ""
 waitforcrlf
 
-# dbsys-02.gz
+exec -ignorestderr tar czvf disks/rsx45-db-02.tgz disks/rsx45-db/
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -222,7 +225,7 @@ replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-# dbsys-03.gz
+exec -ignorestderr tar czvf disks/rsx45-db-03.tgz disks/rsx45-db/
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
@@ -257,7 +260,8 @@ replytoprompt "Copy the PSI distribution kit? \[Y/N\]: " "N"
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-# dbsys-04.gz
+# rsx45-db-04.gz
+exec -ignorestderr tar czvf disks/rsx45-db-04.tgz disks/rsx45-db/
 
 tmunload 0
 
@@ -400,33 +404,53 @@ replytoprompt "<RET>-Continue, R-Repeat section, P-Pause, E-Exit \[S\]: " ""
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-# dbsys-05.gz
+exec -ignorestderr tar czvf disks/rsx45-db-05.tgz disks/rsx45-db/
+
+} else {
+
+exec -ignorestderr tar xzvf disks/rsx45-db-05.tgz
+
+rhload 0 disks/rsx45-db/dbsys.rp04
+rhboot
+
+replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
+replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+waitforstring ">@ <EOF>"
+replytoprompt ">" "INS \$PIP"
+
+}
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="
 puts "STARTING DECNET"
 puts ""
 
+replytoprompt ">" "RUN \[5,54\]CFERES"
+replytoprompt "Enter filename: " "\[5,54\]"
+replytoprompt "CFE>" "DEFINE SYSTEM LARGE BUFFER SIZE 576"
+replytoprompt "CFE>" "DEFINE SYSTEM MAXIMUM LARGE BUFFERS 15"
+replytoprompt "CFE>" "EXIT"
+replytoprompt ">" "SET /UIC=\[1,2\]"
+replytoprompt ">" "PIP STARTNET.CMD=TI:"
+replytoprompt "\n" ".ENABLE GLOBAL"
+replytoprompt "\n" ".SETT \$CEX"
+replytoprompt "\n" ".SETT \$DEC"
+replytoprompt "\n" "ASN LB:=XX:"
+replytoprompt "\n" "SET /NETUIC=\[5,54\]"
+replytoprompt "\n" "SET /UIC=\[5,1\]"
+replytoprompt "\n" "@XX:NETINS"
+waitforcrlf
+sendttychar "\032"
+
 replytoprompt ">" "BOO \[1,54\]RSX11M"
 replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
 replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
 waitforstring ">@ <EOF>"
-replytoprompt ">" "SET /NETUIC=\[5,54\]"
-replytoprompt ">" "SET /UIC=\[5,1\]"
-replytoprompt ">" "@NETINS"
-replytoprompt "Do you want to install and load the CEX system? \[Y/N\]: " "Y"
-replytoprompt "Do you want to install and start DECnet? \[Y/N\]: " "Y"
-replytoprompt "On what device are the network tasks \[D=DB0:\] \[S\]: " "LB0:"
-waitforstring ">@ <EOF>"
-replytoprompt ">" "ACS SY:/BLKS=0"
-replytoprompt ">" "SAV"
-waitforstring "RSX-11M V4.5 BL50"
-replytoprompt "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) \[S\]: " [rsxdatetime]
-replytoprompt "ENTER LINE WIDTH OF THIS TERMINAL \[D D:132.\]: " ""
+replytoprompt ">" "@\[1,2\]STARTNET"
 waitforstring ">@ <EOF>"
 waitforcrlf
 
-# dbsys-06.gz
+exec -ignorestderr tar czvf disks/rsx45-db-06.tgz disks/rsx45-db/
 
 puts ""
 puts "= = = = = = = = = = = = = = = ="

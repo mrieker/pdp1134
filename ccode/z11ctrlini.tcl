@@ -513,7 +513,14 @@ proc replytoprompt {prompt reply} {
         sendttychar "$ch"
         set ch2 [readttychar 100]
         puts -nonewline "$ch2"
-        if {$ch2 != $ch} {error "replytoprompt: '$ch' echoed as '$ch2'"}
+        if {$ch2 != $ch} {
+            while true {
+                set ch3 [readttychar 250]
+                if {$ch3 == ""} break
+                puts -nonewline "$ch3"
+            }
+            error "replytoprompt: '$ch' echoed as '$ch2'"
+        }
     }
     after 100
     sendttychar "\r"
