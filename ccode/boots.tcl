@@ -193,7 +193,7 @@ proc rlboot {} {
 # boot TM tape 0
 proc tmboot {} {
     global Z11HOME
-    loadlst $Z11HOME/tm11-boot.lst bmwr
+    loadlst $Z11HOME/tmboot.lst bmwr
     bmwrword 0773024 0173004
     startbootmem 0773000
 }
