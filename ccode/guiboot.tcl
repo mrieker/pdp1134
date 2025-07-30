@@ -37,7 +37,7 @@ puts "guiboot.tcl: probing devices and memory"
 probedevsandmem
 
 if {[pin dl_enable]} {
-    puts "guiboot.tcl: use z11dl -cps 960 to access zynq tty"
+    puts "guiboot.tcl: use $Z11HOME/z11dl to access zynq tty"
 } else {
     puts "guiboot.tcl: using hardware tty controller"
 }
