@@ -164,7 +164,7 @@ void MSTapeCtrlr::iothread ()
                         case -3: goto nxmerror;
                         case  0: { mtcmts |= 0x4000; break; }   // tape mark
                         case  1: { break; }                     // normal read
-                        case  2: { mtcmts |= 0x2000; break; }   // record too long
+                        case  2: { mtcmts |= 0x0200; break; }   // record length error
                         default: ABORT ();
                     }
                     break;
