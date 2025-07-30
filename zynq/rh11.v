@@ -51,7 +51,8 @@ module rh11
     output reg ssyn_out_h);
 
     reg enable, fastio;
-    reg[15:00] rpwc, rpcs2, rpla;
+    reg[15:00] rpwc, rpcs2;
+    reg[10:04] rpla;
     reg[15:01] rpba;
     reg[15:06] rpcs1;
     reg[5:0] rpcs1s[7:0];
@@ -62,7 +63,7 @@ module rh11
     wire[2:0] pdpds = rpcs2[02:00];
     wire[3:0] pdpdsp1 = { 1'b0, pdpds } + 1;
 
-    reg[7:0] mols, wrls, dts, vvs, drys, errs, pips, lsts;
+    reg[7:0] mols, wrls, dts, vvs, drys, errs, pips, lsts, sips;
     reg wrt, per, nxm, fer, xgo, wce, armctlclr, doctlclr;
     reg[2:0] drv, exeds;
     reg[4:0] sec, trk;
@@ -87,7 +88,7 @@ module rh11
     // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr == 0) ? 32'h52482007 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h52482008 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mols, wrls, dts, vvs } :
                       (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
                       (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
@@ -105,10 +106,6 @@ module rh11
 
     // continuously update sector-under-head number
     // same for all drives
-    always @(*) begin
-        rpla[15:14] = 0;
-        rpla[03:00] = 0;
-    end
     always @(posedge CLOCK) begin
         if (qtrsectimer != qtrsectimem1) begin
             qtrsectimer <= qtrsectimer + 1;
@@ -118,10 +115,10 @@ module rh11
                 rpla[05:04] <= rpla[05:04] + 1;
             end else begin
                 rpla[05:04] <= 0;
-                if (rpla[13:06] != secpertrkm1) begin
-                    rpla[13:06] <= rpla[15:06] + 1;
+                if (rpla[10:06] != secpertrkm1) begin
+                    rpla[10:06] <= rpla[10:06] + 1;
                 end else begin
-                    rpla[13:06] <= 0;
+                    rpla[10:06] <= 0;
                 end
             end
         end
@@ -217,6 +214,7 @@ module rh11
             errs <= 0;
             lsts <= 0;
             pips <= 0;
+            sips <= 0;
             vvs  <= 0;
 
             if (pdpds == 7) begin
@@ -333,13 +331,15 @@ module rh11
                                      6'b0 };
                      6: d_out_h <= rper1s[pdpds];
                      7: d_out_h <= { 8'b0, rpas };
-                     8: d_out_h <= rpla;
+                     8: d_out_h <= { 5'b0, rpla[10:06] ^ rpdas[pdpds][04:00], rpla[05:04], 4'b0 };
+                    // RPDB,RPMR - read as zeroes
                     11: d_out_h <= dts[pdpds] ? 16'o020022 :    // RP06
                                                 16'o020020;     // RP04
                     12: d_out_h <= { 4 { pdpdsp1 } };           // RPSN
                     13: d_out_h <= 16'o010000;                  // RPOF<12>=1 : 16-bit word format
                     14: d_out_h <= { 6'b0, rpdcs[pdpds] };
                     15: d_out_h <= { 6'b0, rpccs[pdpds] };
+                    // RPER2,RPER3,RPEC1,RPEC2 - read as zeroes
                 endcase
             end
         end
@@ -348,11 +348,11 @@ module rh11
         else begin
 
             // stepping for explicit or implied seek
-            if (pips[exeds]) begin
+            if (sips[exeds]) begin
                 if (seekctr == 0) begin                         // step every 163.84 uS
                     if (rpccs[exeds] == rpdcs[exeds]) begin
-                        pips[exeds]  <= 0;                      // - cyls match, done stepping
-                    end else if (sins[exeds] != 42) begin       // - 7 mS for first step
+                        sips[exeds]  <= 0;                      // - cyls match, done stepping
+                    end else if (sins[exeds] != 41) begin       // - 7 mS for first step
                         sins[exeds]  <= sins[exeds] + 1;
                     end else if (rpccs[exeds] < rpdcs[exeds]) begin
                         rpccs[exeds] <= rpccs[exeds] + 1;       // - step inward one cylinder
@@ -377,15 +377,21 @@ module rh11
                     //   seek to cyl 0 but take 500 mS
                     1, 3: begin
                         if (fins[exeds]) begin
-                            rpccs[exeds] <= 999;                // will take 164mS to seek to 0 from here
+                            pips[exeds]  <= 1;                  // positioning in progress
+                            rpccs[exeds] <= 1017;               // will take 167 mS to seek to 0 from here
                             fins[exeds]  <= 0;                  // init complete
+                            sins[exeds]  <= 0;
                         end else if (seekctr == 0) begin        // step every 163.84 uS
-                            if (rpccs[exeds] == 0) begin
+                            if (rpccs[exeds] != 0) begin
+                                rpccs[exeds] <= rpccs[exeds] - 1;
+                            end else if (~ sins[exeds][01]) begin
+                                rpccs[exeds] <= 1016;           // count 500 mS
+                                sins[exeds]  <= sins[exeds] + 1;
+                            end else begin
+                                pips[exeds]       <= 0;         // positioning complete
                                 rpcs1s[exeds][00] <= 0;         // clear GO
                                 drys[exeds]       <= 1;         // set DRY
                                 rpas[exeds]       <= 1;         // set ATA
-                            end else begin
-                                rpccs[exeds] <= rpccs[exeds] - 1;
                             end
                         end
                     end
@@ -401,8 +407,10 @@ module rh11
                             rpcs1s[exeds][00] <= 0;             // clear GO
                         end else if (rpccs[exeds] != rpdcs[exeds]) begin
                             pips[exeds]       <= 1;             // positioning in progress
+                            sips[exeds]       <= 1;             // stepping in progress
                             sins[exeds]       <= 0;             // take 7 mS for first step
                         end else begin
+                            pips[exeds]       <= 0;             // positioning complete
                             rpcs1s[exeds][00] <= 0;             // clear GO
                             drys[exeds]       <= 1;             // set DRY
                             rpas[exeds]       <= 1;             // set ATA
@@ -421,12 +429,17 @@ module rh11
 
                     // 15 - offset
                     // 17 - return to centerline
-                    //  10mS delay, but we just do 1.31 mS
+                    //  10mS delay
                     6, 7: begin
-                        if (seekctr == 0) begin                 // step every 163.84 uS
-                            if (fins[exeds]) begin
-                                fins[exeds] <= 0;               // init complete
+                        if (fins[exeds]) begin
+                            fins[exeds] <= 0;                   // init complete
+                            pips[exeds] <= 1;                   // positioning in progress
+                            sins[exeds] <= 0;                   // start counting 10mS
+                        end else if (seekctr == 0) begin        // step every 163.84 uS
+                            if (sins[exeds] != 60) begin
+                                sins[exeds] <= sins[exeds] + 1;
                             end else begin
+                                pips[exeds]       <= 0;         // positioning complete
                                 rpcs1s[exeds][00] <= 0;         // clear GO
                                 drys[exeds]       <= 1;         // set DRY
                                 rpas[exeds]       <= 1;         // set ATA
@@ -484,7 +497,7 @@ module rh11
 
                                 // command starting, arm hasn't been told to start transfer yet
                                 if (rpccs[exeds] != rpdcs[exeds]) begin
-                                    pips[exeds] <= 1;           // cyl mismatch, do implied seek
+                                    sips[exeds] <= 1;           // cyl mismatch, do implied seek
                                     sins[exeds] <= 0;           // take 7 mS for first step
                                 end else begin
                                     wrt <= ~ rpcs1s[exeds][3];  // doing write
