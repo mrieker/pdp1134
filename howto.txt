@@ -79,16 +79,21 @@ Quickstart guide:
         made by a TCL script and the TCL script can sense any changes
         made by the GUI.
 
-        This is possible because all state is kept in shared memory.
+        This is possible because all state is kept in shared memory
+        and FPGA registers which are also common to all processes.
 
 --------
 
 The FPGA contains circuits for:
 
-    RL-11 disk controller
+    DELUA ethernet controller
+    DL-11 console TTY
+    DZ-11 terminal multiplexer
+    KW-11 line clock
     KY-11 11/34 console
-    DL-11 Console TTY
-    KW-11 Line clock
+    RH-11 disk controller
+    RL-11 disk controller
+    TM-11 tape controller
     Main memory with parity controller (124KW selectable in 4KB chunks)
     Boot memory (address range 760000..7777777 selectable in 512B chunks)
 
@@ -149,6 +154,12 @@ FPGA via that 4KB register page:
                   accessing the simulated RL02 disk files
                   it runs as a daemon automatically started when the GUI
                   or a TCL script accesses the RL-11 controller
+
+    z11rh       - likewise for RH-11 disk
+    z11tm       - likewise for TM-11 tape
+
+    z11xe       - processes DELUA ethernet I/O instructions,
+                  passing packets between the PDP and the Zynq's ethernet
 
     z11dl       - processes DL-11 tty I/O instructions,
                   passing input/output to the tty it is being run from
