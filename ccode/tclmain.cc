@@ -49,6 +49,7 @@ struct TclExit {
 static Tcl_ObjCmdProc cmd_atexit;
 static Tcl_ObjCmdProc cmd_ctrlcflag;
 static Tcl_ObjCmdProc cmd_help;
+static Tcl_ObjCmdProc cmd_killpid;
 static Tcl_ObjCmdProc cmd_randbits;
 static Tcl_ObjCmdProc cmd_spawn;
 static Tcl_ObjCmdProc cmd_waitpid;
@@ -107,6 +108,7 @@ int tclmain (
     if (Tcl_CreateObjCommand (interp, "atexit", cmd_atexit, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "ctrlcflag", cmd_ctrlcflag, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "help", cmd_help, NULL, NULL) == NULL) ABORT ();
+    if (Tcl_CreateObjCommand (interp, "killpid", cmd_killpid, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "randbits", cmd_randbits, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "spawn", cmd_spawn, NULL, NULL) == NULL) ABORT ();
     if (Tcl_CreateObjCommand (interp, "waitpid", cmd_waitpid, NULL, NULL) == NULL) ABORT ();
@@ -457,6 +459,7 @@ int cmd_help (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *cons
     puts ("");
     bool didatexit   = false;
     bool didctrlc    = false;
+    bool didkillpid  = false;
     bool didrandbits = false;
     bool didwaitpid  = false;
     for (TclFunDef const *fd = fundefs; fd->help != NULL; fd ++) {
@@ -467,6 +470,10 @@ int cmd_help (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *cons
         if (! didctrlc && (strcasecmp (fd->name, "ctrlcflag") > 0)) {
             printf ("  %10s - %s\n", "ctrlcflag", "read and clear control-C flag");
             didctrlc = true;
+        }
+        if (! didkillpid && (strcasecmp (fd->name, "killpid") > 0)) {
+            printf ("  %10s - %s\n", "killpid", "kill process");
+            didkillpid = true;
         }
         if (! didrandbits && (strcasecmp (fd->name, "randbits") > 0)) {
             printf ("  %10s - %s\n", "randbits", "generate random bits");
@@ -484,6 +491,9 @@ int cmd_help (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *cons
     if (! didctrlc) {
         printf ("  %10s - %s\n", "ctrlcflag", "read and clear control-C flag");
     }
+    if (! didkillpid) {
+        printf ("  %10s - %s\n", "killpid", "kill process");
+    }
     if (! didwaitpid) {
         printf ("  %10s - %s\n", "waitpid", "wait for process to exit");
     }
@@ -495,6 +505,33 @@ int cmd_help (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *cons
     }
     puts ("");
     return TCL_OK;
+}
+
+// kill process
+int cmd_killpid (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    switch (objc) {
+        case 2: {
+            char const *opstr = Tcl_GetString (objv[1]);
+            if (strcasecmp (opstr, "help") == 0) {
+                puts ("");
+                puts ("  killpid <processid>");
+                puts ("");
+                return TCL_OK;
+            }
+            int pid;
+            int rc = Tcl_GetIntFromObj (interp, objv[1], &pid);
+            if (rc != TCL_OK) return rc;
+            rc = kill (pid, SIGTERM);
+            if (rc < 0) {
+                Tcl_SetResultF (interp, "%m");
+                return TCL_ERROR;
+            }
+            return TCL_OK;
+        }
+    }
+    Tcl_SetResult (interp, (char *) "bad number of arguments", TCL_STATIC);
+    return TCL_ERROR;
 }
 
 // generate random bits
