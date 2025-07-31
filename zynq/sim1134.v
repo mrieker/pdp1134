@@ -216,7 +216,7 @@ module sim1134 (
 
     wire needtoreaddst  = ~ iMOVb & ~ iCLRb & ~ iMFPS & ~ iSXT;
     wire needtowritedst = ~ iCMPb & ~ iBITb & ~ iTSTb & ~ iMTPS & ~ iMUL & ~ iDIV & ~ iASH & ~ iASHC;
-    wire byteinstr      = instreg[15] & ~ iSUB;
+    wire byteinstr      = instreg[15] & ~ iSUB & ~ iMFPID & ~ iMTPID;
     wire[15:00] oneval  = byteinstr ? 256 : 1;
     wire[3:0] dstgprx   = gprx (psw[15:14], instreg[02:00]);
     wire[3:0] srcgprx   = gprx (psw[15:14], instreg[08:06]);
