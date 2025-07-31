@@ -48,6 +48,7 @@ wrtty "  0) cancel boot\n"
 wrtty "  1) boot from RL-11 drive 0\n"
 wrtty "  2) boot from paper tape bin file\n"
 wrtty "  3) boot from RH-11 drive 0\n"
+wrtty "  4) boot from TM-11 drive 0\n"
 wrtty "> "
 
 while {! [ctrlcflag]} {
@@ -69,6 +70,11 @@ while {! [ctrlcflag]} {
     if {$by == 063} {
         wrtty "3\nbooting RH-11 drive 0\n"
         rhboot
+        break
+    }
+    if {$by == 064} {
+        wrtty "4\nbooting TM-11 drive 0\n"
+        tmboot
         break
     }
 }
