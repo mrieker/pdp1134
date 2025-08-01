@@ -88,7 +88,7 @@ module rh11
     // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr == 0) ? 32'h52482008 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h52482009 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mols, wrls, dts, vvs } :
                       (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
                       (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
@@ -141,6 +141,7 @@ module rh11
                 exeds   <= 0;
                 seekctr <= 0;
                 mols    <= 0;
+                vvs     <= 0;
                 wrls    <= 0;
                 dts     <= 0;
             end
@@ -215,7 +216,6 @@ module rh11
             lsts <= 0;
             pips <= 0;
             sips <= 0;
-            vvs  <= 0;
 
             if (pdpds == 7) begin
                 doctlclr  <= 0;     // we are done with our controller clear processing
