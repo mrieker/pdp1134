@@ -78,7 +78,7 @@ module dz11 (
     // this alows two processes to write to their own 16-bit half of a 32-bit word without messing with thhe other's half
     // as they must set <13> or <12> on their half, always leaving them clear on the other half.
 
-    assign armrdata = (armraddr == 0) ? 32'h445A2004 : // [31:16] = 'DZ'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h445A2005 : // [31:16] = 'DZ'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable, 5'b0, intvec, addres } :
                       (armraddr == 2) ? { rbr, csr } :
                       (armraddr == 3) ? { txenab, 7'b0, siloctr, silorem, rxenab } :
@@ -108,16 +108,13 @@ module dz11 (
     wire[2:0] armevn = { armwaddr[1:0], 1'b0 };
     wire[2:0] armodd = { armwaddr[1:0], 1'b1 };
 
-    // level-style interrupt
-    wire intlev = (csr_14_tie & csr_15_trdy) | (csr_06_rie & (csr_12_sae ? csr_13_sa : csr_07_rdone));
-
     // make it edge triggered
     intreq dzintreq (
         .CLOCK    (CLOCK),
         .RESET    (init_in_h),
         .INTVEC   (intvec),
-        .rirqlevl (intlev),
-        .xirqlevl (0),
+        .rirqlevl (csr_06_rie & (csr_12_sae ? csr_13_sa : csr_07_rdone)),
+        .xirqlevl (csr_14_tie & csr_15_trdy),
         .intreq   (intreq),
         .irvec    (irvec),
         .intgnt   (intgnt),
@@ -154,7 +151,7 @@ module dz11 (
             case (armwaddr)
                 1: begin
                     enable <= armwdata[31];
-                    intvec <= armwdata[25:18] &  8'o374;
+                    intvec <= armwdata[25:18] &  8'o370;
                     addres <= armwdata[17:00] & 18'o777770;
                 end
 
