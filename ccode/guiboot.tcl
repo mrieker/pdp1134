@@ -33,8 +33,9 @@ if {($fpgamode != 1) && ($fpgamode != 2)} {
     exit
 }
 
-puts "guiboot.tcl: probing devices and memory"
-probedevsandmem
+if {[pin xe_enable]} {
+    exec -ignorestderr $Z11HOME/z11xe -daemon
+}
 
 if {[pin dl_enable]} {
     puts "guiboot.tcl: use $Z11HOME/z11dl to access zynq tty"
