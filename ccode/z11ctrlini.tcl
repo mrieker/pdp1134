@@ -8,6 +8,7 @@ proc helpini {} {
     puts "               bmrdword addr - read word from fpga memory"
     puts "          bmwrbyte addr data - write byte to fpga memory"
     puts "          bmwrword addr data - write word to fpga memory"
+    puts "                  dumpiopage - dump contents of i/o page"
     puts "               dumpmem lo hi - dump memory from lo to hi address"
     puts "                enabmem size - enable given size of memory"
     puts "                   flickcont - continue processing"
@@ -121,6 +122,34 @@ proc bmwrword {addr data {pe 0}} {
     for {set i 0} {[set x [pin bm_armfunc]] != 0} {incr i} {
         if {$i > 1000} {
             error "bmwrword: stuck at $x"
+        }
+    }
+}
+
+# dump i/o page
+# - caution: reads i/o page registers from unibus side
+#            which can have side-effects and mess something up
+#            such as grabbing a keyboard or paper tape reader char
+proc dumpiopage {} {
+    set needbl 0
+    for {set a 0760000} {$a <= 0777777} {incr a 32} {
+        set line ""
+        set hasval 0
+        for {set b 30} {$b >= 0} {incr b -2} {
+            set d [rdwordtimo [expr {$a + $b}]]
+            if {$d < 0} {
+                set line "$line ------"
+            } else {
+                set line [format "%s %06o" $line $d]
+                set hasval 1
+            }
+        }
+        if {$hasval} {
+            puts [format "%s  %06o" $line $a]
+            set needbl 1
+        } elseif {$needbl} {
+            puts ""
+            set needbl 0
         }
     }
 }
