@@ -88,7 +88,7 @@ module rh11
     // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr == 0) ? 32'h52482009 : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h5248200A : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mols, wrls, dts, vvs } :
                       (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
                       (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
@@ -98,11 +98,6 @@ module rh11
 
     // wake arm when transfer go bit set or controller clear set
     assign armintrq = xgo | armctlclr;
-
-    // interrupt pdp when controller ready or any drive attention
-    // - edge triggered by IE bit automatically turned off when granted
-    assign intreq = rpcs1[06] & (rpcs1[07] | (rpas != 0));
-    assign irvec  = INTVEC;
 
     // continuously update sector-under-head number
     // same for all drives
@@ -130,8 +125,58 @@ module rh11
         rpcs1[14] = (rpcs2[15:08] != 0);
     end
 
+    wire selected = enable & msyn_in_h & (a_in_h[17:06] == ADDR[17:06]) & ~ ssyn_out_h;
     wire wrhi = ~ c_in_h[0] |   a_in_h[00];
     wire wrlo = ~ c_in_h[0] | ~ a_in_h[00];
+
+    // wacky interrupt conditions
+    reg intflag, last_dip, last_rdy, last_sc;
+    wire intgrant = intgnt & (igvec == irvec);
+    assign intreq = intflag;
+    assign irvec  = INTVEC;
+    always @(posedge CLOCK) begin
+
+        // clear interrupt if clearing controller or interrupt granted
+        if (doctlclr | intgrant) begin
+            intflag <= 0;
+        end
+
+        // upon termination of a data transfer if interrupt enabled set at the time
+        else if (~ last_rdy & rpcs1[07] & rpcs1[06]) begin
+            intflag <= 1;
+        end
+
+        // upon assertion of attention or occurrence of a controller error if controller not busy and interrupt enabled
+        else if (~ last_sc  & rpcs1[15] & rpcs1[06]) begin
+            intflag <= 1;
+        end
+
+        // several things if accessing RPCS1
+        else if (selected & (a_in_h[05:01] == 0)) begin
+
+            if (c_in_h[01]) begin
+
+                // if writing <06> <= 0, clear pending interrupts
+                if (wrlo & ~ d_in_h[06]) begin
+                    intflag <= 0;
+                end
+
+                // if writing <06> <= 1 and <07> <= 1, request interrupt
+                // if writing after a DATIP with <06> set, request interrupt
+                if ((wrlo & d_in_h[06] & d_in_h[07]) |
+                    (last_dip & (wrlo ? d_in_h[06] : rpcs1[06]))) begin
+                    intflag <= 1;
+                end
+            end
+
+            // remember if cycle is a DATIP
+            last_dip <= c_in_h == 1;
+        end
+
+        // detect transitions of RDY and SC bits
+        last_rdy <= rpcs1[07];
+        last_sc  <= rpcs1[15];
+    end
 
     always @(posedge CLOCK) begin
         if (init_in_h) begin
@@ -192,7 +237,7 @@ module rh11
         end
 
         // RH-11 does its own edge-triggered interrupts by clearing IE bit when interrupt granted
-        else if (intgnt & rpcs1[06] & (igvec == irvec)) begin
+        else if (intgrant & rpcs1[06]) begin
             rpcs1[06] <= 0;
         end
 
@@ -227,7 +272,7 @@ module rh11
         else if (~ msyn_in_h & ssyn_out_h) begin
             d_out_h    <= 0;
             ssyn_out_h <= 0;
-        end else if (enable & msyn_in_h & (a_in_h[17:06] == ADDR[17:06]) & ~ ssyn_out_h) begin
+        end else if (selected) begin
             ssyn_out_h <= 1;
             if (c_in_h[1]) begin
 
