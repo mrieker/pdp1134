@@ -1,6 +1,8 @@
 
 # install basic-plus-2 on rsts/e v10.1 system from tapes
 
+#  ./z11ctrl rsts101basic.tcl
+
 #  assumes system is logged into freshly created privileged account
 #  and waiting at the "$" prompt (z11dl does not need to be running)
 

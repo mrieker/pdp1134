@@ -21,25 +21,44 @@ Basic configurations:
 
 Quickstart guide:
 
-    To boot via GUI:
+    Set up SDCARD for ZTurn board:
+
+        see zplin/quicksdcard.txt
+
+        * copy 32-bit raspi os to an SD card
+        * delete all files from /boot partition then replace with
+            just BOOT.BIN and image.ub from the zynq directory
+        * boot zturn and configure to taste
+
+        * clone repo to non-priv user (sudo should not require password)
+        * cd 1134/ccode ; make
+
+    To boot the 11/34 via GUI:
 
         $ ./z11gui &
             select REAL or SIM mode by clicking the OFF checkbox
 
-            if you do not have a real RL-11 controller or are using SIM mode,
-                click the RL-11 checkbox to turn it on
-                click the LOAD buttons to load RL02 image files
+            check other checkboxes for devices you want the FPGA to provide
+            for REAL mode,
+                the Mem checkbox will fill in whatever memory is missing up to 124KW
+                other than Mem, do not check anything that you have a real board for
+                    (or they will stomp on each other)
+            for SIM mode,
+                the Mem checkbox will provide the whole 124KW memory
+                check any other devices wanted (all are fine)
 
-            you do not need to check any of the other checkboxes,
-            the boot button script will figure out what it needs
+            load boot media (RP04/6, RL01/2, TU10) with appropriate LOAD button
+            the boot menu will only boot from drive 0
 
             click the BOOT button
                 (runs script guiboot.sh)
 
-        $ ./z11dl -cps 960      to access Zynq tty port
-            only if you do not have real DL-11 or are using SIM mode
+        $ ./z11dl       to access Zynq-provided tty port
+            only if the DL-11 checkbox is checked
 
-    To boot via command line:
+        should see a boot menu on TTY when BOOT button was clicked
+
+    To boot the 11/34 via command line:
 
         $ ./z11ctrl
         z11ctrl> pin set fpgamode 1         ;# select SIM mode
@@ -51,13 +70,16 @@ Quickstart guide:
 
         if you do not have a real RL-11 controller or are using SIM mode,
             rlload 0 [-readonly] somefile.rl02      ;# bootable disk image
-            rlload 1 [-readonly] otherfile.rl02     ;# as needed, also can load drives 2 and 3
+            rlload 1 [-readonly] otherfile.rl02     ;# as needed
+
+        or use rhload to load RP04/RP06 file, or tmload to load .tap-format tape file
 
         z11ctrl> rlboot                     ;# boot rl drive 0
+            or rhboot for rh drive 0, tmboot for tm drive 0
         z11ctrl> exit
 
-        $ ./z11dl -cps 960      to access Zynq tty port
-            only if you do not have real DL-11 or are using SIM mode
+        $ ./z11dl       to access Zynq tty port
+            only if the DL-11 checkbox is checked
 
         Note:
 
@@ -151,12 +173,12 @@ FPGA via that 4KB register page:
                   provides TCL scripting of all functions
 
     z11rl       - processes RL-11 disk I/O instructions,
-                  accessing the simulated RL02 disk files
+                  accessing the simulated RL01/RL02 disk files
                   it runs as a daemon automatically started when the GUI
                   or a TCL script accesses the RL-11 controller
 
-    z11rh       - likewise for RH-11 disk
-    z11tm       - likewise for TM-11 tape
+    z11rh       - likewise for RH-11 disk (RP04/RP06)
+    z11tm       - likewise for TM-11 tape (TU10)
 
     z11xe       - processes DELUA ethernet I/O instructions,
                   passing packets between the PDP and the Zynq's ethernet
@@ -164,6 +186,9 @@ FPGA via that 4KB register page:
     z11dl       - processes DL-11 tty I/O instructions,
                   passing input/output to the tty it is being run from
                   must be manually started to access the DL-11 port
+
+    z11dz       - processes DZ-11 tty I/O instructions for a single line,
+                  passing input/output to the tty it is being run from
 
     z11dump     - dumps out the FPGA/ARM interface registers
                   can be left to run contonuously to keep a screen updated

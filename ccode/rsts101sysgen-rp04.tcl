@@ -1,6 +1,8 @@
 
 # generate rsts/e v10.1 system from tapes onto an rp04
 
+#  ./z11ctrl rsts101sysgen-rp04.tcl
+
 # input:
 #  disks/rststapes/rsts101/rstse_v10_1_install_sep10_1992.tap
 #    from https://groups.google.com/g/pidp-11/c/kStWvbpQuUA/m/8BYBQrCgAgAJ
