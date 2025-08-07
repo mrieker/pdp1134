@@ -14,7 +14,9 @@ interface (ccode/z11ctrl) for scripting.
 
 See howto.txt for more information.
 
-Pics of board and gui screen are in boardpic.jpg and guittypic.png
+Pics of board and gui screen are in boardpic.jpg and guittypic.png,
+runningpic.jpg is pic of 10.5" screen mounted on front of PDP-11/34
+with Zynq in place of console board.
 
 It uses a ZTurn Zynq 7020 board for the FPGA/ARM processor,
 memory, SDCARD, ethernet.  The ARM processor runs the
