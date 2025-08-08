@@ -147,6 +147,18 @@ proc dumpiopage {} {
         if {$hasval} {
             puts [format "%s  %06o" $line $a]
             set needbl 1
+            if {$a == 0777700} {
+                set line ""
+                for {set b 15} {$b >= 0} {incr b -2} {
+                    set d [rdwordtimo [expr {$a + $b}]]
+                    if {$d < 0} {
+                        set line "$line ------"
+                    } else {
+                        set line [format "%s %06o" $line $d]
+                    }
+                }
+                puts [format "%109s     777701" $line]
+            }
         } elseif {$needbl} {
             puts ""
             set needbl 0
