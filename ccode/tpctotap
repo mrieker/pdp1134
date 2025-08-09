@@ -1,0 +1,9 @@
+#!/bin/bash
+x=$0.`uname -m`
+if [ ! -f $x ]
+then
+    d=`dirname $x`
+    n=`basename $x`
+    make -C $d $n > /dev/null
+fi
+exec $x "$@"
