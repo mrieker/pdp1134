@@ -48,8 +48,24 @@
 #define DL3_PORT  0x0003FFFFU
 #define DL3_PORT0 0x00000001U
 
-static char const rsxdtpmt[] = "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) [S]: ";
-static char const monthnames[12][4] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+struct LookFor {
+    char const *promptstr;  // prompt string
+    char replystr[32];      // reply string
+    int numechoed;          // number of characters sent and echoed
+    int numatched;          // number of characters received that match
+
+    LookFor ();
+    bool GotPRChar (uint8_t prchar);
+    uint8_t GetKBChar ();
+    virtual void FormatReply () = 0;
+};
+
+struct LookForRSTSDate    : LookFor { LookForRSTSDate ();    virtual void FormatReply (); };
+struct LookForRSTSTime    : LookFor { LookForRSTSTime ();    virtual void FormatReply (); };
+struct LookForRSXDateTime : LookFor { LookForRSXDateTime (); virtual void FormatReply (); };
+
+static char const monthnames[12][4] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
 
 static bool nokb;
 static bool upcase;
@@ -64,6 +80,7 @@ static void sigrunhand (int signum);
 int main (int argc, char **argv)
 {
     bool killit = false;
+    bool rstsdt = true;
     bool rsxdt = true;
     char const *logname = NULL;
     int port = 0777560;
@@ -73,11 +90,12 @@ int main (int argc, char **argv)
             puts ("");
             puts ("     Access DL-11 TTY controller");
             puts ("");
-            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-norsxdt] [-upcase]");
+            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-norstsdt] [-norsxdt] [-upcase]");
             puts ("     -cps     : set chars per second, default 960");
             puts ("     -killit  : kill other process that is processing this port");
             puts ("     -log     : log output to given file");
             puts ("     -nokb    : do not pass stdin keyboard to pdp");
+            puts ("    -norstsdt : do not answer RSTS/E format date/time prompts");
             puts ("     -norsxdt : do not answer RSX-11 format date/time prompt");
             puts ("     -upcase  : convert all keyboard input to upper case");
             puts ("");
@@ -109,6 +127,10 @@ int main (int argc, char **argv)
         }
         if (strcasecmp (argv[i], "-nokb") == 0) {
             nokb = true;
+            continue;
+        }
+        if (strcasecmp (argv[i], "-norstsdt") == 0) {
+            rstsdt = false;
             continue;
         }
         if (strcasecmp (argv[i], "-norsxdt") == 0) {
@@ -175,9 +197,16 @@ int main (int argc, char **argv)
     readnextprat = nowus + 1111111 / cps;
     readnextkbat = nokb ? 0xFFFFFFFFFFFFFFFFULL : readnextprat;
 
-    char rsxdtrep[24];  // rsx date/time reply string 'hh:mm:ss dd-mmm-yy\r'
-    int rsxdtech = -1;  // number of characters sent and echoed
-    int rsxdtmat = 0;   // number of characters received that match
+    // set up looking for rsts/rsx date/time prompts
+    LookFor *lookfors[3];
+    int nlookfors = 0;
+    if (rstsdt) {
+        lookfors[nlookfors++] = new LookForRSTSDate ();
+        lookfors[nlookfors++] = new LookForRSTSTime ();
+    }
+    if (rsxdt) {
+        lookfors[nlookfors++] = new LookForRSXDateTime ();
+    }
 
     // keep processing until control-backslash
     // control-C is recognized only if -nokb mode
@@ -210,28 +239,11 @@ int main (int argc, char **argv)
                 // check for another char to print after 1000000/cps usec
                 readnextprat = nowus + 1000000 / cps;
 
-                // check for rsx date/time prompt
-                if (rsxdt) {
-                    if (rsxdtech >= 0) {
-                        // already sending reply, check for echo of character just sent
-                        // if mismatch or reached the end, clear all search state
-                        if ((rsxdtrep[rsxdtech] != prchar) ||
-                            (rsxdtrep[++rsxdtech] == 0)) {
-                            rsxdtech = -1;
-                            rsxdtmat = 0;
-                        }
-                    } else {
-                        // check for prompt string character
-                        // if everything matched, get date/time and set up reply string
-                        if (rsxdtpmt[rsxdtmat] != prchar) rsxdtmat = 0;
-                        else if (rsxdtpmt[++rsxdtmat] == 0) {
-                            time_t nowbin = time (NULL) + 12;    // we take ~12 sec to send it out
-                            struct tm nowtm = *localtime (&nowbin);
-                            sprintf (rsxdtrep, "%02d:%02d:%02d %02d-%3s-%2d\r",
-                                nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec, nowtm.tm_mday, monthnames[nowtm.tm_mon], nowtm.tm_year % 100);
-                            rsxdtech = 0;
-                            readnextkbat = nowus + 1000000;     // one second until sending first reply character
-                        }
+                // check for date/time prompt
+                for (int lfi = 0; lfi < nlookfors; lfi ++) {
+                    if (lookfors[lfi]->GotPRChar (prchar)) {
+                        // one second until sending first reply character
+                        readnextkbat = nowus + 1000000;
                     }
                 }
             }
@@ -257,10 +269,14 @@ int main (int argc, char **argv)
             }
 
             // maybe send next char of rsx date/time reply
-            else if (rsxdt && (rsxdtech >= 0)) {
-                uint8_t kbchar = rsxdtrep[rsxdtech];
-                ZWR(dlat[1], (ZRD(dlat[1]) & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar);
-                readnextkbat = nowus + 500000;
+            else {
+                for (int lfi = 0; lfi < nlookfors; lfi ++) {
+                    uint8_t kbchar = lookfors[lfi]->GetKBChar ();
+                    if (kbchar != 0) {
+                        ZWR(dlat[1], (ZRD(dlat[1]) & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar);
+                        readnextkbat = nowus + 500000;
+                    }
+                }
             }
         }
     }
@@ -297,4 +313,81 @@ static void sigrunhand (int signum)
     }
     dprintf (STDERR_FILENO, "\nz11dl: terminated by signal %d\n", signum);
     exit (1);
+}
+
+LookForRSTSDate::LookForRSTSDate ()
+{
+    promptstr = "Today's date? ";
+}
+
+LookForRSTSTime::LookForRSTSTime ()
+{
+    promptstr = "Current time? ";
+}
+
+LookForRSXDateTime::LookForRSXDateTime ()
+{
+    promptstr = "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) [S]: ";
+}
+
+LookFor::LookFor ()
+{
+    numechoed = -1;
+    numatched =  0;
+}
+
+// just got a characater from pdp for printing
+// see if it matches a date/time prompt or is an echo of a date/time reply
+bool LookFor::GotPRChar (uint8_t prchar)
+{
+    if (numechoed < 0) {
+        // check for prompt string character
+        // if everything matched, get date/time and set up reply string
+        if (promptstr[numatched] != prchar) numatched = 0;
+        else if (promptstr[++numatched] == 0) {
+            FormatReply ();
+            numechoed = 0;
+            return true;
+        }
+    } else {
+        // sending reply, check for echo of character just sent
+        // if mismatch or reached the end, clear all search state
+        if ((replystr[numechoed] != prchar) ||
+            (replystr[++numechoed] == 0)) {
+            numechoed = -1;
+            numatched = 0;
+        }
+    }
+    return false;
+}
+
+uint8_t LookFor::GetKBChar ()
+{
+    return (numechoed < 0) ? 0 : replystr[numechoed];
+}
+
+static time_t rstsdtbin;
+
+void LookForRSTSDate::FormatReply ()
+{
+    rstsdtbin = time (NULL) + 10;       // we take ~10 sec to send it out
+    struct tm nowtm = *localtime (&rstsdtbin);
+    sprintf (replystr, "%02d-%3s-%2d\r",
+        nowtm.tm_mday, monthnames[nowtm.tm_mon], nowtm.tm_year % 100);
+}
+
+void LookForRSTSTime::FormatReply ()
+{
+    struct tm nowtm = *localtime (&rstsdtbin);
+    sprintf (replystr, "%02d:%02d\r",
+        nowtm.tm_hour, nowtm.tm_min);
+}
+
+void LookForRSXDateTime::FormatReply ()
+{
+    time_t nowbin = time (NULL) + 10;   // we take ~10 sec to send it out
+    struct tm nowtm = *localtime (&nowbin);
+    sprintf (replystr, "%02d:%02d:%02d %02d-%3s-%2d\r",
+        nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec,
+        nowtm.tm_mday, monthnames[nowtm.tm_mon], nowtm.tm_year % 100);
 }
