@@ -53,29 +53,34 @@ wrtty "  4) boot from TM-11 drive 0\n"
 wrtty "> "
 
 while {! [ctrlcflag]} {
-    set by [rdtty]
-    if {$by == 060} {
-        wrtty "0\nabandoning boot\n"
-        break
-    }
-    if {$by == 061} {
-        wrtty "1\nbooting RL-11 drive 0\n"
-        rlboot
-        break
-    }
-    if {$by == 062} {
-        wrtty "2\nbooting from paper tape bin file\n"
-        prboot
-        break
-    }
-    if {$by == 063} {
-        wrtty "3\nbooting RH-11 drive 0\n"
-        rhboot
-        break
-    }
-    if {$by == 064} {
-        wrtty "4\nbooting TM-11 drive 0\n"
-        tmboot
-        break
+    set by [format %03o [rdtty]]
+    switch $by {
+        060 {
+            wrtty "0\nabandoning boot\n"
+            return
+        }
+        061 {
+            wrtty "1\nbooting RL-11 drive 0\n"
+            clearlow4k
+            rlboot
+            return
+        }
+        062 {
+            wrtty "2\nbooting from paper tape bin file\n"
+            prboot
+            return
+        }
+        063 {
+            wrtty "3\nbooting RH-11 drive 0\n"
+            clearlow4k
+            rhboot
+            return
+        }
+        064 {
+            wrtty "4\nbooting TM-11 drive 0\n"
+            clearlow4k
+            tmboot
+            return
+        }
     }
 }

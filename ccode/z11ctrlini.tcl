@@ -8,6 +8,7 @@ proc helpini {} {
     puts "               bmrdword addr - read word from fpga memory"
     puts "          bmwrbyte addr data - write byte to fpga memory"
     puts "          bmwrword addr data - write word to fpga memory"
+    puts "                  clearlow4k - clear low 4KB memory"
     puts "                  dumpiopage - dump contents of i/o page"
     puts "               dumpmem lo hi - dump memory from lo to hi address"
     puts "                enabmem size - enable given size of memory"
@@ -123,6 +124,13 @@ proc bmwrword {addr data {pe 0}} {
         if {$i > 1000} {
             error "bmwrword: stuck at $x"
         }
+    }
+}
+
+# clear low 4KB memory
+proc clearlow4k {} {
+    for {set a 0} {$a < 4096} {incr a 2} {
+        wrword $a 0
     }
 }
 
