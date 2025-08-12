@@ -75,7 +75,7 @@ int main (int argc, char **argv)
     shmms_svr_mutexunlk (shmms);
 
     // enable tm11.v to process io instructions from pdp
-    ZWR(tmat[4], (tmat[4] & TM4_FAST) | TM4_ENAB);
+    ZWR(tmat[4], (ZRD(tmat[4]) & TM4_FAST) | TM4_ENAB);
 
     // initialize tape library
     MSTapeCtrlr *tapectrlr = new MSTapeCtrlr (shmms);

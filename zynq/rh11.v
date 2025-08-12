@@ -54,11 +54,13 @@ module rh11
     reg[15:00] rpwc, rpcs2;
     reg[10:04] rpla;
     reg[15:01] rpba;
-    reg[15:06] rpcs1;
+    wire rpcs1_15, rpcs1_14;
+    reg rpcs1_07, rpcs1_06;
+    reg[09:08] rpcs1_0908;
     reg[5:0] rpcs1s[7:0];
     reg[15:00] rpdas[7:0], rper1s[7:0], rpsns[7:0];
     reg[9:0] rpdcs[7:0], rpccs[7:0], rpccarm;
-    reg[7:0] rpgs, rpas, secpertrkm1, fins;
+    reg[7:0] rpgs, rpas, fins;
     reg[14:00] qtrsectimer;
     wire[2:0] pdpds = rpcs2[02:00];
     wire[3:0] pdpdsp1 = { 1'b0, pdpds } + 1;
@@ -88,9 +90,9 @@ module rh11
     // rpcs1[09:06] = common
     // rpcs1s[pdpds][5:0] = FC,GO for drive pdpds
 
-    assign armrdata = (armraddr == 0) ? 32'h5248200A : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h5248200B : // [31:16] = 'RH'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { mols, wrls, dts, vvs } :
-                      (armraddr == 2) ? { wrt, drv, cyl, rpcs1[09:08], rpba, rpcs2[03] } :
+                      (armraddr == 2) ? { wrt, drv, cyl, rpcs1_0908, rpba, rpcs2[03] } :
                       (armraddr == 3) ? { per, nxm, fer, xgo, wce, trk, armctlclr, sec, rpwc } :
                       (armraddr == 4) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
                       (armraddr == 5) ? { 6'b0, rpccarm, drys, rpas } :
@@ -110,7 +112,7 @@ module rh11
                 rpla[05:04] <= rpla[05:04] + 1;
             end else begin
                 rpla[05:04] <= 0;
-                if (rpla[10:06] != secpertrkm1) begin
+                if (rpla[10:06] != maxsec) begin
                     rpla[10:06] <= rpla[10:06] + 1;
                 end else begin
                     rpla[10:06] <= 0;
@@ -120,10 +122,8 @@ module rh11
     end
 
     // continuously update SC (special condition) and TRE (transfer error)
-    always @(*) begin
-        rpcs1[15] = rpcs1[14] | rpcs1[13] | (rpas != 0);
-        rpcs1[14] = (rpcs2[15:08] != 0);
-    end
+    assign rpcs1_15 = rpcs1_14 | (rpas != 0);
+    assign rpcs1_14 = (rpcs2[15:08] != 0);
 
     wire selected = enable & msyn_in_h & (a_in_h[17:06] == ADDR[17:06]) & ~ ssyn_out_h;
     wire wrhi = ~ c_in_h[0] |   a_in_h[00];
@@ -142,12 +142,12 @@ module rh11
         end
 
         // upon termination of a data transfer if interrupt enabled set at the time
-        else if (~ last_rdy & rpcs1[07] & rpcs1[06]) begin
+        else if (~ last_rdy & rpcs1_07 & rpcs1_06) begin
             intflag <= 1;
         end
 
         // upon assertion of attention or occurrence of a controller error if controller not busy and interrupt enabled
-        else if (~ last_sc  & rpcs1[15] & rpcs1[06]) begin
+        else if (~ last_sc  & rpcs1_15 & rpcs1_06) begin
             intflag <= 1;
         end
 
@@ -164,7 +164,7 @@ module rh11
                 // if writing <06> <= 1 and <07> <= 1, request interrupt
                 // if writing after a DATIP with <06> set, request interrupt
                 if ((wrlo & d_in_h[06] & d_in_h[07]) |
-                    (last_dip & (wrlo ? d_in_h[06] : rpcs1[06]))) begin
+                    (last_dip & (wrlo ? d_in_h[06] : rpcs1_06))) begin
                     intflag <= 1;
                 end
             end
@@ -174,8 +174,8 @@ module rh11
         end
 
         // detect transitions of RDY and SC bits
-        last_rdy <= rpcs1[07];
-        last_sc  <= rpcs1[15];
+        last_rdy <= rpcs1_07;
+        last_sc  <= rpcs1_15;
     end
 
     always @(posedge CLOCK) begin
@@ -207,9 +207,9 @@ module rh11
                     vvs  <= vvs & ~ armwdata[07:00];    // volume valids
                 end
                 2: begin
-                    cyl          <= armwdata[27:18];    // cylinder at end of transfer
-                    rpcs1[09:08] <= armwdata[17:16];    // bus address at end of transfer
-                    rpba         <= armwdata[15:01];
+                    cyl        <= armwdata[27:18];      // cylinder at end of transfer
+                    rpcs1_0908 <= armwdata[17:16];      // bus address at end of transfer
+                    rpba       <= armwdata[15:01];
                 end
                 3: begin
                     if (armwdata[21]) begin
@@ -237,19 +237,21 @@ module rh11
         end
 
         // RH-11 does its own edge-triggered interrupts by clearing IE bit when interrupt granted
-        else if (intgrant & rpcs1[06]) begin
-            rpcs1[06] <= 0;
+        else if (intgrant & rpcs1_06) begin
+            rpcs1_06 <= 0;
         end
 
         // init released / controller clear:
         //  clear per-drive registers
         //  set controller clear to tell arm to reset
         else if (doctlclr) begin
-            rpcs1[09:06] <= 4'b0010;
-            rpwc         <= 0;
-            rpba         <= 0;
-            rpgs         <= 0;
-            rpas         <= 0;
+            rpcs1_0908 <= 0;
+            rpcs1_07   <= 1;
+            rpcs1_06   <= 0;
+            rpwc       <= 0;
+            rpba       <= 0;
+            rpgs       <= 0;
+            rpas       <= 0;
 
             rpcs1s[pdpds] <= 0;
             rpdcs[pdpds]  <= 0;
@@ -285,18 +287,18 @@ module rh11
                             if (d_in_h[14]) begin           // writing <14> = 1 clears controller error bits
                                 rpcs2[15:08] <= 0;          // clear DLT,WCE,UPE,NED,NXM,PGE,MXF,MDPE
                             end
-                            rpcs1[09:08] <= d_in_h[09:08];  // A17,A16
+                            rpcs1_0908 <= d_in_h[09:08];    // A17,A16
                         end
                         if (wrlo) begin
-                            rpcs1[06] <= d_in_h[06];                    // IE - common to all drives
+                            rpcs1_06 <= d_in_h[06];                     // IE - common to all drives
                             if (d_in_h[00]) begin                       // check for GO bit
                                 if (~ drys[pdpds] |                     // must always have drive ready
-                                    d_in_h[05] & ~ rpcs1[07]) begin     // if data xfer, must have ctrlr ready
+                                    d_in_h[05] & ~ rpcs1_07) begin      // if data xfer, must have ctrlr ready
                                     rpcs2[10] <= 1;                     // ctrlr or drive bussy, set PGE
                                 end else begin
                                     drys[pdpds]      <= 0;  // clear DRY
                                     if (d_in_h[05]) begin   // check for data transfer command
-                                        rpcs1[07]    <= 0;  // clear RDY
+                                        rpcs1_07     <= 0;  // clear RDY
                                         rpcs2[15:08] <= 0;  // clear DLT,WCE,UPE,NED,NXM,PGE,MXF,MDPE
                                     end
                                     rpcs1s[pdpds] <= d_in_h[05:00];     // FC,GO
@@ -359,7 +361,7 @@ module rh11
 
                 // pdp reading a register
                 case (a_in_h[05:01])
-                     0: d_out_h <= { rpcs1[15:14], 3'b0010, rpcs1[09:06], rpcs1s[pdpds] };
+                     0: d_out_h <= { rpcs1_15, rpcs1_14, 4'b0010, rpcs1_0908, rpcs1_07, rpcs1_06, rpcs1s[pdpds] };
                      1: d_out_h <= rpwc;
                      2: d_out_h <= { rpba, 1'b0 };
                      3: d_out_h <= rpdas[pdpds];
@@ -514,14 +516,14 @@ module rh11
                     20, 24, 28: begin
                         if ((rpdcs[exeds] > maxcyl) | (rpdas[exeds][12:08] > maxtrk) | (rpdas[exeds][04:00] > maxsec)) begin
                             rper1s[exeds][10] <= 1;             // IAE - invalid (disk) address error
-                            rpcs1[07]         <= 1;             // RDY - controller ready
+                            rpcs1_07          <= 1;             // RDY - controller ready
                             errs[exeds]       <= 1;             // ERR - error summary
                             drys[exeds]       <= 1;             // DRY - drive ready
                             rpas[exeds]       <= 1;             // ATA - attention
                             rpcs1s[exeds][00] <= 0;             // clear GO
                         end else if (~ rpcs1s[exeds][3] & wrls[exeds]) begin
                             rper1s[exeds][11] <= 1;             // WLE - write lock error
-                            rpcs1[07]         <= 1;             // RDY - controller ready
+                            rpcs1_07          <= 1;             // RDY - controller ready
                             errs[exeds]       <= 1;             // ERR - error summary
                             drys[exeds]       <= 1;             // DRY - drive ready
                             rpas[exeds]       <= 1;             // ATA - attention
@@ -573,14 +575,14 @@ module rh11
                                 rper1s[exeds][06] <= fer;       // hard ecc error
                                 rpcs1s[exeds][00] <= 0;         // clear GO
                                 drys[exeds]       <= 1;         // set DRY
-                                rpcs1[07]         <= 1;         // set RDY
+                                rpcs1_07          <= 1;         // set RDY
                             end
                         end
                     end
 
                     // unknown/unsupported command
                     default: begin
-                        if (rpcs1s[exeds][5]) rpcs1[07] <= 1;   // RDY - controller ready to do transfer
+                        if (rpcs1s[exeds][5]) rpcs1_07 <= 1;    // RDY - controller ready to do transfer
                         errs[exeds]   <= 1;                     // ERR - error summary
                         drys[exeds]   <= 1;                     // DRY - drive ready
                         rpas[exeds]   <= 1;                     // ATA - attention

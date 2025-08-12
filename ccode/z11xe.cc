@@ -270,7 +270,7 @@ int main (int argc, char **argv)
             ABORT ();
         }
         char macline[40];
-        fgets (macline, sizeof macline, macfile);
+        if (fgets (macline, sizeof macline, macfile) == NULL) macline[0] = 0;
         fclose (macfile);
         unsigned int macaddr[6];
         if (sscanf (macline, "%x:%x:%x:%x:%x:%x", &macaddr[0], &macaddr[1],

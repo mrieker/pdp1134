@@ -116,7 +116,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_reset
 JNIEXPORT jint JNICALL Java_GUIZynqPage_addr
   (JNIEnv *env, jclass klass)
 {
-    return FIELD (pdpat[Z_RK], k_lataddr);
+    return FIELD (ZRD(pdpat[Z_RK]), k_lataddr);
 }
 
 /*
@@ -127,7 +127,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_addr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_data
   (JNIEnv *env, jclass klass)
 {
-    return FIELD (pdpat[Z_RL], l_latdata);
+    return FIELD (ZRD(pdpat[Z_RL]), l_latdata);
 }
 
 /*
@@ -138,7 +138,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_data
 JNIEXPORT jint JNICALL Java_GUIZynqPage_getlr
   (JNIEnv *env, jclass klass)
 {
-    return (kyat[1] >> 16) & 0xFFFF;
+    return (ZRD(kyat[1]) >> 16) & 0xFFFF;
 }
 
 /*
@@ -149,8 +149,8 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_getlr
 JNIEXPORT jint JNICALL Java_GUIZynqPage_getsr
   (JNIEnv *env, jclass klass)
 {
-    return ((kyat[1] & KY_SWITCHES) / (KY_SWITCHES & - KY_SWITCHES)) |
-        (((kyat[2] & KY2_SR1716) / (KY2_SR1716 & - KY2_SR1716)) << 16);
+    return ((ZRD(kyat[1]) & KY_SWITCHES) / (KY_SWITCHES & - KY_SWITCHES)) |
+        (((ZRD(kyat[2]) & KY2_SR1716) / (KY2_SR1716 & - KY2_SR1716)) << 16);
 }
 
 /*
@@ -162,7 +162,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_running
   (JNIEnv *env, jclass klass)
 {
     z11page->dmalock ();                    // make sure snapregs not running
-    uint32_t ky2 = kyat[2];                 // get halted state flags
+    uint32_t ky2 = ZRD(kyat[2]);                 // get halted state flags
     z11page->dmaunlk ();                    // allow snapregs to run
     if (! (ky2 & KY2_HALTED)) return 1;     //  1 = running
     return (ky2 & KY2_HALTINS) ? -1 : 0;    // -1 = halt instr; 0 = requested halt
@@ -178,8 +178,8 @@ JNIEXPORT void JNICALL Java_GUIZynqPage_setsr
 {
     data &= 0777777;
     z11page->dmalock ();                    // make sure snapregs not running
-    kyat[1] = (kyat[1] & ~ KY_SWITCHES) | (data & 0177777) * (KY_SWITCHES & - KY_SWITCHES);
-    kyat[2] = (kyat[2] & ~ KY2_SR1716)  | (data >> 16) * (KY2_SR1716 & - KY2_SR1716);
+    ZWR(kyat[1], (ZRD(kyat[1]) & ~ KY_SWITCHES) | (data & 0177777) * (KY_SWITCHES & - KY_SWITCHES));
+    ZWR(kyat[2], (ZRD(kyat[2]) & ~ KY2_SR1716)  | (data >> 16)     * (KY2_SR1716  & - KY2_SR1716));
     z11page->dmaunlk ();                    // allow snapregs to run
 }
 
@@ -209,7 +209,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_snapregs
 JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
   (JNIEnv *env, jclass klass, jint addr)
 {
-    uint32_t fpgamode = (pdpat[Z_RA] & a_fpgamode) / (a_fpgamode & - a_fpgamode);
+    uint32_t fpgamode = (ZRD(pdpat[Z_RA]) & a_fpgamode) / (a_fpgamode & - a_fpgamode);
     if ((fpgamode != FM_SIM) && (fpgamode != FM_REAL)) return -3;
 
     try {
@@ -233,7 +233,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_rdmem
 JNIEXPORT jint JNICALL Java_GUIZynqPage_wrmem
   (JNIEnv *env, jclass klass, jint addr, jint data)
 {
-    uint32_t fpgamode = (pdpat[Z_RA] & a_fpgamode) / (a_fpgamode & - a_fpgamode);
+    uint32_t fpgamode = (ZRD(pdpat[Z_RA]) & a_fpgamode) / (a_fpgamode & - a_fpgamode);
     if ((fpgamode != FM_SIM) && (fpgamode != FM_REAL)) return -3;
 
     try {
@@ -275,7 +275,7 @@ JNIEXPORT jint JNICALL Java_GUIZynqPage_pinget
     if ((index < 0) || (index > maxpinidx)) ABORT ();
     PinDef const *pte = pindefs + index;
     uint32_t volatile *ptr = pindev (pte->dev) + pte->reg;
-    return (*ptr & pte->mask) / (pte->mask & - pte->mask);
+    return (ZRD(*ptr) & pte->mask) / (pte->mask & - pte->mask);
 }
 
 /*
@@ -292,7 +292,7 @@ JNIEXPORT jboolean JNICALL Java_GUIZynqPage_pinset
     uint32_t volatile *ptr = pindev (pte->dev) + pte->reg;
     uint32_t lobit = pte->mask & - pte->mask;
     uint32_t val = ((uint32_t) value * lobit) & pte->mask;
-    *ptr = (*ptr & ~ pte->mask) | val;
+    ZWR(*ptr, (ZRD(*ptr) & ~ pte->mask) | val);
     return true;
 }
 

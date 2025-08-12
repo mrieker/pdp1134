@@ -26,6 +26,8 @@ module MyBoard (
     output LEDoutG,             // IO_B34_LP7 Y16
     output LEDoutB,             // IO_B34_LN7 Y17
 
+    output[31:00] regarmintreq,
+
     // arm processor memory bus interface (AXI)
     // we are a slave for accessing the control registers (read and write)
     input[11:00]  saxi_ARADDR,
@@ -113,7 +115,7 @@ module MyBoard (
 
     wire[15:00] sim_r0out, sim_pcout, sim_psout;
     wire[5:0] sim_stout;
-    wire sim_waiting;
+    wire sim_waiting, sim_stephalted;
 
     // fillin for the real pdp
     sim1134 fakeinst (
@@ -124,6 +126,9 @@ module MyBoard (
         .psout (sim_psout),
         .stout (sim_stout),
         .waiting (sim_waiting),
+        .stepenable (0),                        //<< 0=normal; 1=stop at end of bus cycle
+        .stepsingle (0),                        //<< 0=normal; 1=temporarily override stepenable
+        .stephalted (sim_stephalted),           //>> 0=normal; 1=halted by stepenable
         .r0out (sim_r0out),
         .turbo (1),
         .bus_pa_in_l (1),
@@ -259,12 +264,13 @@ module MyBoard (
         .saxi_WREADY  (saxi_WREADY),
         .saxi_WVALID  (saxi_WVALID),
 
-        .armintreq (armintreq)
+        .armintreq (armintreq),
+        .zgintflags (regarmintreq)
     );
 
     // fpga block memory
-    reg[8:0] extmemhi[1<<17-1:0];
-    reg[8:0] extmemlo[1<<17-1:0];
+    reg[8:0] extmemhi[131071:0];
+    reg[8:0] extmemlo[131071:0];
     always @(posedge CLOCK) begin
         if (extmemenab) begin
             extmemdin <= { extmemhi[extmemaddr], extmemlo[extmemaddr] };

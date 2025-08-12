@@ -12,9 +12,11 @@ VFILES := \
 	../zynq/kw11.v \
 	../zynq/ky11.v \
 	../zynq/pc11.v \
+	../zynq/rh11.v \
 	../zynq/rl11.v \
 	../zynq/sim1134.v \
 	../zynq/tm11.v \
+	../zynq/xe11.v \
 	../zynq/zynq.v
 
 

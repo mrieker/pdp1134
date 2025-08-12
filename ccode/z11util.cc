@@ -347,11 +347,15 @@ void Z11Page::dmaunlk ()
 // caller should do whatever to device to clear bits in regarmintreq before calling again
 void Z11Page::waitint (uint32_t mask)
 {
+#if defined VERISIM
+    verisim_wfi (mask);
+#else
     int rc = ioctl (zynqfd, ZGIOCTL_WFI, mask);
     if ((rc < 0) && (errno != EINTR)) {
         fprintf (stderr, "Z11Page::waitint: error waiting for interrupt: %m\n");
         ABORT ();
     }
+#endif
 }
 
 // read registers when processor is running
@@ -452,12 +456,12 @@ void Z11Page::contreq ()
 void Z11Page::resetit ()
 {
     dmalock ();
-    kyat[2] |= KY2_HALTREQ;     // so it halts when started back up
-    pdpat[Z_RA] |= a_man_ac_lo_out_h | a_man_dc_lo_out_h;
+    ZWR(kyat[2], ZRD(kyat[2]) | KY2_HALTREQ);   // so it halts when started back up
+    ZWR(pdpat[Z_RA], ZRD(pdpat[Z_RA]) | a_man_ac_lo_out_h | a_man_dc_lo_out_h);
     usleep (200000);
-    pdpat[Z_RA] &= ~ a_man_dc_lo_out_h;
+    ZWR(pdpat[Z_RA], ZRD(pdpat[Z_RA]) & ~ a_man_dc_lo_out_h);
     usleep (1000);
-    pdpat[Z_RA] &= ~ a_man_ac_lo_out_h;
+    ZWR(pdpat[Z_RA], ZRD(pdpat[Z_RA]) & ~ a_man_ac_lo_out_h);
     dmaunlk ();
 }
 

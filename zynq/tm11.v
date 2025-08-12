@@ -46,11 +46,15 @@ module tm11
     output reg ssyn_out_h);
 
     reg enable, fastio, lastinit;
-    reg[15:00] mts, mtc, mtbrc, mtcma, mtd, mtrd;
+    reg[15:00] mtbrc, mtcma, mtd, mtrd;
+    reg[15:07] mts_1507;
+    reg[14:00] mtc;
+    wire[06:00] mts_0600;
+    wire mtc_15;
     reg[7:0] sels, bots, wrls, rews, turs;
 
-    assign armrdata = (armraddr == 0) ? 32'h544D2005 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      (armraddr == 1) ? { mtc,   mts   } :
+    assign armrdata = (armraddr == 0) ? 32'h544D2006 : // [31:16] = 'TM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+                      (armraddr == 1) ? { mtc_15, mtc, mts_1507, mts_0600 } :
                       (armraddr == 2) ? { mtcma, mtbrc } :
                       (armraddr == 3) ? { mtrd,  mtd   } :
                       (armraddr == 4) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
@@ -63,7 +67,7 @@ module tm11
 
     // trigger pdp interrupt request when rewind on currently selected drive completes
     // controller must be idle (mtc[07] set) and interrupts enabled (mtc[06] set)
-    wire rewdone = mts[01] & armwrite & (armwaddr == 5) & ~ armwdata[{2'b01,mtc[10:08]}];
+    wire rewdone = mts_0600[01] & armwrite & (armwaddr == 5) & ~ armwdata[{2'b01,mtc[10:08]}];
 
     // interrupt pdp whenever done bit is set and interrupt enable is set
     // also trigger when rewind on currently selected drive completes
@@ -80,20 +84,18 @@ module tm11
         .igvec    (igvec)
     );
 
-    always @(*) begin
 
-        // keep composite error bit up-to-date
-        mtc[15] = mts[15:07] != 0;
+    // keep composite error bit up-to-date
+    assign mtc_15 = mts_1507 != 0;
 
-        // keep drive status bits up-to-date
-        mts[06] = sels[mtc[10:08]];
-        mts[05] = bots[mtc[10:08]];
-        mts[04] = 0;
-        mts[03] = 0;
-        mts[02] = wrls[mtc[10:08]];
-        mts[01] = rews[mtc[10:08]];
-        mts[00] = turs[mtc[10:08]];
-    end
+    // keep drive status bits up-to-date
+    assign mts_0600[06] = sels[mtc[10:08]];
+    assign mts_0600[05] = bots[mtc[10:08]];
+    assign mts_0600[04] = 0;
+    assign mts_0600[03] = 0;
+    assign mts_0600[02] = wrls[mtc[10:08]];
+    assign mts_0600[01] = rews[mtc[10:08]];
+    assign mts_0600[00] = turs[mtc[10:08]];
 
     // toggle mtrd[15] at 10kHz rate with 50% duty cycle
     reg[18:00] twentykhz;
@@ -120,8 +122,8 @@ module tm11
             end
 
             lastinit   <= 1;
-            mts[15:07] <= 0;            // clear error bits
-            mtc[14:00] <= 0;            // clear command bits
+            mts_1507   <= 0;            // clear error bits
+            mtc        <= 0;            // clear command bits
             d_out_h    <= 0;
             ssyn_out_h <= 0;
         end
@@ -129,7 +131,7 @@ module tm11
         // init just released, flag arm to reset itself
         else if (lastinit) begin
             lastinit    <= 0;
-            mtc[14:00]  <= 15'o10200;   // power clear, alerts arm to abandon i/o
+            mtc         <= 15'o10200;   // power clear, alerts arm to abandon i/o
             mtbrc       <= 0;
             mtcma       <= 0;
             mtd         <= 0;
@@ -140,9 +142,8 @@ module tm11
         else if (armwrite) begin
             case (armwaddr)
                 1: begin
-                    mtc[14:00]  <= armwdata[30:16];
-                    mts[15]     <= armwdata[15] | mts[15];
-                    mts[14:07]  <= armwdata[14:07];
+                    mtc         <= armwdata[30:16];
+                    mts_1507    <= { armwdata[15] | mts_1507[15], armwdata[14:07] };
                 end
                 2: begin
                     mtcma       <= armwdata[31:16];
@@ -185,7 +186,7 @@ module tm11
                         // arm will clear it when complete
                         // sets controller ready immediately so pdp can write new command immediately
                         if (writehi & d_in_h[12]) begin
-                            mts[15:07] <= 0;
+                            mts_1507   <= 0;
                             mtc[14:08] <= d_in_h[14:08];
                             mtc[07]    <= 1;
                             mtc[00]    <= 0;
@@ -195,7 +196,7 @@ module tm11
                         end
 
                         else if (~ mtc[07]) begin
-                            mts[15] <= 1;   // writing command register while controller busy
+                            mts_1507[15] <= 1;   // writing command register while controller busy
                         end else begin
 
                             // controller idle, write upper byte
@@ -223,7 +224,7 @@ module tm11
 
                                     // clear error bits
                                     // this clears mtc[15] immediately
-                                    mts[15:07] <= 0;
+                                    mts_1507 <= 0;
 
                                     // clear tape unit ready
                                     turs[writehi?d_in_h[10:08]:mtc[10:08]] <= 0;
@@ -257,8 +258,8 @@ module tm11
 
                 // pdp reading a register
                 case (a_in_h[03:01])
-                    0: d_out_h <= mts;
-                    1: d_out_h <= mtc   & 16'o167776;
+                    0: d_out_h <= { mts_1507, mts_0600 };
+                    1: d_out_h <= { mtc_15, mtc & 15'o67776 };
                     2: d_out_h <= mtbrc;
                     3: d_out_h <= mtcma & 16'o177776;
                     4: d_out_h <= mtd;

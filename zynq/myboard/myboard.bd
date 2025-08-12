@@ -462,6 +462,11 @@
           },
           "ssyn_out_h": {
             "direction": "O"
+          },
+          "zgintflags": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
           }
         },
         "reference_info": {

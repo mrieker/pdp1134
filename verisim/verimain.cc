@@ -24,49 +24,57 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <net/if.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
+#include <sys/file.h>
 #include <sys/mman.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
 #define ABORT() do { fprintf (stderr, "ABORT %s %d\n", __FILE__, __LINE__); abort (); } while (0)
 
 #include "obj_dir/VMyBoard.h"
 
+#include "../ccode/futex.h"
 #include "verisim.h"
 
-static pthread_mutex_t mybdmtx = PTHREAD_MUTEX_INITIALIZER;
 static VMyBoard *vmybd;
 
-static void *conthread (void *confdv);
 static void kerchunk ();
 
 int main (int argc, char **argv)
 {
     setlinebuf (stdout);
 
-    sockaddr_in servaddr;
-    memset (&servaddr, 0, sizeof servaddr);
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons (VeriTCPPORT);
-
-    int lisfd = socket (AF_INET, SOCK_STREAM, 0);
-    if (lisfd < 0) ABORT ();
-    static int const one = 1;
-    if (setsockopt (lisfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) < 0) ABORT ();
-    if (bind (lisfd, (sockaddr *)&servaddr, sizeof servaddr) < 0) {
-        fprintf(stderr, "bind %d error: %m\n", VeriTCPPORT);
+    int shmfd = shm_open (VERISIM_SHMNM, O_RDWR | O_CREAT, 0666);
+    if (shmfd < 0) {
+        fprintf (stderr, "verimain: error creating %s: %m\n", VERISIM_SHMNM);
         ABORT ();
     }
-    if (listen (lisfd, 5) < 0) ABORT ();
+
+    VeriPage *pageptr;
+
+    if (ftruncate (shmfd, sizeof *pageptr) < 0) {
+        fprintf (stderr, "verimain: error truncating %s: %m\n", VERISIM_SHMNM);
+        ABORT ();
+    }
+
+    if (flock (shmfd, LOCK_EX | LOCK_NB) < 0) {
+        fprintf (stderr, "verimain: error locking %s: %m\n", VERISIM_SHMNM);
+        ABORT ();
+    }
+
+    void *ptr = mmap (NULL, sizeof *pageptr, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+    if (ptr == MAP_FAILED) {
+        fprintf (stderr, "verimain: error mmapping %s: %m\n", VERISIM_SHMNM);
+        ABORT ();
+    }
+    pageptr = (VeriPage *) ptr;
+    memset (pageptr, 0, sizeof *pageptr);
+    pageptr->ident = VERISIM_IDENT;
+    pageptr->serverpid = getpid ();
+    fprintf (stderr, "verimain: pid %d\n", pageptr->serverpid);
 
     vmybd = new VMyBoard ();
     vmybd->RESET_N = 0;
@@ -78,80 +86,91 @@ int main (int argc, char **argv)
         kerchunk ();
     }
 
-    while (1) {
-        memset (&servaddr, 0, sizeof servaddr);
-        socklen_t addrlen = sizeof servaddr;
-        int confd = accept (lisfd, (sockaddr *)&servaddr, &addrlen);
-        if (confd < 0) {
-            fprintf (stderr, "accept error: %m\n");
-            continue;
-        }
-        if (setsockopt (confd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one) < 0) ABORT ();
-        pthread_t tid;
-        int rc = pthread_create (&tid, NULL, conthread, (void *)(long)confd);
-        if (rc != 0) ABORT ();
-        pthread_detach (tid);
-    }
-}
+    char const *env = getenv ("verimain_debug");
+    int debug = (env == NULL) ? 0 : atoi (env);
 
-static void *conthread (void *confdv)
-{
-    int confd = (long)confdv;
-    VeriTCPMsg tcpmsg;
-    while (read (confd, &tcpmsg, sizeof tcpmsg) == (int) sizeof tcpmsg) {
-        if (tcpmsg.write) {
-            uint32_t index = tcpmsg.indx;
-            if (index > 1023) ABORT ();
+    while (true) {
+        int state = pageptr->state;
+        switch (state) {
 
-            // put address and write data on AXI bus
-            // say they are valid and also we are ready to accept write acknowledge
-            if (pthread_mutex_lock (&mybdmtx) != 0) ABORT ();
-            vmybd->saxi_AWADDR  = index * sizeof tcpmsg.data;
-            vmybd->saxi_AWVALID = 1;
-            vmybd->saxi_WDATA   = tcpmsg.data;
-            vmybd->saxi_WVALID  = 1;
-            vmybd->saxi_BREADY  = 1;
+            // some client wants to read one of the arm-side registers
+            case VERISIM_READ: {
+                uint32_t index = pageptr->indx;
+                if (index > 1023) ABORT ();
 
-            // keep kerchunking until all 3 transfers have completed
-            for (int i = 0; vmybd->saxi_AWVALID | vmybd->saxi_WVALID | vmybd->saxi_BREADY; i ++) {
-                if (i > 100) ABORT ();
-                bool awready = vmybd->saxi_AWREADY;
-                bool wready  = vmybd->saxi_WREADY;
-                bool bvalid  = vmybd->saxi_BVALID;
-                kerchunk ();
-                if (awready) vmybd->saxi_AWVALID = 0;
-                if (wready)  vmybd->saxi_WVALID  = 0;
-                if (bvalid)  vmybd->saxi_BREADY  = 0;
+                // send read address out over AXI bus and say we are ready to accept read data
+                vmybd->saxi_ARADDR  = index * sizeof pageptr->data;
+                vmybd->saxi_ARVALID = 1;
+                vmybd->saxi_RREADY  = 1;
+
+                // keep kerchunking until both transfers have completed
+                // capture read data on cycle where both RREADY and RVALID are set
+                for (int i = 0; vmybd->saxi_ARVALID | vmybd->saxi_RREADY; i ++) {
+                    if (i > 100) ABORT ();
+                    bool arready = vmybd->saxi_ARREADY;
+                    bool rvalid  = vmybd->saxi_RVALID;
+                    if (rvalid & vmybd->saxi_RREADY) pageptr->data = vmybd->saxi_RDATA;
+                    kerchunk ();
+                    if (arready) vmybd->saxi_ARVALID = 0;
+                    if (rvalid)  vmybd->saxi_RREADY  = 0;
+                }
+
+                if (debug > 1) printf ("verimain:  read %03X > %08X\n", index, pageptr->data);
+
+                if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_DONE)) ABORT ();
+                if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+                break;
             }
-            if (pthread_mutex_unlock (&mybdmtx) != 0) ABORT ();
-        } else {
-            uint32_t index = tcpmsg.indx;
-            if (index > 1023) ABORT ();
 
-            // send read address out over AXI bus and say we are ready to accept read data
-            if (pthread_mutex_lock (&mybdmtx) != 0) ABORT ();
-            vmybd->saxi_ARADDR  = index * sizeof tcpmsg.data;
-            vmybd->saxi_ARVALID = 1;
-            vmybd->saxi_RREADY  = 1;
+            // some client wants to write one of the arm-side registers
+            case VERISIM_WRITE: {
+                uint32_t index = pageptr->indx;
+                if (index > 1023) ABORT ();
 
-            // keep kerchunking until both transfers have completed
-            // capture read data on cycle where both RREADY and RVALID are set
-            for (int i = 0; vmybd->saxi_ARVALID | vmybd->saxi_RREADY; i ++) {
-                if (i > 100) ABORT ();
-                bool arready = vmybd->saxi_ARREADY;
-                bool rvalid  = vmybd->saxi_RVALID;
-                if (rvalid & vmybd->saxi_RREADY) tcpmsg.data = vmybd->saxi_RDATA;
-                kerchunk ();
-                if (arready) vmybd->saxi_ARVALID = 0;
-                if (rvalid)  vmybd->saxi_RREADY  = 0;
+                // put address and write data on AXI bus
+                // say they are valid and also we are ready to accept write acknowledge
+                vmybd->saxi_AWADDR  = index * sizeof pageptr->data;
+                vmybd->saxi_AWVALID = 1;
+                vmybd->saxi_WDATA   = pageptr->data;
+                vmybd->saxi_WVALID  = 1;
+                vmybd->saxi_BREADY  = 1;
+
+                // keep kerchunking until all 3 transfers have completed
+                for (int i = 0; vmybd->saxi_AWVALID | vmybd->saxi_WVALID | vmybd->saxi_BREADY; i ++) {
+                    if (i > 100) ABORT ();
+                    bool awready = vmybd->saxi_AWREADY;
+                    bool wready  = vmybd->saxi_WREADY;
+                    bool bvalid  = vmybd->saxi_BVALID;
+                    kerchunk ();
+                    if (awready) vmybd->saxi_AWVALID = 0;
+                    if (wready)  vmybd->saxi_WVALID  = 0;
+                    if (bvalid)  vmybd->saxi_BREADY  = 0;
+                }
+
+                if (debug > 0) printf ("verimain: wrote %03X < %08X\n", index, pageptr->data);
+
+                if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_DONE)) ABORT ();
+                if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+                break;
             }
-            if (pthread_mutex_unlock (&mybdmtx) != 0) ABORT ();
 
-            if (write (confd, &tcpmsg, sizeof tcpmsg) != (int) sizeof tcpmsg) ABORT ();
+            // no client waiting for something, just keep clocking processor
+            default: {
+                kerchunk ();
+                break;
+            }
+        }
+
+        // if arm interrupt bit set, wake anything that's waiting for a set bit
+        uint32_t oldirqmsk = pageptr->armintmsk;
+        uint32_t newirqmsk = vmybd->regarmintreq;
+        pageptr->armintmsk = newirqmsk;
+        if ((debug > 0) && (oldirqmsk != newirqmsk)) printf ("verimain: armirqmsk %08X\n", newirqmsk);
+        if ((newirqmsk & ~ oldirqmsk) &&
+                (futex ((int *) &pageptr->armintmsk, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0)) {
+            ABORT ();
         }
     }
-    close (confd);
-    return NULL;
 }
 
 // call with clock still low and input signals just changed

@@ -107,7 +107,7 @@ int main (int argc, char **argv)
     UNLKIT;
 
     // enable board to process io instructions
-    ZWR(rlat[5], (rlat[5] & RL5_FAST) | RL5_ENAB);
+    ZWR(rlat[5], (ZRD(rlat[5]) & RL5_FAST) | RL5_ENAB);
 
     debug = 0;
     char const *dbgenv = getenv ("z11rl_debug");
@@ -160,7 +160,7 @@ static void *rliothread (void *dummy)
             rlcs &= 0xC3FFU;                                            // clear error bits<13:10> in RLCS
                                                                         // rl11.v should have cleared them but do it here too
 
-            bool fastio = (rlat[5] & RL5_FAST) != 0;                    // skip any sleeping
+            bool fastio = (ZRD(rlat[5]) & RL5_FAST) != 0;               // skip any sleeping
 
             uint16_t drivesel = (rlcs >> 8) & 3;
             int fd = fds[drivesel];

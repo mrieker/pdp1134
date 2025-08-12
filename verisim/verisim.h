@@ -23,16 +23,28 @@
 
 #include <stdint.h>
 
-#define VeriTCPPORT 9876
+#define VERISIM_SHMNM "/shm_verisim"
+#define VERISIM_IDENT (('V' << 24) | ('E' << 16) | 0x2001)
 
-struct VeriTCPMsg {
+#define VERISIM_IDLE  0
+#define VERISIM_BUSY  1
+#define VERISIM_READ  2
+#define VERISIM_WRITE 3
+#define VERISIM_DONE  4
+
+struct VeriPage {
+    uint32_t ident;
+    int state;
+    int serverpid;
+    int clientpid;
     uint32_t data;
     uint16_t indx;
-    bool write;
+    uint32_t armintmsk;
 };
 
 uint32_t volatile *verisim_init ();
 uint32_t verisim_read (uint32_t volatile *addr);
 void verisim_write (uint32_t volatile *addr, uint32_t data);
+void verisim_wfi (uint32_t mask);
 
 #endif

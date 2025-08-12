@@ -115,7 +115,8 @@ module Zynq (
     output reg    saxi_WREADY,
     input         saxi_WVALID,
 
-    output        armintreq
+    output        armintreq,
+    output[31:00] zgintflags
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
@@ -133,9 +134,11 @@ module Zynq (
     reg ilaarmed, ilaoflow;
 
     // arm writes these to control fpga
-    reg[31:00]  regctla, regctlb, regctli, regctll;
+    reg[31:00]  regctla, regctlb, regctli;
     wire[31:00] regctlj;
     reg[23:06]  regctlk_2306;
+    wire        regctll_31;
+    reg[30:00]  regctll;
 
     // fpga sends interrupt request to arm
     reg[30:00] regarmintena;    // arm enables each interrupt source separately
@@ -364,11 +367,8 @@ module Zynq (
     wire[15:00] sim_r0out;
     wire sim_waiting;
     wire[5:0] sim_state;
-    wire sim_stephalted;
 
     wire sim_reset_h = fpgaoff | (fpgamode != FM_SIM);
-
-    always @(*) begin regctll[31] <= sim_stephalted; end
 
     sim1134 siminst (
         .CLOCK (CLOCK),
@@ -383,7 +383,7 @@ module Zynq (
 
         .stepenable (regctll[23]),              //<< 0=normal; 1=stop at end of bus cycle
         .stepsingle (regctll[24]),              //<< 0=normal; 1=temporarily override stepenable
-        .stephalted (sim_stephalted),           //>> 0=normal; 1=halted by stepenable
+        .stephalted (regctll_31),               //>> 0=normal; 1=halted by stepenable
 
         .bus_ac_lo_in_l   (~ dev_ac_lo_h),      //<< power supply telling cpu it is shutting down
         .bus_bbsy_in_l    (~ dev_bbsy_h),       //<< some device telling cpu it is using the bus as master
@@ -531,6 +531,8 @@ module Zynq (
 
     wire[31:00] rharmrdata, bmarmrdata, dlarmrdata, dzarmrdata, kwarmrdata, kyarmrdata, pcarmrdata, rlarmrdata, tmarmrdata, xearmrdata;
 
+    assign zgintflags = { armintreq, regarmintreq_30, regarmintreq };
+
     assign saxi_RDATA =
         (readaddr        == 10'b0000000000) ? VERSION      :
         (readaddr        == 10'b0000000001) ? regctla      :
@@ -544,14 +546,14 @@ module Zynq (
         (readaddr        == 10'b0000001001) ? regctli      :
         (readaddr        == 10'b0000001010) ? regctlj      :
         (readaddr        == 10'b0000001011) ? { 8'b0, regctlk_2306, sim_state } :
-        (readaddr        == 10'b0000001100) ? regctll      :
-        (readaddr        == 10'b0000011010) ? { 1'b0, regarmintena } :                       // ZG_INTENABS in km
-        (readaddr        == 10'b0000011011) ? { armintreq, regarmintreq_30, regarmintreq } : // ZG_INTFLAGS in km
+        (readaddr        == 10'b0000001100) ? { regctll_31, regctll } :
+        (readaddr        == 10'b0000011010) ? {  1'b0, regarmintena } : // ZG_INTENABS in km
+        (readaddr        == 10'b0000011011) ? zgintflags              : // ZG_INTFLAGS in km
         (readaddr        == 10'b0000011100) ? { ilaarmed, ilaafter, ilaoflow, ilaindex } :
         (readaddr        == 10'b0000011101) ? 0 :
         (readaddr        == 10'b0000011110) ? { ilardata[31:00] } :
         (readaddr        == 10'b0000011111) ? { ilardata[63:32] } :
-        (readaddr[11:05] ==  6'b0000100)    ? rharmrdata   :
+        (readaddr[11:05] ==  7'b0000100)    ? rharmrdata   :
         (readaddr[11:05] ==  7'b0000101)    ? bmarmrdata   :
         (readaddr[11:05] ==  7'b0000110)    ? rlarmrdata   :
         (readaddr[11:05] ==  7'b0000111)    ? kyarmrdata   :
@@ -646,7 +648,7 @@ module Zynq (
                 saxi_BVALID  <= 1;                          // we have accepted the data
 
             end else begin
-                regctll[24] <= regctll[24] & sim_stephalted;  // stepsingle lasts just until resumed
+                regctll[24] <= regctll[24] & regctll_31;    // stepsingle lasts just until resumed
 
                 // check for PS sending us a write address
                 if (saxi_AWREADY & saxi_AWVALID) begin

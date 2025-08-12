@@ -46,25 +46,26 @@ module xe11
     output reg ssyn_out_h);
 
     reg enable, lastinit;
-    reg[15:00] pcsr0, pcsr1, pcsr2, pcsr3;
+    reg[15:00] pcsr1, pcsr2, pcsr3;
+    reg[15:08] pcsr0_15_08;
+    wire pcsr0_07;
+    reg[06:00] pcsr0_06_00;
 
     assign armrdata = (armraddr == 0) ? 32'h58451004 : // [31:16] = 'XE'; [15:12] = (log2 nreg) - 1; [11:00] = version
-                      (armraddr == 1) ? { pcsr1, pcsr0 } :
+                      (armraddr == 1) ? { pcsr1, pcsr0_15_08, pcsr0_07, pcsr0_06_00 } :
                       (armraddr == 2) ? { pcsr3, pcsr2 } :
                           { enable, 5'b0, INTVEC, ADDR };
 
     // wake up arm (ZGINT_XE) whenever PCSR0[05] set or PCSR0[03:00] written by PDP
     // PCSR0[04] is hijacked to indicate when that happens (PDP always sees it as zero)
-    assign armintrq = pcsr0[04];
+    assign armintrq = pcsr0_06_00[04];
 
     // keep INTR bit up to date
-    always @(*) begin
-        pcsr0[07] = pcsr0[15:08] != 0;
-    end
+    assign pcsr0_07 = pcsr0_15_08 != 0;
 
     // interrupt pdp whenever done bit is set and interrupt enable is set
     // - level triggered (decnet sometimes hangs with edge triggered)
-    assign intreq = pcsr0[07] & pcsr0[06];
+    assign intreq = pcsr0_07 & pcsr0_06_00[06];
     assign irvec  = INTVEC;
 
     wire writehi = ~ c_in_h[0] |   a_in_h[00];
@@ -78,8 +79,8 @@ module xe11
             end
 
             lastinit <= 1;
-            pcsr0[15:08] <= 0;
-            pcsr0[06:00] <= 0;
+            pcsr0_15_08  <= 0;
+            pcsr0_06_00  <= 0;
             pcsr1[15:05] <= 0;
             pcsr1[03:00] <= 0;
             pcsr2 <= 0;
@@ -92,7 +93,7 @@ module xe11
         // init just released, flag arm to reset itself
         else if (lastinit) begin
             lastinit <= 0;
-            pcsr0[05:04] <= 3;
+            pcsr0_06_00[05:04] <= 3;
         end
 
         // arm processor is writing one of the registers
@@ -101,8 +102,8 @@ module xe11
                 1: begin
                     pcsr1[15:07] <= armwdata[31:23];
                     pcsr1[04:00] <= armwdata[20:16];
-                    pcsr0[15:08] <= pcsr0[15:08] |   armwdata[15:08];
-                    pcsr0[05:04] <= pcsr0[05:04] & ~ armwdata[05:04];
+                    pcsr0_15_08  <= pcsr0_15_08 | armwdata[15:08];
+                    pcsr0_06_00[05:04] <= pcsr0_06_00[05:04] & ~ armwdata[05:04];
                 end
                 3: begin
                     enable <= armwdata[31];
@@ -127,8 +128,8 @@ module xe11
                         // arm will clear it when complete
                         // hijack [04] to tell arm pcsr0[05] was set
                         if (writelo & d_in_h[05]) begin
-                            pcsr0[15:08] <= 0;
-                            pcsr0[06:00] <= 7'o060;
+                            pcsr0_15_08  <= 0;
+                            pcsr0_06_00  <= 7'o060;
                             pcsr1[15:05] <= 0;
                             pcsr1[03:00] <= 0;
                         end
@@ -137,17 +138,17 @@ module xe11
 
                             // top bits are write-1-to-clear
                             if (writehi) begin
-                                pcsr0[15:08] <= pcsr0[15:08] & ~ d_in_h[15:08];
+                                pcsr0_15_08 <= pcsr0_15_08 & ~ d_in_h[15:08];
                             end
 
                             // bottom bits are normal read/write
                             // bits [03:00] written only if [06] doesn't change
                             // hijack [04] to tell arm pcsr0[03:00] was written
                             if (writelo) begin
-                                pcsr0[06]    <= d_in_h[06];
-                                if (pcsr0[06] == d_in_h[06]) begin
-                                    pcsr0[04]    <= 1;
-                                    pcsr0[03:00] <= d_in_h[03:00];
+                                pcsr0_06_00[06]  <= d_in_h[06];
+                                if (pcsr0_06_00[06] == d_in_h[06]) begin
+                                    pcsr0_06_00[04]    <= 1;
+                                    pcsr0_06_00[03:00] <= d_in_h[03:00];
                                 end
                             end
                         end
@@ -174,7 +175,7 @@ module xe11
 
                 // pdp reading a register
                 case (a_in_h[02:01])
-                    0: d_out_h <= pcsr0 & 16'o177717;
+                    0: d_out_h <= { pcsr0_15_08, pcsr0_07, pcsr0_06_00 } & 16'o177717;
                     1: d_out_h <= pcsr1;
                     2: d_out_h <= pcsr2;
                     3: d_out_h <= pcsr3;
