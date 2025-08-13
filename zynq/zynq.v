@@ -120,13 +120,14 @@ module Zynq (
 );
 
     // [31:16] = '11'; [15:12] = (log2 len)-1; [11:00] = version
-    localparam VERSION = 32'h31314026;
+    localparam VERSION = 32'h31314027;
 
     // bus values that are constants
     assign saxi_BRESP = 0;  // A3.4.4/A10.3 transfer OK
     assign saxi_RRESP = 0;  // A3.4.4/A10.3 transfer OK
 
     reg[11:02] readaddr, writeaddr;
+    reg[31:00] writedata;
 
     localparam ILAADDRBITS = 13;    // 13 = 8K = 81.92uS
     reg[63:00] ilaarray[(1<<ILAADDRBITS)-1:0], ilardata, ilacurwd;
@@ -565,7 +566,7 @@ module Zynq (
         (readaddr[11:03] ==  9'b000101110)  ? kwarmrdata   :
         32'hDEADBEEF;
 
-    wire armwrite = saxi_WREADY & saxi_WVALID;              // arm is writing a register (single fpga clock cycle)
+    wire armwrite = ~ saxi_AWREADY & ~ saxi_WREADY;         // arm is writing a register (single fpga clock cycle)
 
     wire rharmwrite = armwrite & (writeaddr[11:05] == 7'b0000100);
     wire bmarmwrite = armwrite & (writeaddr[11:05] == 7'b0000101);
@@ -584,7 +585,7 @@ module Zynq (
             saxi_RVALID  <= 0;                              // we are not sending out read data
 
             saxi_AWREADY <= 1;                              // we are ready to accept write address
-            saxi_WREADY  <= 0;                              // we are not ready to accept write data
+            saxi_WREADY  <= 1;                              // we are ready to accept write data
             saxi_BVALID  <= 0;                              // we are not acknowledging any write
 
             regctla[31:30]  <= FM_OFF;                      // FM_OFF disconnect from bus
@@ -622,43 +623,48 @@ module Zynq (
             //  register write  //
             //////////////////////
 
+            // check for PS sending us write address
+            if (saxi_AWREADY & saxi_AWVALID) begin
+                writeaddr <= saxi_AWADDR[11:02];            // save address bits we care about
+                saxi_AWREADY <= 0;                          // we are no longer accepting write address
+            end
+
             // check for PS sending us write data
+            if (saxi_WREADY & saxi_WVALID) begin
+                writedata <= saxi_WDATA;                    // save data bits we care about
+                saxi_WREADY <= 0;                           // we are no longer accepting write data
+            end
+
+            // now that we have both address and data, perform write
             if (armwrite) begin
-                case (writeaddr)                            // write data to register
+                case (writeaddr)
                      10'b0000000001: begin
-                        regctla <= saxi_WDATA;
+                        regctla <= writedata;
                     end
                     10'b0000000010: begin
-                        regctlb <= saxi_WDATA;
+                        regctlb <= writedata;
                     end
                     10'b0000001100: begin
-                        regctll[05:00] <= saxi_WDATA[05:00];
-                        regctll[24:22] <= saxi_WDATA[24:22];
+                        regctll[05:00] <= writedata[05:00];
+                        regctll[24:22] <= writedata[24:22];
                     end
                     10'b0000011010: begin
-                        regarmintena    <= saxi_WDATA[30:00];
+                        regarmintena    <= writedata[30:00];
                     end
                     10'b0000011011: begin
-                        regarmintreq_30 <= saxi_WDATA[30];
+                        regarmintreq_30 <= writedata[30];
                     end
                     default: begin end
                 endcase
-                saxi_AWREADY <= 1;                          // we are ready to accept an address again
-                saxi_WREADY  <= 0;                          // we are no longer accepting write data
-                saxi_BVALID  <= 1;                          // we have accepted the data
+                saxi_AWREADY <= 1;                          // we are ready to accept write address again
+                saxi_WREADY  <= 1;                          // we are ready to accept write data again
+                saxi_BVALID  <= 1;                          // we have completed the write
 
             end else begin
                 regctll[24] <= regctll[24] & regctll_31;    // stepsingle lasts just until resumed
 
-                // check for PS sending us a write address
-                if (saxi_AWREADY & saxi_AWVALID) begin
-                    writeaddr <= saxi_AWADDR[11:02];        // save address bits we care about
-                    saxi_AWREADY <= 0;                      // we are no longer accepting a write address
-                    saxi_WREADY  <= 1;                      // we are ready to accept write data
-                end
-
                 // check for PS acknowledging write acceptance
-                if (saxi_BVALID & saxi_BREADY) begin
+                if (saxi_BREADY) begin
                     saxi_BVALID <= 0;
                 end
             end
@@ -688,7 +694,7 @@ module Zynq (
         .armraddr (readaddr[4:2]),
         .armrdata (bmarmrdata),
         .armwaddr (writeaddr[4:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (bmarmwrite),
 
         .a_in_h (dev_a_h),
@@ -720,7 +726,7 @@ module Zynq (
         .armraddr (readaddr[3:2]),
         .armrdata (pcarmrdata),
         .armwaddr (writeaddr[3:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (pcarmwrite),
 
         .intreq (pcintreq),
@@ -750,7 +756,7 @@ module Zynq (
         .armraddr (readaddr[4:2]),
         .armrdata (rharmrdata),
         .armwaddr (writeaddr[4:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (rharmwrite),
         .armintrq (regarmintreq[03]),
 
@@ -782,7 +788,7 @@ module Zynq (
         .armraddr (readaddr[4:2]),
         .armrdata (rlarmrdata),
         .armwaddr (writeaddr[4:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (rlarmwrite),
         .armintrq (regarmintreq[00]),
 
@@ -815,7 +821,7 @@ module Zynq (
         .armraddr (readaddr[4:2]),
         .armrdata (tmarmrdata),
         .armwaddr (writeaddr[4:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (tmarmwrite),
         .armintrq (regarmintreq[01]),
 
@@ -845,7 +851,7 @@ module Zynq (
         .armraddr (readaddr[3:2]),
         .armrdata (xearmrdata),
         .armwaddr (writeaddr[3:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (xearmwrite),
         .armintrq (regarmintreq[02]),
 
@@ -880,7 +886,7 @@ module Zynq (
         .armraddr (readaddr[4:2]),
         .armrdata (kyarmrdata),
         .armwaddr (writeaddr[4:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (kyarmwrite),
 
         .turbo (turbo),
@@ -930,7 +936,7 @@ module Zynq (
         .armraddr (readaddr[3:2]),
         .armrdata (dlarmrdata),
         .armwaddr (writeaddr[3:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (dlarmwrite),
 
         .intreq (dlintreq),
@@ -960,7 +966,7 @@ module Zynq (
         .armraddr (readaddr[4:2]),
         .armrdata (dzarmrdata),
         .armwaddr (writeaddr[4:2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (dzarmwrite),
 
         .intreq (dzintreq),
@@ -990,7 +996,7 @@ module Zynq (
         .armraddr (readaddr[2]),
         .armrdata (kwarmrdata),
         .armwaddr (writeaddr[2]),
-        .armwdata (saxi_WDATA),
+        .armwdata (writedata),
         .armwrite (kwarmwrite),
 
         .intreq (kwintreq),
@@ -1458,12 +1464,12 @@ module Zynq (
             if (armwrite & (writeaddr == 10'b0000011100)) begin
 
                 // arm processor is writing control register
-                ilaarmed                    <= saxi_WDATA[31];
-                ilaafter[ILAADDRBITS-01:00] <= saxi_WDATA[ILAADDRBITS+15:16];
-                ilaoflow                    <= saxi_WDATA[15];
-                ilaindex[ILAADDRBITS-01:00] <= saxi_WDATA[ILAADDRBITS-01:00];
+                ilaarmed                    <= writedata[31];
+                ilaafter[ILAADDRBITS-01:00] <= writedata[ILAADDRBITS+15:16];
+                ilaoflow                    <= writedata[15];
+                ilaindex[ILAADDRBITS-01:00] <= writedata[ILAADDRBITS-01:00];
 
-                ilardata <= ilaarray[saxi_WDATA[ILAADDRBITS-01:00]];
+                ilardata <= ilaarray[writedata[ILAADDRBITS-01:00]];
 
             // capture signals while before trigger and for ilaafter cycles thereafter
             end else if (ilaarmed | (ilaafter != 0)) begin
