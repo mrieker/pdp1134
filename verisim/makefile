@@ -1,9 +1,10 @@
-
+CFLAGS ?= -O2 -Werror
 MACH   := $(shell uname -m)
+GPP    := g++ $(CFLAGS) -std=c++11 -g -Wall
+
 
 VFILES := \
 	myboard.v \
-	m9312.v \
 	../zynq/bigmem.v \
 	../zynq/dl11.v \
 	../zynq/dz11.v \
@@ -22,23 +23,21 @@ VFILES := \
 
 default: verimain.$(MACH) verisim.$(MACH).a
 
-
 verisim.$(MACH).a: verisim.$(MACH).o
 	rm -f verisim.$(MACH).a
 	ar rc verisim.$(MACH).a verisim.$(MACH).o
 
 verisim.$(MACH).o: verisim.cc verisim.h obj_dir/VMyBoard.h
-	g++ -g -fPIC -c -o verisim.$(MACH).o verisim.cc
-
+	$(GPP) -g -fPIC -c -o verisim.$(MACH).o verisim.cc
 
 verimain.$(MACH): verimain.$(MACH).o verilated.$(MACH).o obj_dir/VMyBoard__ALL.a
-	g++ -g -o verimain.$(MACH) verimain.$(MACH).o verilated.$(MACH).o obj_dir/VMyBoard__ALL.a
+	$(GPP) -g -o verimain.$(MACH) verimain.$(MACH).o verilated.$(MACH).o obj_dir/VMyBoard__ALL.a
 
 verimain.$(MACH).o: verimain.cc verisim.h obj_dir/VMyBoard.h
-	g++ -g -fPIC -c -o verimain.$(MACH).o -I/usr/share/verilator/include/ verimain.cc
+	$(GPP) -g -fPIC -c -o verimain.$(MACH).o -I/usr/share/verilator/include/ verimain.cc
 
 verilated.$(MACH).o: /usr/share/verilator/include/verilated.cpp
-	g++ -g -fPIC -c -o verilated.$(MACH).o -I/usr/share/verilator/include/ /usr/share/verilator/include/verilated.cpp
+	$(GPP) -Wno-sign-compare -g -fPIC -c -o verilated.$(MACH).o -I/usr/share/verilator/include/ /usr/share/verilator/include/verilated.cpp
 
 obj_dir/VMyBoard__ALL.a: obj_dir/VMyBoard.mk
 	make -C obj_dir -f VMyBoard.mk

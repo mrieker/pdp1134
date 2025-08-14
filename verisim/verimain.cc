@@ -76,7 +76,8 @@ int main (int argc, char **argv)
     pageptr->serverpid = getpid ();
     fprintf (stderr, "verimain: pid %d\n", pageptr->serverpid);
 
-    vmybd = new VMyBoard ();
+    VMyBoard vmyboard;
+    vmybd = &vmyboard;
     vmybd->RESET_N = 0;
     for (int i = 0; i < 10; i ++) {
         kerchunk ();
@@ -108,17 +109,19 @@ int main (int argc, char **argv)
                 for (int i = 0; vmybd->saxi_ARVALID | vmybd->saxi_RREADY; i ++) {
                     if (i > 100) ABORT ();
                     bool arready = vmybd->saxi_ARREADY;
-                    bool rvalid  = vmybd->saxi_RVALID;
-                    if (rvalid & vmybd->saxi_RREADY) pageptr->data = vmybd->saxi_RDATA;
                     kerchunk ();
                     if (arready) vmybd->saxi_ARVALID = 0;
-                    if (rvalid)  vmybd->saxi_RREADY  = 0;
+                    bool rvalid  = vmybd->saxi_RVALID;
+                    if (rvalid & vmybd->saxi_RREADY) {
+                        pageptr->data = vmybd->saxi_RDATA;
+                        vmybd->saxi_RREADY = 0;
+
+                        if (debug > 1) printf ("verimain:  read %03X > %08X\n", index, pageptr->data);
+
+                        if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_DONE)) ABORT ();
+                        if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+                    }
                 }
-
-                if (debug > 1) printf ("verimain:  read %03X > %08X\n", index, pageptr->data);
-
-                if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_DONE)) ABORT ();
-                if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                 break;
             }
 
@@ -135,22 +138,22 @@ int main (int argc, char **argv)
                 vmybd->saxi_WVALID  = 1;
                 vmybd->saxi_BREADY  = 1;
 
+                if (debug > 0) printf ("verimain: write %03X < %08X\n", index, pageptr->data);
+
+                if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_DONE)) ABORT ();
+                if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
+
                 // keep kerchunking until all 3 transfers have completed
                 for (int i = 0; vmybd->saxi_AWVALID | vmybd->saxi_WVALID | vmybd->saxi_BREADY; i ++) {
                     if (i > 100) ABORT ();
                     bool awready = vmybd->saxi_AWREADY;
                     bool wready  = vmybd->saxi_WREADY;
-                    bool bvalid  = vmybd->saxi_BVALID;
                     kerchunk ();
                     if (awready) vmybd->saxi_AWVALID = 0;
                     if (wready)  vmybd->saxi_WVALID  = 0;
+                    bool bvalid  = vmybd->saxi_BVALID;
                     if (bvalid)  vmybd->saxi_BREADY  = 0;
                 }
-
-                if (debug > 0) printf ("verimain: wrote %03X < %08X\n", index, pageptr->data);
-
-                if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_DONE)) ABORT ();
-                if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
                 break;
             }
 
