@@ -177,12 +177,33 @@ int main (int argc, char **argv)
     setlinebuf (stderr);
     setlinebuf (stdout);
 
+    // get default ethernet device
+    // first 'e' device listed in /proc/net/dev
+    char const *defethdev = "eth0";
+    char netdevbuff[250], *p;
+    FILE *netdevfile = fopen ("/proc/net/dev", "r");
+    while (fgets (netdevbuff, sizeof netdevbuff, netdevfile) != NULL) {
+        p = strchr (netdevbuff, ':');
+        if (p != NULL) {
+            *p = 0;
+            for (p = netdevbuff; *p != 0; p ++) {
+                if (*p > ' ') break;
+            }
+            if (*p == 'e') {
+                defethdev = p;
+                break;
+            }
+        }
+    }
+    fclose (netdevfile);
+
+    // parse command line options
     bool daemfl = false;
     bool killit = false;
     bool macopt = false;
     int xgid = -1;
     int xuid = -1;
-    char const *ethdev = "eth0";
+    char const *ethdev = defethdev;
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
@@ -191,7 +212,7 @@ int main (int argc, char **argv)
             puts ("    sudo ./z11xe [-daemon] [-eth <device>] [-gid <gid>] [-killit] [-mac <address>] [-uid <uid>]");
             puts ("");
             puts ("      -daemon = daemonize, redirect log to /tmp/z11xe.log.(time)");
-            puts ("      -eth    = use given ethernet device (default eth0)");
+            printf ("      -eth    = use given ethernet device (default %s)\n", defethdev);
             puts ("      -gid    = set group id after opening ethernet");
             puts ("      -killit = kill other instance already running");
             puts ("      -mac    = use given mac address");
