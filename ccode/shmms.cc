@@ -440,10 +440,12 @@ static int forkserver (ShmMS *shmms)
     for (int i = 3; i < 1024; i ++) close (i);
 
     // create log file
-    char const *homedir = getenv ("HOME");
-    if (homedir == NULL) homedir = "/tmp";
-    char *logname = (char *) alloca (strlen (homedir) + 30);
-    sprintf (logname, "%s%s.log.%10u", homedir, z11name, (unsigned) time (NULL));
+    char logname[strlen(z11name)+84];
+    time_t nowbin = time (NULL);
+    struct tm nowtm = *gmtime (&nowbin);
+    snprintf (logname, sizeof logname, "/tmp%s.%04d%02d%02d%02d%02d%02d.log", z11name,
+        nowtm.tm_year + 1900, nowtm.tm_mon + 1, nowtm.tm_mday,
+        nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec);
     int logfd = open (logname, O_CREAT | O_WRONLY, 0666);
     if (logfd < 0) {
         fprintf (stderr, "mslock: error creating %s: %m\n", logname);

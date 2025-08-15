@@ -48,7 +48,6 @@ exec mkdir -p disks/rsts96
 probedevsandmem
 pin set turbo 1 rh_fastio 1 tm_fastio 1
 
-exec -ignorestderr ./z11xe -daemon
 rhload 0 -create disks/rsts96/dbsys.rp04
 tmload 0 -readonly disks/rststapes/rsts_v9_6_install.tap
 tmload 1 -readonly disks/rststapes/rsts_v9_library.tap

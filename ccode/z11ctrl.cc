@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <tcl.h>
 #include <unistd.h>
 
@@ -82,6 +83,7 @@ static Tcl_ObjCmdProc cmd_readchar;
 static Tcl_ObjCmdProc cmd_snapregs;
 static Tcl_ObjCmdProc cmd_unlkdma;
 static Tcl_ObjCmdProc cmd_waitint;
+static Tcl_ObjCmdProc cmd_xestart;
 
 static TclFunDef const fundefs[] = {
     { cmd_disasop,  NULL, "disasop",  "disassemble instruction" },
@@ -103,6 +105,7 @@ static TclFunDef const fundefs[] = {
     { cmd_msunload, (ClientData) &ctlidtm, "tmunload", "unload file from TM drive" },
     { cmd_unlkdma,  NULL, "unlkdma",  "unlock access to DMA registers" },
     { cmd_waitint,  NULL, "waitint",  "wait for interrupt" },
+    { cmd_xestart,  NULL, "xestart",  "make sure xe i/o daemon is running" },
     { NULL, NULL, NULL, NULL }
 };
 
@@ -823,4 +826,56 @@ static int cmd_waitint (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl
     }
     Tcl_SetResultF (interp, "bad number args");
     return TCL_ERROR;
+}
+
+// start z11xe daemon to process ethernet i/o
+static int cmd_xestart (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    if (objc == 2) {
+        char const *stri = Tcl_GetString (objv[1]);
+        if (strcasecmp (stri, "help") == 0) {
+            puts ("");
+            puts ("  Start z11xe daemon to process ethernet I/O");
+            puts ("");
+            puts ("    xestart <z11xe options>");
+            puts ("");
+            puts ("  see z11xe.cc for options (-daemon always included)");
+            puts ("");
+            return TCL_OK;
+        }
+    }
+
+    char *argv[objc+2];
+    char exename[strlen(tclmain_exedir)+8];
+    char daemon[] = "-daemon";
+    sprintf (exename, "%s/z11xe", tclmain_exedir);
+    argv[0] = exename;
+    argv[1] = daemon;
+    for (int i = 0; ++ i < objc;) {
+        argv[i+1] = Tcl_GetString (objv[i]);
+    }
+    argv[objc+1] = NULL;
+
+    int pid = fork ();
+    if (pid < 0) {
+        fprintf (stderr, "z11ctrl: error forking: %m\n");
+        ABORT ();
+    }
+    if (pid == 0) {
+        execv (argv[0], argv);
+        fprintf (stderr, "z11ctrl: error execing %s: %m\n", argv[0]);
+        ABORT ();
+    }
+
+    int exstat;
+    int rc = waitpid (pid, &exstat, 0);
+    if (rc < 0) {
+        Tcl_SetResultF (interp, "error waiting for pid %d: %m", pid);
+        return TCL_ERROR;
+    }
+    if (exstat != 0) {
+        Tcl_SetResultF (interp, "daemon exit status %d", exstat);
+        return TCL_ERROR;
+    }
+    return TCL_OK;
 }

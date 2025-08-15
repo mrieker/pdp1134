@@ -7,7 +7,6 @@
 # provides NCP, NCT, NFT commands
 
 #  ./z11gui &  (optional)
-#  ./z11xe -daemon
 #  ./z11ctrl rsx45sysgen-rp04.tcl
 
 # start with:

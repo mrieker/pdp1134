@@ -55,6 +55,8 @@ static Tcl_ObjCmdProc cmd_spawn;
 static Tcl_ObjCmdProc cmd_waitpid;
 
 bool volatile ctrlcflag;
+char const *tclmain_exedir;
+
 static bool logflushed;
 static char *inihelp;
 static TclFunDef const *fundefs;
@@ -116,6 +118,8 @@ int tclmain (
     char exedir[1024];
     getexedir (exedir, sizeof exedir);
     if (Tcl_SetVar (interp, "Z11HOME", exedir, 0) == NULL) ABORT ();
+    tclmain_exedir = strdup (exedir);
+    if (tclmain_exedir == NULL) ABORT ();
 
     // redirect stdout if -log given
     if (logname != NULL) {

@@ -31,6 +31,7 @@ struct TclFunDef {
 };
 
 extern bool volatile ctrlcflag;
+extern char const *tclmain_exedir;
 
 int tclmain (
     TclFunDef const *tclfundefs,

@@ -7,7 +7,7 @@
 # provides NCP, NCT, NFT commands
 
 #  ./z11gui &  (optional)
-#  ./rsx45sysgen-decnet.sh
+#  ./z11ctrl rsx45sysgen-decnet.tcl
 
 # start with:
 #  disks/rsx40/rsxm32.rl01  (used to copy .tap files to new rl02 files, can be any version that works)

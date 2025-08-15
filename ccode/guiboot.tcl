@@ -1,3 +1,7 @@
+
+# called via guiboot.sh as a result of clicking gui boot button
+# can also be run manually with ./guiboot.sh
+
 puts "guiboot.tcl: started"
 
 source $Z11HOME/boots.tcl
@@ -32,25 +36,33 @@ if {($fpgamode != 1) && ($fpgamode != 2)} {
     puts "guiboot.tcl: zynq turned OFF - select REAL or SIM then press BOOT again"
     exit
 }
+hardreset
 
-if {[pin xe_enable]} {
-    exec -ignorestderr $Z11HOME/z11xe -daemon
-}
+# make sure daemons are running for devices enabled with gui checkboxes or otherwise
+startdaemons
 
+# display message on gui message box saying which tty we are using
 if {[pin dl_enable]} {
     puts "guiboot.tcl: use $Z11HOME/z11dl to access zynq tty"
 } else {
     puts "guiboot.tcl: using hardware tty controller"
 }
 
-wrtty "\n"
-wrtty "guiboot.tcl: Select\n"
-wrtty "  0) cancel boot\n"
-wrtty "  1) boot from RL-11 drive 0\n"
-wrtty "  2) boot from paper tape bin file\n"
-wrtty "  3) boot from RH-11 drive 0\n"
-wrtty "  4) boot from TM-11 drive 0\n"
-wrtty "> "
+# see what boot devices the pdp can access - real or fpga
+set have_pc [expr {[rdwordtimo 0777550] >= 0}]
+set have_rh [expr {[rdwordtimo 0776700] >= 0}]
+set have_rl [expr {[rdwordtimo 0774400] >= 0}]
+set have_tm [expr {[rdwordtimo 0772520] >= 0}]
+
+# display and process boot menu
+               wrtty "\n"
+               wrtty "guiboot.tcl: Select\n"
+               wrtty "  0) cancel boot\n"
+if {$have_rl} {wrtty "  1) boot from RL-11 drive 0\n"}
+if {$have_pc} {wrtty "  2) boot from paper tape bin file\n"}
+if {$have_rh} {wrtty "  3) boot from RH-11 drive 0\n"}
+if {$have_tm} {wrtty "  4) boot from TM-11 drive 0\n"}
+               wrtty "> "
 
 while {! [ctrlcflag]} {
     set by [format %03o [rdtty]]
@@ -60,27 +72,35 @@ while {! [ctrlcflag]} {
             return
         }
         061 {
-            wrtty "1\nbooting RL-11 drive 0\n"
-            clearlow4k
-            rlboot
-            return
+            if {$have_rl} {
+                wrtty "1\nbooting RL-11 drive 0\n"
+                clearlow4k
+                rlboot
+                return
+            }
         }
         062 {
-            wrtty "2\nbooting from paper tape bin file\n"
-            prboot
-            return
+            if {$have_pc} {
+                wrtty "2\nbooting from paper tape bin file\n"
+                prboot
+                return
+            }
         }
         063 {
-            wrtty "3\nbooting RH-11 drive 0\n"
-            clearlow4k
-            rhboot
-            return
+            if {$have_rh} {
+                wrtty "3\nbooting RH-11 drive 0\n"
+                clearlow4k
+                rhboot
+                return
+            }
         }
         064 {
-            wrtty "4\nbooting TM-11 drive 0\n"
-            clearlow4k
-            tmboot
-            return
+            if {$have_tm} {
+                wrtty "4\nbooting TM-11 drive 0\n"
+                clearlow4k
+                tmboot
+                return
+            }
         }
     }
 }

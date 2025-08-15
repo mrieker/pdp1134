@@ -211,7 +211,7 @@ int main (int argc, char **argv)
             puts ("");
             puts ("    sudo ./z11xe [-daemon] [-eth <device>] [-gid <gid>] [-killit] [-mac <address>] [-uid <uid>]");
             puts ("");
-            puts ("      -daemon = daemonize, redirect log to /tmp/z11xe.log.(time)");
+            puts ("      -daemon = daemonize, redirect log to /tmp/z11xe.(time).log");
             printf ("      -eth    = use given ethernet device (default %s)\n", defethdev);
             puts ("      -gid    = set group id after opening ethernet");
             puts ("      -killit = kill other instance already running");
@@ -356,8 +356,13 @@ int main (int argc, char **argv)
         // open /dev/null for stdin and /tmp/z11xe.log.(time) for stdout,stderr
         int nulfd = open ("/dev/null", O_RDONLY);
         if (nulfd < 0) ABORT ();
-        char logname[30];
-        sprintf (logname, "/tmp/z11xe.log.%u", (unsigned) time (NULL));
+
+        char logname[84];
+        time_t nowbin = time (NULL);
+        struct tm nowtm = *gmtime (&nowbin);
+        sprintf (logname, "/tmp/z11xe.%04d%02d%02d%02d%02d%02d.log",
+            nowtm.tm_year + 1900, nowtm.tm_mon + 1, nowtm.tm_mday,
+            nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec);
         int logfd = open (logname, O_WRONLY | O_CREAT, 0666);
         if (logfd < 0) {
             fprintf (stderr, "z11xe: error creating %s: %m\n", logname);

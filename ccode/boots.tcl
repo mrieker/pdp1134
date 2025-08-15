@@ -49,6 +49,7 @@ proc probedevsandmem {} {
         }
     }
     pin set bm_enablo [expr {$mem & 0xFFFFFFFF}] bm_enabhi [expr {$mem >> 32}]
+    startdaemons
 }
 
 # make sure rdword,wrword can access unibus
@@ -125,6 +126,14 @@ proc releasebbsy {} {
 
     # disable zynq ky11.v 777570 registers cuz real KY-11 has that address
     pin set ky_enable 0
+}
+
+# make sure i/o daemons are running for any enabled fpga device
+proc startdaemons {} {
+    if {[pin rh_enable]} {rhstat 0}
+    if {[pin rl_enable]} {rlstat 0}
+    if {[pin tm_enable]} {tmstat 0}
+    if {[pin xe_enable]} {xestart}
 }
 
 # start program loaded into zynq boot memory bigmem.v at bootrombase
