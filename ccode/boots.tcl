@@ -141,6 +141,7 @@ proc startdaemons {} {
 #  input:
 #   bootrombase = where boot program was loaded in bigmem.v memory
 #                 0760000, 0761000, 0762000, ,..., 0777000
+#   bootrombase+024/026 = power-up vector
 proc startbootmem {bootrombase} {
 
     if {($bootrombase < 0760000) || ($bootrombase > 0777000) || ($bootrombase & 0777)} {
@@ -149,17 +150,13 @@ proc startbootmem {bootrombase} {
     set brjama [expr {($bootrombase-0760000)>>9}]
     set brenab [expr {1<<$brjama}]
 
+    hardreset                   ;# make sure processor is reset and halted
     pin set bm_brenab $brenab   ;# plug bootrombase boot mem into unibus
     pin set bm_brjama $brjama   ;# set up bootrombase to be jammed on unibus address lines
-    pin set man_ac_lo_out_h 1   ;# powerfail the processor
-    after 5
-    pin set man_dc_lo_out_h 1
     pin set bm_brjame 1         ;# jam bootrombase onto address lines
-    pin set ky_haltreq 0        ;# make sure we aren't requesting it to halt when it starts back up
-    after 200
-    pin set man_dc_lo_out_h 0   ;# power-up processor
-    pin set man_ac_lo_out_h 0   ;# it should read power-up vector and run
-                                ;# bm_brjame should self-clear when processor finishes reading power-up vector
+
+    hardreset                   ;# reset again and load power-up vector from boot rom
+    flickcont                   ;# tell it to run
 }
 
 # boot PR bin file

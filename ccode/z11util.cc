@@ -462,6 +462,7 @@ void Z11Page::resetit ()
     ZWR(pdpat[Z_RA], ZRD(pdpat[Z_RA]) & ~ a_man_dc_lo_out_h);
     usleep (1000);
     ZWR(pdpat[Z_RA], ZRD(pdpat[Z_RA]) & ~ a_man_ac_lo_out_h);
+    usleep (500000);
     dmaunlk ();
 }
 

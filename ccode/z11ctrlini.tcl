@@ -17,7 +17,6 @@ proc helpini {} {
     puts "          flickstart pc \[ps\] - reset processor and start at given address"
     puts "                   flickstep - step processor one instruction then print PC"
     puts "              getenv var def - get envar 'var', default to 'def'"
-    puts "                   hardreset - hard reset processor to halted state"
     puts "                     loadbin - load binary tape file, return start address"
     puts "                     loadlst - load from MACRO11 listing"
     puts "                     octal x - convert integer x to 6-digit octal string"
@@ -282,23 +281,6 @@ proc flickstep {} {
 # get environment variable, return default value if not defined
 proc getenv {varname {defvalu ""}} {
     return [expr {[info exists ::env($varname)] ? $::env($varname) : $defvalu}]
-}
-
-# hard reset by asserting HLTRQ and strobing AC_LO,DC_LO
-# waits for processor to halt after the reset
-# it theoretically has read the 024/026 power-up vector into PC/PS
-proc hardreset {} {
-    pin set ky_haltreq 1    ;# so it halts when started back up
-    pin set man_ac_lo_out_h 1 man_dc_lo_out_h 1
-    after 200
-    pin set man_dc_lo_out_h 0 man_ac_lo_out_h 0
-    for {set i 0} true {incr i} {
-        after 1
-        if {[pin ky_halted]} break
-        if {$i > 1000} {
-            error "hardreset: processor did not halt"
-        }
-    }
 }
 
 # load binary tape file

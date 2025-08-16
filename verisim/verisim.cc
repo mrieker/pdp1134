@@ -39,7 +39,6 @@
 #define ABORT() do { fprintf (stderr, "ABORT %s %d\n", __FILE__, __LINE__); abort (); } while (0)
 
 static int mypid, serverpid;
-static pthread_mutex_t shmutex = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t volatile *nullpage;
 static VeriPage *pageptr;
 
@@ -105,12 +104,10 @@ void verisim_wfi (uint32_t mask)
     }
 }
 
-// lock mutex so we're thread safe within this process
 // wait for the state to be IDLE
 // mark the struct in use by this client
 static void waitforidle ()
 {
-    pthread_mutex_lock (&shmutex);
     while (true) {
         int state = pageptr->state;
         if (state != VERISIM_IDLE) {
@@ -125,7 +122,7 @@ static void waitforidle ()
 // transition from BUSY to the given state
 // then wait for state to be DONE
 // grab the data returned therein
-// finally set state to IDLE then release mutex
+// finally set state to IDLE
 static uint32_t waitfordone (int func)
 {
     int busy = VERISIM_BUSY;
@@ -143,8 +140,6 @@ static uint32_t waitfordone (int func)
 
     if (! atomic_compare_exchange (&pageptr->state, &state, VERISIM_IDLE)) ABORT ();
     if (futex (&pageptr->state, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
-
-    pthread_mutex_unlock (&shmutex);
 
     return data;
 }

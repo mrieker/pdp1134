@@ -74,6 +74,7 @@ static Tcl_ObjCmdProc cmd_disasop;
 static Tcl_ObjCmdProc cmd_dllock;
 static Tcl_ObjCmdProc cmd_dlunlock;
 static Tcl_ObjCmdProc cmd_gettod;
+static Tcl_ObjCmdProc cmd_hardreset;
 static Tcl_ObjCmdProc cmd_lockdma;
 static Tcl_ObjCmdProc cmd_msload;
 static Tcl_ObjCmdProc cmd_msstat;
@@ -86,26 +87,27 @@ static Tcl_ObjCmdProc cmd_waitint;
 static Tcl_ObjCmdProc cmd_xestart;
 
 static TclFunDef const fundefs[] = {
-    { cmd_disasop,  NULL, "disasop",  "disassemble instruction" },
-    { cmd_dllock,   NULL, "dllock",   "lock access to DL port" },
-    { cmd_dlunlock, NULL, "dlunlock", "unlock access to DL port" },
-    { cmd_gettod,   NULL, "gettod",   "get current time in us precision" },
-    { cmd_lockdma,  NULL, "lockdma",  "lock access to DMA registers" },
-    { cmd_pin,      NULL, "pin",      "direct access to signals on zynq page" },
-    { cmd_readchar, NULL, "readchar", "read character with timeout" },
-    { cmd_msload,   (ClientData) &ctlidrh, "rhload",   "load file in RH drive" },
-    { cmd_msstat,   (ClientData) &ctlidrh, "rhstat",   "get RH drive status" },
-    { cmd_msunload, (ClientData) &ctlidrh, "rhunload", "unload file from RH drive" },
-    { cmd_msload,   (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
-    { cmd_msstat,   (ClientData) &ctlidrl, "rlstat",   "get RL drive status" },
-    { cmd_msunload, (ClientData) &ctlidrl, "rlunload", "unload file from RL drive" },
-    { cmd_snapregs, NULL, "snapregs", "snapshot registers while running" },
-    { cmd_msload,   (ClientData) &ctlidtm, "tmload",   "load file in TM drive" },
-    { cmd_msstat,   (ClientData) &ctlidtm, "tmstat",   "get TM drive status" },
-    { cmd_msunload, (ClientData) &ctlidtm, "tmunload", "unload file from TM drive" },
-    { cmd_unlkdma,  NULL, "unlkdma",  "unlock access to DMA registers" },
-    { cmd_waitint,  NULL, "waitint",  "wait for interrupt" },
-    { cmd_xestart,  NULL, "xestart",  "make sure xe i/o daemon is running" },
+    { cmd_disasop,   NULL, "disasop",   "disassemble instruction" },
+    { cmd_dllock,    NULL, "dllock",    "lock access to DL port" },
+    { cmd_dlunlock,  NULL, "dlunlock",  "unlock access to DL port" },
+    { cmd_gettod,    NULL, "gettod",    "get current time in us precision" },
+    { cmd_hardreset, NULL, "hardreset", "reset processor to halt state" },
+    { cmd_lockdma,   NULL, "lockdma",   "lock access to DMA registers" },
+    { cmd_pin,       NULL, "pin",       "direct access to signals on zynq page" },
+    { cmd_readchar,  NULL, "readchar",  "read character with timeout" },
+    { cmd_msload,    (ClientData) &ctlidrh, "rhload",   "load file in RH drive" },
+    { cmd_msstat,    (ClientData) &ctlidrh, "rhstat",   "get RH drive status" },
+    { cmd_msunload,  (ClientData) &ctlidrh, "rhunload", "unload file from RH drive" },
+    { cmd_msload,    (ClientData) &ctlidrl, "rlload",   "load file in RL drive" },
+    { cmd_msstat,    (ClientData) &ctlidrl, "rlstat",   "get RL drive status" },
+    { cmd_msunload,  (ClientData) &ctlidrl, "rlunload", "unload file from RL drive" },
+    { cmd_snapregs,  NULL, "snapregs",  "snapshot registers while running" },
+    { cmd_msload,    (ClientData) &ctlidtm, "tmload",   "load file in TM drive" },
+    { cmd_msstat,    (ClientData) &ctlidtm, "tmstat",   "get TM drive status" },
+    { cmd_msunload,  (ClientData) &ctlidtm, "tmunload", "unload file from TM drive" },
+    { cmd_unlkdma,   NULL, "unlkdma",   "unlock access to DMA registers" },
+    { cmd_waitint,   NULL, "waitint",   "wait for interrupt" },
+    { cmd_xestart,   NULL, "xestart",   "make sure xe i/o daemon is running" },
     { NULL, NULL, NULL, NULL }
 };
 
@@ -363,6 +365,32 @@ static int cmd_gettod (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_
     if (gettimeofday (&nowtv, NULL) < 0) ABORT ();
     Tcl_SetResultF (interp, "%u.%06u", (uint32_t) nowtv.tv_sec, (uint32_t) nowtv.tv_usec);
     return TCL_OK;
+}
+
+static int cmd_hardreset (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    switch (objc) {
+        case 1: {
+            z11page->resetit ();
+            return TCL_OK;
+        }
+        case 2: {
+            char const *opstr = Tcl_GetString (objv[1]);
+            if (strcasecmp (opstr, "help") == 0) {
+                puts ("");
+                puts ("  hardreset");
+                puts ("");
+                puts ("  hard reset by asserting HLTRQ and strobing AC_LO,DC_LO");
+                puts ("  waits for processor to halt after the reset");
+                puts ("  it theoretically has read the 024/026 power-up vector into PC/PS");
+                puts ("");
+                return TCL_OK;
+            }
+            break;
+        }
+    }
+    Tcl_SetResult (interp, (char *) "bad number of arguments", TCL_STATIC);
+    return TCL_ERROR;
 }
 
 static int cmd_lockdma (ClientData clientdata, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
