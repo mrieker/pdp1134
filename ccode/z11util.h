@@ -34,10 +34,6 @@
 #define ZRD(a) verisim_read(&(a))
 #define ZWR(a,d) verisim_write(&(a),d)
 #include "../verisim/verisim.h"
-#elif defined SIMRPAGE
-#define ZRD(a) simrpage_read(&(a))
-#define ZWR(a,d) simrpage_write(&(a),d)
-#include "../simmer/simrpage.h"
 #else
 #define ZRD(a) (a)
 #define ZWR(a,d) do { a = d; } while (0)
