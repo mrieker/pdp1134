@@ -55,14 +55,7 @@ set have_rl [expr {[rdwordtimo 0774400] >= 0}]
 set have_tm [expr {[rdwordtimo 0772520] >= 0}]
 
 # display and process boot menu
-               wrtty "\n"
-               wrtty "guiboot.tcl: Select\n"
-               wrtty "  0) cancel boot\n"
-if {$have_rl} {wrtty "  1) boot from RL-11 drive 0\n"}
-if {$have_pc} {wrtty "  2) boot from paper tape bin file\n"}
-if {$have_rh} {wrtty "  3) boot from RH-11 drive 0\n"}
-if {$have_tm} {wrtty "  4) boot from TM-11 drive 0\n"}
-               wrtty "> "
+wrtty "\n? for help > "
 
 while {! [ctrlcflag]} {
     set by [format %03o [rdtty]]
@@ -101,6 +94,15 @@ while {! [ctrlcflag]} {
                 tmboot
                 return
             }
+        }
+        077 {
+                           wrtty "?\nguiboot.tcl: Select\n"
+                           wrtty "  0) cancel boot\n"
+            if {$have_rl} {wrtty "  1) boot from RL-11 drive 0\n"}
+            if {$have_pc} {wrtty "  2) boot from paper tape bin file\n"}
+            if {$have_rh} {wrtty "  3) boot from RH-11 drive 0\n"}
+            if {$have_tm} {wrtty "  4) boot from TM-11 drive 0\n"}
+                           wrtty "> "
         }
     }
 }
