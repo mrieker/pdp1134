@@ -36,6 +36,7 @@
 
 Z11Page *z11page;
 
+static __thread bool dmalocked;
 static pthread_mutex_t dmamutex = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t mypid;
 
@@ -238,6 +239,7 @@ uint32_t Z11Page::dmaread (uint32_t xba, uint16_t *data)
 
 uint32_t Z11Page::dmareadlocked (uint32_t xba, uint16_t *data)
 {
+    ASSERT (dmalocked);
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMAADDR0 * xba);
     uint32_t rc;
@@ -267,6 +269,7 @@ bool Z11Page::dmawbyte (uint32_t xba, uint8_t data)
 
 bool Z11Page::dmawbytelocked (uint32_t xba, uint8_t data)
 {
+    ASSERT (dmalocked);
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[4], KY4_DMADATA0 * 0401 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 3 | KY3_DMAADDR0 * xba);
@@ -295,6 +298,7 @@ bool Z11Page::dmawrite (uint32_t xba, uint16_t data)
 
 bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 {
+    ASSERT (dmalocked);
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[4], KY4_DMADATA0 * data);
     ZWR(kyat[3], KY3_DMASTATE0 | KY3_DMACTRL0 * 2 | KY3_DMAADDR0 * xba);
@@ -307,9 +311,11 @@ bool Z11Page::dmawritelocked (uint32_t xba, uint16_t data)
 }
 
 // acquire exclusive access to dma controller
-// wait indefinitely in case being used by TCL scripting
+// don't timeout in case being used by TCL scripting
 void Z11Page::dmalock ()
 {
+    ASSERT (! dmalocked);
+    dmalocked = true;
     if (pthread_mutex_lock (&dmamutex) != 0) ABORT ();
     ASSERT (KY5_DMALOCK == 0xFFFFFFFFU);
     ASSERT (ZRD(kyat[5]) != mypid);
@@ -331,10 +337,12 @@ void Z11Page::dmalock ()
 // release exclusive access to dma controller
 void Z11Page::dmaunlk ()
 {
+    ASSERT (dmalocked);
     ASSERT (ZRD(kyat[5]) == mypid);
     ZWR(kyat[5], mypid);
     ASSERT (ZRD(kyat[5]) != mypid);
     if (pthread_mutex_unlock (&dmamutex) != 0) ABORT ();
+    dmalocked = false;
 }
 
 // wait for interrupt(s) given in mask
@@ -376,7 +384,8 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
     if ((count < 0) || (count > 15)) ABORT ();
 
     // keep out other things from using dma registers
-    dmalock ();
+    bool waslocked = dmalocked;
+    if (! waslocked) dmalock ();
 
     // see if already requesting halt
     // if so, set up to restore when snapshot completes
@@ -415,7 +424,7 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
     }
 
     // allow other dma now
-    dmaunlk ();
+    if (! waslocked) dmaunlk ();
 
     return rc;
 }

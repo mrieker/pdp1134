@@ -19,15 +19,16 @@
 //    http://www.gnu.org/licenses/gpl-2.0.html
 
 // Run on a RasPI plugged into PiDP-11 panel
-//   ./pidp client
+//   ./z11pidp client
 // Uses UDP to communicate with ZTurn to control/monitor the PDP
 // Must be running the pidp server on the ZTurn:
-//   ./pidp server
+//   ./z11pidp server
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "futex.h"
 #include "z11defs.h"
 #include "z11util.h"
 
@@ -67,6 +69,10 @@
 
 #define L0_A1100 0007777
 #define L1_A2112 0001777
+#define L2_AD18  0000002
+#define L2_AD16  0000004
+#define L2_KERN  0000020
+#define L2_USER  0000100
 #define L2_RUN   0001000
 #define L2_AERR  0002000
 #define L2_PERR  0004000
@@ -119,6 +125,7 @@ static uint32_t const ledbits[] = { 1U << LED0, 1U << LED1, 1U << LED2, 1U << LE
 static uint32_t const rowbits[] = { 1U << ROW0, 1U << ROW1, 1U << ROW2 };
 
 static void client (int argc, char **argv);
+static void *gpiothd (void *dummy);
 static void writeleds (uint32_t volatile *gpiopage, uint16_t *leds);
 static void server ();
 
@@ -137,15 +144,13 @@ int main (int argc, char **argv)
 
 // run on raspi plugged into pidp-11 panel
 //  pidp client [ -test | <serveraddr> ]
+static int clientseq;
+static uint16_t ledrows[5];
+static uint16_t swtrows[3];
 static void client (int argc, char **argv)
 {
-    bool test = false;
     char const *server = NULL;
     for (int i = 0; ++ i < argc;) {
-        if (strcasecmp (argv[i], "-test") == 0) {
-            test = true;
-            continue;
-        }
         if (argv[i][0] == '-') {
             fprintf (stderr, "unknown option %s\n", argv[i]);
             ABORT ();
@@ -156,11 +161,80 @@ static void client (int argc, char **argv)
         }
         server = argv[i];
     }
-    if (! test && (server == NULL)) {
+    if (server == NULL) {
         fprintf (stderr, "missing server address\n");
         ABORT ();
     }
 
+    // set up sequence number gt anything previously used
+    PiDPUDPPkt pidpmsg;
+    memset (&pidpmsg, 0, sizeof pidpmsg);
+    struct timespec nowts;
+    if (clock_gettime (CLOCK_REALTIME, &nowts) < 0) ABORT ();
+    uint64_t sendseq = nowts.tv_sec * 1000000000ULL + nowts.tv_nsec;
+
+    // open socket to communicate to server with
+    struct sockaddr_in cliaddr;
+    int udpfd = openclientsocket (&cliaddr);
+
+    // set up to send to GPIOUDPPORT on server
+    struct sockaddr_in svraddr;
+    memset (&svraddr, 0, sizeof svraddr);
+    svraddr.sin_family = AF_INET;
+    svraddr.sin_port = htons (PIDPUDPPORT);
+    getserveripaddr (&svraddr, server);
+
+    // start thread to update leds and read switches
+    pthread_t thid;
+    if (pthread_create (&thid, NULL, gpiothd, NULL) != 0) ABORT ();
+
+    int lastseq = 0;
+
+    while (true) {
+
+        // wait for an LED/switch update cycle to complete
+        while (clientseq == lastseq) {
+            if (futex (&clientseq, FUTEX_WAIT, lastseq, NULL, NULL, 0) < 0) {
+                if (errno != EAGAIN) ABORT ();
+            }
+        }
+        lastseq = clientseq;
+
+        // send switches to server, trigger receiving leds
+        pidpmsg.seq = ++ sendseq;
+        memcpy (pidpmsg.rows, swtrows, sizeof pidpmsg.rows);
+        int rc = sendto (udpfd, &pidpmsg, sizeof pidpmsg, 0, (struct sockaddr *) &svraddr, sizeof svraddr);
+        if (rc != (int) sizeof pidpmsg) {
+            if (rc < 0) {
+                fprintf (stderr, "error sending udp packet: %m\n");
+            } else {
+                fprintf (stderr, "only sent %d of %d bytes over udp\n", rc, (int) sizeof pidpmsg);
+            }
+            ABORT ();
+        }
+
+        // receive leds from server
+        do {
+            struct sockaddr_in cliaddr;
+            socklen_t addrlen = sizeof cliaddr;
+            int rc = recvfrom (udpfd, &pidpmsg, sizeof pidpmsg, 0, (struct sockaddr *) &cliaddr, &addrlen);
+            if (rc != (int) sizeof pidpmsg) {
+                if (rc < 0) {
+                    if (errno == EAGAIN) break;
+                    fprintf (stderr, "error receiving udp packet: %m\n");
+                } else {
+                    fprintf (stderr, "only received %d of %d bytes over udp\n", rc, (int) sizeof pidpmsg);
+                }
+                ABORT ();
+            }
+        } while (pidpmsg.seq < sendseq);
+        memcpy (ledrows, pidpmsg.leds, sizeof ledrows);
+    }
+}
+
+// display leds and sense switches at hopefully a constant rate
+static void *gpiothd (void *dummy)
+{
     // access gpio page to access leds and switches
     int gpiofd = open ("/dev/gpiomem", O_RDWR);
     if (gpiofd < 0) {
@@ -190,41 +264,10 @@ static void client (int argc, char **argv)
         gpiopage[GPIO_PUDCLK0] = 0;
     }
 
-    // set up sequence number gt anything previously used
-    PiDPUDPPkt pidpmsg;
-    memset (&pidpmsg, 0, sizeof pidpmsg);
-    struct timespec nowts;
-    if (clock_gettime (CLOCK_REALTIME, &nowts) < 0) ABORT ();
-    uint64_t sendseq = nowts.tv_sec * 1000000000ULL + nowts.tv_nsec;
-
-    // -test : test LED access
-    while (test) {
-        for (int i = 0; i < 64; i ++) {
-            pidpmsg.leds[0] = ((i >=  0) && (i < 12)) ? (1U <<  i)       : 0;
-            pidpmsg.leds[1] = ((i >= 12) && (i < 22)) ? (1U << (i - 12)) : 0;
-            pidpmsg.leds[2] = ((i >= 22) && (i < 34)) ? (1U << (i - 22)) : 0;
-            pidpmsg.leds[3] = ((i >= 34) && (i < 46)) ? (1U << (i - 34)) : 0;
-            pidpmsg.leds[4] = ((i >= 46) && (i < 58)) ? (1U << (i - 46)) : 0;
-            pidpmsg.leds[5] = ((i >= 58) && (i < 64)) ? (1U << (i - 52)) : 0;
-            writeleds (gpiopage, pidpmsg.leds);
-        }
-    }
-
-    // open socket to communicate to server with
-    struct sockaddr_in cliaddr;
-    int udpfd = openclientsocket (&cliaddr);
-
-    // set up to send to GPIOUDPPORT on server
-    struct sockaddr_in svraddr;
-    memset (&svraddr, 0, sizeof svraddr);
-    svraddr.sin_family = AF_INET;
-    svraddr.sin_port = htons (PIDPUDPPORT);
-    getserveripaddr (&svraddr, server);
-
     while (true) {
 
         // write leds - leds,cols = outputs; rows = inputs (hi-Z)
-        writeleds (gpiopage, pidpmsg.leds);
+        writeleds (gpiopage, ledrows);
 
         // read switches -
         // - led rows = inputs (hi-Z)
@@ -245,36 +288,13 @@ static void client (int argc, char **argv)
             for (int c = 0; c <= 11; c ++) {
                 if (gpin & colbits[c]) row |= 1U << c;
             }
-            pidpmsg.rows[r] = row;
+            swtrows[r] = row;
         }
+        gpiopage[GPIO_FSEL0+1] = 0;
 
-        // send switches to server, trigger receiving leds
-        pidpmsg.seq = ++ sendseq;
-        int rc = sendto (udpfd, &pidpmsg, sizeof pidpmsg, 0, (struct sockaddr *) &svraddr, sizeof svraddr);
-        if (rc != (int) sizeof pidpmsg) {
-            if (rc < 0) {
-                fprintf (stderr, "error sending udp packet: %m\n");
-            } else {
-                fprintf (stderr, "only sent %d of %d bytes over udp\n", rc, (int) sizeof pidpmsg);
-            }
-            ABORT ();
-        }
-
-        // receive leds from server
-        do {
-            struct sockaddr_in cliaddr;
-            socklen_t addrlen = sizeof cliaddr;
-            int rc = recvfrom (udpfd, &pidpmsg, sizeof pidpmsg, 0, (struct sockaddr *) &cliaddr, &addrlen);
-            if (rc != (int) sizeof pidpmsg) {
-                if (rc < 0) {
-                    if (errno == EAGAIN) break;
-                    fprintf (stderr, "error receiving udp packet: %m\n");
-                } else {
-                    fprintf (stderr, "only received %d of %d bytes over udp\n", rc, (int) sizeof pidpmsg);
-                }
-                ABORT ();
-            }
-        } while (pidpmsg.seq < sendseq);
+        // trigger a transmit/receive cycle
+        clientseq ++;
+        if (futex (&clientseq, FUTEX_WAKE, 1000000000, NULL, NULL, 0) < 0) ABORT ();
     }
 }
 
@@ -308,6 +328,13 @@ static void writeleds (uint32_t volatile *gpiopage, uint16_t *leds)
     }
 }
 
+//////////////
+//  SERVER  //
+//////////////
+
+// runs on zturn
+//  receives switches from client then updates fpga registers
+//  reads fpga registers then sends led states to client
 static void server ()
 {
     struct sockaddr_in svraddr;
@@ -318,19 +345,18 @@ static void server ()
     uint32_t volatile *pdpat = z11page->findev ("11", NULL, NULL, false);
     uint32_t volatile *kyat  = z11page->findev ("KY", NULL, NULL, false);
 
-    bool     adderror   = false;
-    bool     lastdep    = false;
-    bool     lastexam   = false;
-    bool     parerror   = false;
-    int      testled    = 0;
-    int      oldrown    = 0;
-    uint16_t memorydata = 0;
-    uint32_t loadedaddr = 0;
-    uint64_t recvseq    = 0;
+    bool     lastdep    = false;    // increment address before deposit
+    bool     lastexam   = false;    // increment address before examine
+    int      testled    = 0;        // which led is being tested with lamp test switch
+    int      oldrown    = 0;        // debounce switch index
+    uint16_t leds2      = 0;        // status leds
+    uint16_t memorydata = 0;        // data display leds
+    uint32_t loadedaddr = 0;        // address display leds
+    uint64_t recvseq    = 0;        // filter out duplicate udp receives
 
-    uint16_t lastrows[3], oldrows[3][4];
-    memset (lastrows, 0, sizeof lastrows);
-    memset (oldrows,  0, sizeof oldrows);
+    uint16_t lastrow2 = 0;
+    uint16_t oldrow2s[4];
+    memset (oldrow2s, 0, sizeof oldrow2s);
 
     while (true) {
 
@@ -351,34 +377,33 @@ static void server ()
         } while (pidpmsg.seq <= recvseq);
         recvseq = pidpmsg.seq;
 
-        // SR<21> has to be set to override SR<17:00>
+        // debounce momentary switches and detect positive edges
+        uint16_t posedge2 = ~ lastrow2;
+        oldrow2s[oldrown] = pidpmsg.rows[2];
+        for (int j = 0; j < 4; j ++) {
+            pidpmsg.rows[2] &= oldrow2s[j];
+        }
+        lastrow2  = pidpmsg.rows[2];
+        posedge2 &= lastrow2;
+        if (++ oldrown == 4) oldrown = 0;
+
+        // get switch register
         uint32_t sr = (((pidpmsg.rows[1] & R1_SR2112) / BB(R1_SR2112)) << 12) |
                        ((pidpmsg.rows[0] & R0_SR1100) / BB(R0_SR1100));
+
+        // make sure some other use of snapregs() isn't messing with KY registers
+        z11page->dmalock ();
+
+        // SR<21> has to be set to override SR<17:00>
         if (sr & 010000000) {
-            z11page->dmalock ();    // make sure snapregs() isn't messing with KY regs
             ZWR(kyat[1], (ZRD(kyat[1]) & ~ KY_SWITCHES) | (sr * BB(KY_SWITCHES) & KY_SWITCHES));
             ZWR(kyat[2], (ZRD(kyat[2]) & ~ KY2_SR1716) | ((sr >> 16) * BB(KY2_SR1716) & KY2_SR1716));
-            z11page->dmaunlk ();
         }
 
-        // if HALT swith set, set the KY_HALTREQ line
-        if (pidpmsg.rows[2] & R2_HALT) {
-            z11page->dmalock ();    // make sure snapregs() isn't messing with KY regs
+        // if HALT switch set, set the KY_HALTREQ line
+        if (lastrow2 & R2_HALT) {
             ZWR(kyat[2], ZRD(kyat[2]) | KY2_HALTREQ);
-            z11page->dmaunlk ();
         }
-
-        // debounce momentary switches and detect positive edges
-        uint16_t posedges[3];
-        for (int i = 0; i < 3; i ++) {
-            oldrows[i][oldrown] = pidpmsg.rows[i];
-            for (int j = 0; j < 4; j ++) {
-                pidpmsg.rows[i] &= oldrows[i][j];
-            }
-            posedges[i] = ~ lastrows[i] & pidpmsg.rows[i];
-            lastrows[i] = pidpmsg.rows[i];
-        }
-        if (++ oldrown == 4) oldrown = 0;
 
         // momentaries work only when processor halted
         bool running = ! (ZRD(kyat[2]) & KY2_HALTED);
@@ -388,74 +413,123 @@ static void server ()
             // also clear any loadaddress/examine/deposit context
             loadedaddr = (ZRD(pdpat[Z_RK]) & k_lataddr) / BB(k_lataddr);
             memorydata = (ZRD(pdpat[Z_RL]) & l_latdata) / BB(l_latdata);
-            adderror = false;
+            uint32_t fpgamode = (ZRD(pdpat[Z_RA]) & a_fpgamode) / BB(a_fpgamode);
+            if (fpgamode == FM_REAL) {
+                uint16_t r0;
+                if (z11page->snapregs (0777700, 0, &r0) > 0) memorydata = r0;
+            }
+            leds2   &= ~ (L2_AERR | L2_PERR);
+            leds2   |=    L2_RUN;
             lastdep  = false;
             lastexam = false;
-            parerror = false;
         } else {
 
+            // if newly halted, get PC and R0 for address and data
+            if (leds2 & L2_RUN) {
+                leds2 &= ~ L2_RUN;
+                uint16_t pc, r0;
+                loadedaddr = (z11page->dmareadlocked (0777707, &pc) == 0) ? pc : 0177777;
+                memorydata = (z11page->dmareadlocked (0777700, &r0) == 0) ? r0 : 0177777;
+            }
+
             // load address, examine, deposit
-            if (posedges[2] & R2_LDAD) {
+            if (posedge2 & R2_LDAD) {
                 loadedaddr = sr & 0777777;
                 if ((loadedaddr < 0777700) || (loadedaddr > 0777717)) loadedaddr &= -2;
                 memorydata = 0;
-                adderror = false;
+                leds2   &= ~ (L2_AERR | L2_PERR);
                 lastdep  = false;
                 lastexam = false;
-                parerror = false;
             }
-            if (posedges[2] & R2_EXAM) {
+            if (posedge2 & R2_EXAM) {
                 uint32_t addrinc = ((loadedaddr < 0777700) || (loadedaddr > 0777717)) ? 2 : 1;
                 if (lastexam) loadedaddr = (loadedaddr + addrinc) & 0777777;
-                uint32_t rc = z11page->dmaread (loadedaddr, &memorydata);
-                adderror = (rc & KY3_DMATIMO);
+                uint32_t rc = z11page->dmareadlocked (loadedaddr, &memorydata);
+                leds2   &= ~ (L2_AERR | L2_PERR);
+                if (rc & KY3_DMATIMO) leds2 |= L2_AERR;
+                if (rc & KY3_DMAPERR) leds2 |= L2_PERR;
                 lastdep  = false;
                 lastexam = true;
-                parerror = (rc & KY3_DMAPERR);
             }
-            if (posedges[2] & R2_DEP) {
+            if (posedge2 & R2_DEP) {
                 memorydata = sr;
                 uint32_t addrinc = ((loadedaddr < 0777700) || (loadedaddr > 0777717)) ? 2 : 1;
                 if (lastdep) loadedaddr = (loadedaddr + addrinc) & 0777777;
-                adderror = ! z11page->dmawrite (loadedaddr, memorydata);
+                leds2   &= ~ (L2_AERR | L2_PERR);
+                if (! z11page->dmawritelocked (loadedaddr, memorydata)) leds2 |= L2_AERR;
                 lastdep  = true;
                 lastexam = false;
-                parerror = false;
             }
 
-            // posedge CONT : clear KY2_HALTREQ line
-            if (posedges[2] & R2_CONT) {
-                z11page->dmalock ();
-                ZWR(kyat[2], ZRD(kyat[2]) & ~ KY2_HALTREQ);
-                z11page->dmaunlk ();
-                adderror = false;
-                lastdep  = false;
-                lastexam = false;
-                parerror = false;
+            // posedge CONT : single step or resume processing
+            if (posedge2 & R2_CONT) {
+                if (lastrow2 & R2_HALT) {
+                    // halt switch on - step single instruction
+                    z11page->dmaunlk ();
+                    z11page->stepreq ();
+                    for (int i = 0; ZRD(kyat[2]) & KY2_STEPREQ; i ++) {
+                        if (i > 1000) break;
+                    }
+                    z11page->dmalock ();
+                    uint16_t pc, r0;
+                    loadedaddr = (z11page->dmareadlocked (0777707, &pc) == 0) ? pc : 0177777;
+                    memorydata = (z11page->dmareadlocked (0777700, &r0) == 0) ? r0 : 0177777;
+                } else {
+                    // halt switch off - clear halt request line
+                    ZWR(kyat[2], ZRD(kyat[2]) & ~ KY2_HALTREQ);
+                    leds2   &= ~ (L2_AERR | L2_PERR);
+                    lastdep  = false;
+                    lastexam = false;
+                }
             }
 
             // posedge START : reset processor, load program counter, clear KY2_HALTREQ line
-            if (posedges[2] & R2_STRT) {
+            if (posedge2 & R2_STRT) {
+                z11page->dmaunlk ();
                 z11page->resetit ();
-                if (! z11page->dmawrite (0777707, loadedaddr)) {
-                    memorydata = loadedaddr;
-                    loadedaddr = 0777707;
-                    adderror = true;
-                } else {
-                    z11page->dmalock ();
-                    ZWR(kyat[2], ZRD(kyat[2]) & ~ KY2_HALTREQ);
-                    z11page->dmaunlk ();
-                    adderror = false;
+                z11page->dmalock ();
+                {
+                    uint16_t pc, ps;
+                    if (z11page->dmareadlocked (0777707, &pc) != 0) pc = 0177777;
+                    if (z11page->dmareadlocked (0777776, &ps) != 0) ps = 0177777;
                 }
-                adderror = false;
+                leds2   &= ~ (L2_AERR | L2_PERR);
                 lastdep  = false;
                 lastexam = false;
-                parerror = false;
+                if (! (lastrow2 & R2_HALT)) {
+                    uint16_t newps = 0340;
+                    if (! z11page->dmawritelocked (0777707, loadedaddr)) {
+                        memorydata = loadedaddr;
+                        loadedaddr = 0777707;
+                        leds2     |= L2_AERR;
+                    } else if (! z11page->dmawritelocked (0777776, newps)) {
+                        memorydata = newps;
+                        loadedaddr = 0777776;
+                        leds2     |= L2_AERR;
+                    } else {
+                        ZWR(kyat[2], ZRD(kyat[2]) & ~ KY2_HALTREQ);
+                    }
+                }
             }
         }
 
+        leds2 &= ~ (L2_AD18 | L2_AD16 | L2_KERN | L2_USER);
+
+        uint16_t mmr0;
+        if (z11page->snapregs (0777572, 0, &mmr0) > 0) {
+            leds2 |= (mmr0 & 1) ? L2_AD18 : L2_AD16;
+        }
+
+        uint16_t ps;
+        if (z11page->snapregs (0777776, 0, &ps) > 0) {
+            if ((ps & 0140000) == 0000000) leds2 |= L2_KERN;
+            if ((ps & 0140000) == 0140000) leds2 |= L2_USER;
+        }
+
+        z11page->dmaunlk ();
+
         // fill in leds from fpga state
-        if (false && ! (lastrows[2] & R2_TEST_)) {
+        if (false && ! (lastrow2 & R2_TEST_)) {
             pidpmsg.leds[0] = ((testled >=  0) && (testled < 12)) ? (1U <<  testled)       : 0;
             pidpmsg.leds[1] = ((testled >= 12) && (testled < 22)) ? (1U << (testled - 12)) : 0;
             pidpmsg.leds[2] = ((testled >= 22) && (testled < 34)) ? (1U << (testled - 22)) : 0;
@@ -466,9 +540,7 @@ static void server ()
         } else {
             pidpmsg.leds[0] =  (loadedaddr        * BB(L0_A1100)) & L0_A1100;
             pidpmsg.leds[1] = ((loadedaddr >> 12) * BB(L1_A2112)) & L1_A2112;
-            pidpmsg.leds[2] =  (running  ? L2_RUN  : 0) |
-                               (adderror ? L2_AERR : 0) |
-                               (parerror ? L2_PERR : 0);
+            pidpmsg.leds[2] = leds2;
             pidpmsg.leds[3] =  (memorydata        * BB(L3_D1100)) & L3_D1100;
             pidpmsg.leds[4] = ((memorydata >> 12) * BB(L4_D1512)) & L4_D1512;
             pidpmsg.leds[5] = 0;

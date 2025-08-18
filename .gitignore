@@ -1,5 +1,6 @@
 *~
 *.a
+*.armv6l
 *.armv7l
 *-backups
 *.class

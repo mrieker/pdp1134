@@ -736,8 +736,11 @@ module sim1134 (
                 // wait for interrupt or halt
                 // process nprs meanwhile
                 S_EXWAIT: begin
-                    if ((psw[4] | ~ bus_hltrq_in_l | intrqst) & ~ bus_npg_out_h) begin
-                        state <= S_SERVICE;
+                    if ((psw[4] | intrqst) & ~ bus_npg_out_h) begin
+                        state   <= S_SERVICE;
+                    end else if (~ bus_hltrq_in_l & ~ bus_npg_out_h) begin
+                        gprs[7] <= gprs[7] - 2;
+                        state   <= S_SERVICE;
                     end else begin
                         bus_npg_out_h <= ~ bus_npr_in_l;
                     end
