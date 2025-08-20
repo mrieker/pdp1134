@@ -24,6 +24,35 @@
 // Must be running the pidp server on the ZTurn:
 //   ./z11pidp server
 
+// PAR ERR  - last exam got a parity error
+// ADDR ERR - last dep or exam got an address error
+// RUN      - processor executing instructions
+// USER     - PS indicates USER mode
+// KERNEL   - PS indicates KERNEL mode
+// ADDR 16  - mmu is turned off
+//      18  - mmu is turned on
+
+// ADDRESS - running: latest bus cycle physical address
+//           halted:  latest ldaddr/exam/deposit address
+//                    CON PHYS: physical address
+//               USER,KERNEL I: virtual address
+// CONS PHY - load address will load a physical address
+// USER I   - load address will load a user virt address
+// KERNEL I - load address will load a kernel virt addr
+// PROG PHY - address lights show physical address (push knob to activate)
+
+// DATA
+//    DATA PATHS - running: shows R0
+//               - halted:  shows exam/deposit data
+//   DISPLAY REG - shows 777570 light register
+
+// LDAD,EXAM,DEP - usual function
+// CONT,ENAB/HALT,START - usual fuction
+// SINGLE INST/CYCLE - doesn't do anything, always single inst mode
+// SR<21> ON - enables SR<15:00> to write 777570 switch register
+//       OFF - use value from GUI switches or z11ctrl ky_switches
+//             for 777570 switch register
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -49,12 +78,12 @@
 #define COL03    5  //  A03  A15 DATA  D03  D15      SR03 SR15 DEP
 #define COL04    6  //  A04  A16 KERN  D04 PARL      SR04 SR16 CONT
 #define COL05    7  //  A05  A17 SUPR  D05 PARH      SR05 SR17 HALT
-#define COL06    8  //  A06  A18 USER  D06 R1UD R1UI SR06 SR18 SINS
-#define COL07    9  //  A07  A19 MAST  D07 R1SD R1SI SR07 SR19 STRT
-#define COL08   10  //  A08  A20 PAUS  D08 R1KD R1KI SR08 SR20
-#define COL09   11  //  A09  A21 RUN   D09 R1CP R1PP SR09 SR21
-#define COL10   12  //  A10      AERR  D10 R2DP MUFP SR10
-#define COL11   13  //  A11      PERR  D11 R2BR R2DR SR11
+#define COL06    8  //  A06  A18 USER  D06 ADUD ADUI SR06 SR18 SINS
+#define COL07    9  //  A07  A19 MAST  D07 ADSD ADSI SR07 SR19 STRT
+#define COL08   10  //  A08  A20 PAUS  D08 ADKD ADKI SR08 SR20 ADRA
+#define COL09   11  //  A09  A21 RUN   D09 ADCP ADPP SR09 SR21 ADRB
+#define COL10   12  //  A10      AERR  D10 DADP DAMU SR10 ADSW DARA
+#define COL11   13  //  A11      PERR  D11 DABR DADR SR11 DASW DARB
 
 #define LED0 20
 #define LED1 21
@@ -67,27 +96,39 @@
 #define ROW1 17
 #define ROW2 18
 
-#define L0_A1100 0007777
-#define L1_A2112 0001777
-#define L2_AD18  0000002
-#define L2_AD16  0000004
-#define L2_KERN  0000020
-#define L2_USER  0000100
-#define L2_RUN   0001000
-#define L2_AERR  0002000
-#define L2_PERR  0004000
-#define L3_D1100 0007777
-#define L4_D1512 0000017
+#define L0_A1100 07777
+#define L1_A2112 01777
+#define L2_AD18  00002
+#define L2_AD16  00004
+#define L2_KERN  00020
+#define L2_USER  00100
+#define L2_RUN   01000
+#define L2_AERR  02000
+#define L2_PERR  04000
+#define L3_D1100 07777
+#define L4_D1512 00017
+#define L4_ADCP  01000
+#define L4_DADP  02000
+#define L5_ADUI  00100
+#define L5_ADKI  00400
+#define L5_ADPP  01000
+#define L5_DADR  04000
 
-#define R0_SR1100 0007777
-#define R1_SR2112 0001777
-#define R2_TEST_  0000001
-#define R2_LDAD   0000002
-#define R2_EXAM   0000004
-#define R2_DEP    0000010
-#define R2_CONT   0000020
-#define R2_HALT   0000040
-#define R2_STRT   0000200
+#define R0_SR1100 07777
+#define R1_SR2112 01777
+#define R1_ADSW   02000
+#define R1_DASW   04000
+#define R2_TEST_  00001
+#define R2_LDAD   00002
+#define R2_EXAM   00004
+#define R2_DEP    00010
+#define R2_CONT   00020
+#define R2_HALT   00040
+#define R2_STRT   00200
+#define R2_ADRA   00400
+#define R2_ADRB   01000
+#define R2_DARA   02000
+#define R2_DARB   04000
 
 #define BB(m) (m & - m)
 
@@ -106,6 +147,19 @@
 #define GPIO_PUD_UP   2
 
 #define PIDPUDPPORT 5826
+
+enum AddrSw {
+    CONSPHY = 0,
+    USERINS = 1,
+    KERNINS = 2,
+    ADSWMAX = 3
+};
+
+enum DataSw {
+    DATAPTH = 0,
+    DISPREG = 1,
+    DASWMAX = 2
+};
 
 struct PiDPUDPPkt {
     uint64_t seq;
@@ -127,7 +181,9 @@ static uint32_t const rowbits[] = { 1U << ROW0, 1U << ROW1, 1U << ROW2 };
 static void client (int argc, char **argv);
 static void *gpiothd (void *dummy);
 static void writeleds (uint32_t volatile *gpiopage, uint16_t *leds);
+
 static void server ();
+static uint32_t didldaddr (uint32_t loadedaddr, AddrSw addrsw, uint16_t *leds2);
 
 static int openclientsocket (struct sockaddr_in *cliaddr);
 static int openserversocket (struct sockaddr_in *svraddr);
@@ -145,7 +201,7 @@ int main (int argc, char **argv)
 // run on raspi plugged into pidp-11 panel
 //  pidp client [ -test | <serveraddr> ]
 static int clientseq;
-static uint16_t ledrows[5];
+static uint16_t ledrows[6];
 static uint16_t swtrows[3];
 static void client (int argc, char **argv)
 {
@@ -345,17 +401,23 @@ static void server ()
     uint32_t volatile *pdpat = z11page->findev ("11", NULL, NULL, false);
     uint32_t volatile *kyat  = z11page->findev ("KY", NULL, NULL, false);
 
+    AddrSw   addrsw     = CONSPHY;  // load address type
     bool     lastdep    = false;    // increment address before deposit
     bool     lastexam   = false;    // increment address before examine
-    int      testled    = 0;        // which led is being tested with lamp test switch
+    bool     progphy    = false;    // showing physical address
+    DataSw   datasw     = DATAPTH;  // data display select
+    int      ignorerot  = 0;        // ignore rotary switches for this many cycles
     int      oldrown    = 0;        // debounce switch index
+    int      testled    = 0;        // which led is being tested with lamp test switch
     uint16_t leds2      = 0;        // status leds
     uint16_t memorydata = 0;        // data display leds
+    uint32_t ldphysaddr = 0;        // equivalent physical address
     uint32_t loadedaddr = 0;        // address display leds
     uint64_t recvseq    = 0;        // filter out duplicate udp receives
 
-    uint16_t lastrow2 = 0;
-    uint16_t oldrow2s[4];
+#define NOLDROWS 4                  // number of old readings to save for debouncing
+    uint16_t oldrow1s[NOLDROWS], oldrow2s[NOLDROWS];
+    memset (oldrow1s, 0, sizeof oldrow1s);
     memset (oldrow2s, 0, sizeof oldrow2s);
 
     while (true) {
@@ -377,35 +439,57 @@ static void server ()
         } while (pidpmsg.seq <= recvseq);
         recvseq = pidpmsg.seq;
 
-        // debounce momentary switches and detect positive edges
-        uint16_t posedge2 = ~ lastrow2;
-        oldrow2s[oldrown] = pidpmsg.rows[2];
-        for (int j = 0; j < 4; j ++) {
-            pidpmsg.rows[2] &= oldrow2s[j];
-        }
-        lastrow2  = pidpmsg.rows[2];
-        posedge2 &= lastrow2;
-        if (++ oldrown == 4) oldrown = 0;
-
         // get switch register
         uint32_t sr = (((pidpmsg.rows[1] & R1_SR2112) / BB(R1_SR2112)) << 12) |
                        ((pidpmsg.rows[0] & R0_SR1100) / BB(R0_SR1100));
 
+        // debounce momentary switches and detect positive edges
+        oldrow1s[oldrown] = pidpmsg.rows[1];
+        oldrow2s[oldrown] = pidpmsg.rows[2];
+        if (++ oldrown == NOLDROWS) oldrown = 0;
+        uint16_t posedge1 = ~ oldrow1s[oldrown];
+        uint16_t posedge2 = ~ oldrow2s[oldrown];
+        for (int j = oldrown; (j = (j + 1) % NOLDROWS) != oldrown;) {
+            posedge1 &= oldrow1s[j];
+            posedge2 &= oldrow2s[j];
+        }
+
+        // posedge on ADSW toggles progphy mode
+        if (posedge1 & R1_ADSW) progphy = ! progphy;
+
+        if (ignorerot == 0) {
+
+            // pos edge on ADRA means increment addrsw; ADRB means decrement
+            // get sequences like AAB, AAAABAABA when rotating left
+            // get sequences like BAA, BBAABBAAB when rotating right
+            if (posedge2 & R2_ADRA) addrsw = (AddrSw) ((addrsw + 1) % ADSWMAX);
+            if (posedge2 & R2_ADRB) addrsw = (AddrSw) ((addrsw - 1) % ADSWMAX);
+
+            // likewise with DARA, DARB
+            if (posedge2 & R2_DARA) datasw = (DataSw) ((datasw + 1) % DASWMAX);
+            if (posedge2 & R2_DARB) datasw = (DataSw) ((datasw - 1) % DASWMAX);
+        }
+
+        // ignore any redundant edges
+        if (posedge2 & (R2_ADRA | R2_ADRB | R2_DARA | R2_DARB)) ignorerot = NOLDROWS * 2;
+        else if (ignorerot != 0) -- ignorerot;
+
         // make sure some other use of snapregs() isn't messing with KY registers
         z11page->dmalock ();
 
-        // SR<21> has to be set to override SR<17:00>
+        // set the 777570 register switches if SR<21> is set
         if (sr & 010000000) {
             ZWR(kyat[1], (ZRD(kyat[1]) & ~ KY_SWITCHES) | (sr * BB(KY_SWITCHES) & KY_SWITCHES));
             ZWR(kyat[2], (ZRD(kyat[2]) & ~ KY2_SR1716) | ((sr >> 16) * BB(KY2_SR1716) & KY2_SR1716));
         }
 
         // if HALT switch set, set the KY_HALTREQ line
-        if (lastrow2 & R2_HALT) {
+        if (pidpmsg.rows[2] & R2_HALT) {
             ZWR(kyat[2], ZRD(kyat[2]) | KY2_HALTREQ);
         }
 
         // momentaries work only when processor halted
+        uint32_t fpgamode = (ZRD(pdpat[Z_RA]) & a_fpgamode) / BB(a_fpgamode);
         bool running = ! (ZRD(kyat[2]) & KY2_HALTED);
         if (running) {
 
@@ -413,7 +497,7 @@ static void server ()
             // also clear any loadaddress/examine/deposit context
             loadedaddr = (ZRD(pdpat[Z_RK]) & k_lataddr) / BB(k_lataddr);
             memorydata = (ZRD(pdpat[Z_RL]) & l_latdata) / BB(l_latdata);
-            uint32_t fpgamode = (ZRD(pdpat[Z_RA]) & a_fpgamode) / BB(a_fpgamode);
+            ldphysaddr = loadedaddr;
             if (fpgamode == FM_REAL) {
                 uint16_t r0;
                 if (z11page->snapregs (0777700, 0, &r0) > 0) memorydata = r0;
@@ -427,43 +511,53 @@ static void server ()
             // if newly halted, get PC and R0 for address and data
             if (leds2 & L2_RUN) {
                 leds2 &= ~ L2_RUN;
-                uint16_t pc, r0;
-                loadedaddr = (z11page->dmareadlocked (0777707, &pc) == 0) ? pc : 0177777;
+                uint16_t pc, ps, r0;
+                addrsw = CONSPHY;
+                if (z11page->dmareadlocked (0777776, &ps) == 0) {
+                    if ((ps & 0140000) == 0000000) addrsw = KERNINS;
+                    if ((ps & 0140000) == 0140000) addrsw = USERINS;
+                }
+                loadedaddr = (z11page->dmareadlocked (0777707, &pc) == 0) ? pc : 0777777;
                 memorydata = (z11page->dmareadlocked (0777700, &r0) == 0) ? r0 : 0177777;
+                ldphysaddr = (loadedaddr == 0777777) ? 0777777 : didldaddr (loadedaddr, addrsw, &leds2);
             }
 
             // load address, examine, deposit
             if (posedge2 & R2_LDAD) {
                 loadedaddr = sr & 0777777;
                 if ((loadedaddr < 0777700) || (loadedaddr > 0777717)) loadedaddr &= -2;
+                ldphysaddr = didldaddr (loadedaddr, addrsw, &leds2);
                 memorydata = 0;
-                leds2   &= ~ (L2_AERR | L2_PERR);
                 lastdep  = false;
                 lastexam = false;
             }
             if (posedge2 & R2_EXAM) {
-                uint32_t addrinc = ((loadedaddr < 0777700) || (loadedaddr > 0777717)) ? 2 : 1;
+                uint32_t addrinc = ((ldphysaddr < 0777700) || (ldphysaddr > 0777717)) ? 2 : 1;
                 if (lastexam) loadedaddr = (loadedaddr + addrinc) & 0777777;
-                uint32_t rc = z11page->dmareadlocked (loadedaddr, &memorydata);
-                leds2   &= ~ (L2_AERR | L2_PERR);
-                if (rc & KY3_DMATIMO) leds2 |= L2_AERR;
-                if (rc & KY3_DMAPERR) leds2 |= L2_PERR;
+                ldphysaddr = didldaddr (loadedaddr, addrsw, &leds2);
+                if (! (leds2 & L2_AERR)) {
+                    uint32_t rc = z11page->dmareadlocked (ldphysaddr, &memorydata);
+                    if (rc & KY3_DMATIMO) leds2 |= L2_AERR;
+                    if (rc & KY3_DMAPERR) leds2 |= L2_PERR;
+                }
                 lastdep  = false;
                 lastexam = true;
             }
             if (posedge2 & R2_DEP) {
                 memorydata = sr;
-                uint32_t addrinc = ((loadedaddr < 0777700) || (loadedaddr > 0777717)) ? 2 : 1;
+                uint32_t addrinc = ((ldphysaddr < 0777700) || (ldphysaddr > 0777717)) ? 2 : 1;
                 if (lastdep) loadedaddr = (loadedaddr + addrinc) & 0777777;
-                leds2   &= ~ (L2_AERR | L2_PERR);
-                if (! z11page->dmawritelocked (loadedaddr, memorydata)) leds2 |= L2_AERR;
+                ldphysaddr = didldaddr (loadedaddr, addrsw, &leds2);
+                if (! (leds2 & L2_AERR)) {
+                    if (! z11page->dmawritelocked (ldphysaddr, memorydata)) leds2 |= L2_AERR;
+                }
                 lastdep  = true;
                 lastexam = false;
             }
 
             // posedge CONT : single step or resume processing
             if (posedge2 & R2_CONT) {
-                if (lastrow2 & R2_HALT) {
+                if (pidpmsg.rows[2] & R2_HALT) {
                     // halt switch on - step single instruction
                     z11page->dmaunlk ();
                     z11page->stepreq ();
@@ -477,10 +571,10 @@ static void server ()
                 } else {
                     // halt switch off - clear halt request line
                     ZWR(kyat[2], ZRD(kyat[2]) & ~ KY2_HALTREQ);
-                    leds2   &= ~ (L2_AERR | L2_PERR);
-                    lastdep  = false;
-                    lastexam = false;
                 }
+                leds2   &= ~ (L2_AERR | L2_PERR);
+                lastdep  = false;
+                lastexam = false;
             }
 
             // posedge START : reset processor, load program counter, clear KY2_HALTREQ line
@@ -496,7 +590,7 @@ static void server ()
                 leds2   &= ~ (L2_AERR | L2_PERR);
                 lastdep  = false;
                 lastexam = false;
-                if (! (lastrow2 & R2_HALT)) {
+                if (! (pidpmsg.rows[2] & R2_HALT)) {
                     uint16_t newps = 0340;
                     if (! z11page->dmawritelocked (0777707, loadedaddr)) {
                         memorydata = loadedaddr;
@@ -529,7 +623,7 @@ static void server ()
         z11page->dmaunlk ();
 
         // fill in leds from fpga state
-        if (false && ! (lastrow2 & R2_TEST_)) {
+        if (! (pidpmsg.rows[2] & R2_TEST_)) {
             pidpmsg.leds[0] = ((testled >=  0) && (testled < 12)) ? (1U <<  testled)       : 0;
             pidpmsg.leds[1] = ((testled >= 12) && (testled < 22)) ? (1U << (testled - 12)) : 0;
             pidpmsg.leds[2] = ((testled >= 22) && (testled < 34)) ? (1U << (testled - 22)) : 0;
@@ -538,12 +632,27 @@ static void server ()
             pidpmsg.leds[5] = ((testled >= 58) && (testled < 64)) ? (1U << (testled - 52)) : 0;
             if (++testled == 64) testled = 0;
         } else {
-            pidpmsg.leds[0] =  (loadedaddr        * BB(L0_A1100)) & L0_A1100;
-            pidpmsg.leds[1] = ((loadedaddr >> 12) * BB(L1_A2112)) & L1_A2112;
+            uint16_t data  = 0;
+            uint16_t leds4 = 0;
+            uint16_t leds5 = 0;
+
+            if (addrsw == CONSPHY) leds4 |= L4_ADCP;
+            if (addrsw == USERINS) leds5 |= L5_ADUI;
+            if (addrsw == KERNINS) leds5 |= L5_ADKI;
+            if (progphy)           leds5 |= L5_ADPP;
+            if (datasw == DATAPTH) { leds4 |= L4_DADP; data = memorydata; }
+            if (datasw == DISPREG) { leds5 |= L5_DADR; data = (ZRD(kyat[1]) & KY_LIGHTS) / (KY_LIGHTS & - KY_LIGHTS); }
+
+            leds4 |= ((data >> 12) * BB(L4_D1512)) & L4_D1512;
+
+            uint32_t addr = ((progphy ? ldphysaddr : loadedaddr) & 0777777) | (fpgamode << 20);
+
+            pidpmsg.leds[0] =  (addr        * BB(L0_A1100)) & L0_A1100;
+            pidpmsg.leds[1] = ((addr >> 12) * BB(L1_A2112)) & L1_A2112;
             pidpmsg.leds[2] = leds2;
-            pidpmsg.leds[3] =  (memorydata        * BB(L3_D1100)) & L3_D1100;
-            pidpmsg.leds[4] = ((memorydata >> 12) * BB(L4_D1512)) & L4_D1512;
-            pidpmsg.leds[5] = 0;
+            pidpmsg.leds[3] =  (data        * BB(L3_D1100)) & L3_D1100;
+            pidpmsg.leds[4] = leds4;
+            pidpmsg.leds[5] = leds5;
         }
 
         // send leds to client
@@ -558,6 +667,62 @@ static void server ()
         }
     }
 }
+
+// loaded a possibly virtual address
+// calculate corresponding physical address
+static uint32_t didldaddr (uint32_t loadedaddr, AddrSw addrsw, uint16_t *leds2)
+{
+    *leds2 &= ~ (L2_AERR | L2_PERR);
+
+    // if physical mode, return address as is
+    // otherwise, get base address of mmr registers for selected mode
+    uint32_t mmrbase;
+    switch (addrsw) {
+        case CONSPHY: return loadedaddr & 0777777;
+        case KERNINS: mmrbase = 0772300; break;
+        case USERINS: mmrbase = 0777600; break;
+        default: ABORT ();
+    }
+
+    // split virtual address into page and block numbers
+    loadedaddr &= 0177777;
+    uint32_t page = loadedaddr >> 13;
+    uint32_t blok = (loadedaddr >> 6) & 0177;
+
+    // see if mmu is enabled, use address as is if not except extend io page address bits
+    uint16_t mmr0, par, pdr, plf;
+    if (z11page->dmareadlocked (0777572, &mmr0) != 0) goto aerr;
+    if (! (mmr0 & 1)) {
+        if ((loadedaddr & 0160000) == 0160000) loadedaddr |= 0760000;
+        return loadedaddr;
+    }
+
+    // mmu enabled, read page descriptor register
+    // error out if page marked no access
+    if (z11page->dmareadlocked (mmrbase + 000 + page * 2, &pdr) != 0) goto aerr;
+    if (! (pdr & 2)) goto aerr;
+
+    // error out if page length field does not cover accessed block
+    plf = (pdr >> 8) & 0177;
+    if (pdr & 8) {
+        if (blok < plf) goto aerr;
+    } else {
+        if (blok > plf) goto aerr;
+    }
+
+    // read page address register then add to virt address to get phys address
+    if (z11page->dmareadlocked (mmrbase + 040 + page * 2, &par) != 0) goto aerr;
+    return (((uint32_t) par & 07777) << 6) + (loadedaddr & 0017777);
+
+    // some error converting, set ADDR ERR light
+aerr:;
+    *leds2 |= L2_AERR;
+    return 0;
+}
+
+/////////////////
+//  UTILITIES  //
+/////////////////
 
 static int openclientsocket (struct sockaddr_in *cliaddr)
 {
