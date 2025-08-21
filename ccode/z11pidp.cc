@@ -58,10 +58,12 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -406,6 +408,7 @@ static void server ()
     bool     lastexam   = false;    // increment address before examine
     bool     progphy    = false;    // showing physical address
     DataSw   datasw     = DATAPTH;  // data display select
+    int      bootpid    = -1;       // boot process id
     int      ignorerot  = 0;        // ignore rotary switches for this many cycles
     int      oldrown    = 0;        // debounce switch index
     int      testled    = 0;        // which led is being tested with lamp test switch
@@ -456,6 +459,31 @@ static void server ()
 
         // posedge on ADSW toggles progphy mode
         if (posedge1 & R1_ADSW) progphy = ! progphy;
+
+        // posedge on DASW spawns boot script
+        if (posedge1 & R1_DASW) {
+            char *env = getenv ("bootscript");
+            if (env == NULL) {
+                fprintf (stderr, "bootscript envar not defined\n");
+            } else {
+                if ((bootpid > 0) && (waitpid (bootpid, NULL, WNOHANG) == 0)) {
+                    if (kill (bootpid, SIGKILL) >= 0) waitpid (bootpid, NULL, 0);
+                }
+                bootpid = fork ();
+                if (bootpid < 0) {
+                    fprintf (stderr, "error forking boot process: %m\n");
+                } else if (bootpid == 0) {
+                    char swregstr[14], ldadrstr[14];
+                    sprintf (swregstr, "%u", sr);
+                    sprintf (ldadrstr, "%u", loadedaddr);
+                    char pidp[] = "pidp";
+                    char *args[] = { env, swregstr, ldadrstr, pidp, NULL };
+                    execvp (env, args);
+                    fprintf (stderr, "error execing boot script %s: %m\n", env);
+                    exit (255);
+                }
+            }
+        }
 
         if (ignorerot == 0) {
 

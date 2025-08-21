@@ -924,7 +924,7 @@ public class Z11GUI extends JPanel {
                         // start running guiboot.sh script
                         String ccode = System.getProperty ("ccode");
                         ProcessBuilder pb = new ProcessBuilder (ccode + "/guiboot.sh",
-                                Integer.toString (switches), Integer.toString (loadedaddress));
+                                Integer.toString (switches), Integer.toString (loadedaddress), "gui");
                         pb.redirectErrorStream (true);  // "2>&1"
                         bootprocess = pb.start ();
 
