@@ -201,7 +201,10 @@ module ky11 (
         // is to reset with ACLO/DCLO.  we detect this condition as the processor
         // is the only thing on the bus, other than us, that will assert HLTRQ.
         if (~ hltrq_in_h) haltins <= 0;                     // if Unibus HLTRQ is negated, then HALT instr not in IR
-        else if (hltld_in_h & ~ hltrq_out_h) haltins <= 1;  // Unibus HLTRQ is asserted, HALT instr if we aren't requesting halt
+        else if (hltld_in_h & ~ hltrq_out_h) begin          // Unibus HLTRQ is asserted, HALT instr if we aren't requesting halt
+            haltins <= 1;
+            haltreq <= 1;
+        end
 
         // halt the processor
         // the processor gets confused with HLTRQ and DCLO at same time
@@ -222,7 +225,10 @@ module ky11 (
 
             // when processor grants halt (HLTGR asserted), assert SACK
             1: begin
-                if (~ hltgr_in_l) begin
+                if (~ haltreq) begin
+                    haltstate   <= 0;
+                    sack_out_h  <= 0;
+                end else if (~ hltgr_in_l) begin
                     haltstate   <= 2;
                     sack_out_h  <= 1;
                 end
@@ -230,7 +236,10 @@ module ky11 (
 
             // when SACK loops back through transistors, negate HLTRQ
             2: begin
-                if (sack_in_h) begin
+                if (~ haltreq) begin
+                    haltstate   <= 0;
+                    sack_out_h  <= 0;
+                end else if (sack_in_h) begin
                     haltstate   <= 3;
                     hltrq_out_h <= 0;
                 end

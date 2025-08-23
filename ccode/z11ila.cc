@@ -33,7 +33,7 @@
 #include "z11defs.h"
 #include "z11util.h"
 
-#define AFTER 8000  // number of samples to take after sample containing trigger
+#define AFTER 7000  // number of samples to take after sample containing trigger
 
 static bool volatile ctrlcflag;
 
@@ -43,15 +43,17 @@ int main (int argc, char **argv)
 {
     setlinebuf (stdout);
 
+    int after = -1;
     bool asisflag = false;
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
             puts ("  arm then dump zynq.v ilaarray when triggered");
             puts ("");
-            puts ("    ./z11ila [-asis]");
+            puts ("    ./z11ila [-asis] <after>");
             puts ("");
             puts ("      -asis = don't arm and wait, just dump as is");
+            puts ("    <after> = number of samples to take after sample containing trigger");
             puts ("");
             return 0;
         }
@@ -59,7 +61,22 @@ int main (int argc, char **argv)
             asisflag = true;
             continue;
         }
-        fprintf (stderr, "unknown argument %s\n", argv[i]);
+        if (argv[i][0] == '-') {
+            fprintf (stderr, "unknown option %s\n", argv[i]);
+            return 1;
+        }
+        if (after >= 0) {
+            fprintf (stderr, "unknown argument %s\n", argv[i]);
+            return 1;
+        }
+        after = atoi (argv[i]);
+        if ((after < 1) || (after > 8191)) {
+            fprintf (stderr, "<after> %d must be in range 1..8191\n", after);
+            return 1;
+        }
+    }
+    if (after < 0) {
+        fprintf (stderr, "missing <after> argument\n");
         return 1;
     }
 
@@ -73,7 +90,7 @@ int main (int argc, char **argv)
 
         // tell zynq.v to start collecting samples
         // tell it to stop when collected trigger sample plus AFTER thereafter
-        ZWR(pdpat[ILACTL], ILACTL_ARMED | AFTER * ILACTL_AFTER0);
+        ZWR(pdpat[ILACTL], ILACTL_ARMED | after * ILACTL_AFTER0);
         printf ("armed\n");
 
         if (signal (SIGINT,  siginthand) == SIG_ERR) ABORT ();
@@ -94,7 +111,7 @@ int main (int argc, char **argv)
     // get limits of entries to print
     uint32_t earliestentry = (ctl & ILACTL_OFLOW) ? (ctl & ILACTL_INDEX) / ILACTL_INDEX0 : 0;
     uint32_t numfilledentries = (ctl & ILACTL_OFLOW) ? ILACTL_DEPTH : (ctl & ILACTL_INDEX) / ILACTL_INDEX0;
-    uint32_t numaftertrigger = AFTER - (ctl & ILACTL_AFTER) / ILACTL_AFTER0;
+    uint32_t numaftertrigger = after - (ctl & ILACTL_AFTER) / ILACTL_AFTER0;
     printf ("ctl=%08X  earliestentry=%u  numfilledentries=%u  numaftertrigger=%u\n", ctl, earliestentry, numfilledentries, numaftertrigger);
 
     // loop through entries in the array
@@ -105,8 +122,13 @@ int main (int argc, char **argv)
         ZWR(pdpat[ILACTL], index * ILACTL_INDEX0);
         uint64_t thisentry = ((uint64_t) ZRD(pdpat[ILADAT+1]) << 32) | ZRD(pdpat[ILADAT+0]);
 
-        printf ("[%5u]  %02u  %06o %02o %02o %o %06o  %o %o %o %o\n",
+        printf ("[%5u]  %o %o %o %o  %02u  %06o %02o %02o %o %06o  %o %o %o %o\n",
             i,                                      // 10nS per tick
+
+            (unsigned) (thisentry >> 63) & 1,
+            (unsigned) (thisentry >> 62) & 1,
+            (unsigned) (thisentry >> 61) & 1,
+            (unsigned) (thisentry >> 60) & 1,
 
             (unsigned) (thisentry >> 48) & 077,     // sim state
 

@@ -502,7 +502,7 @@ static void server ()
         if (posedge2 & (R2_ADRA | R2_ADRB | R2_DARA | R2_DARB)) ignorerot = NOLDROWS * 2;
         else if (ignorerot != 0) -- ignorerot;
 
-        // make sure some other use of snapregs() isn't messing with KY registers
+        // make sure some use of snapregs() or dma won't messing with KY registers whilst we are in here
         z11page->dmalock ();
 
         // set the 777570 register switches if SR<21> is set
@@ -610,11 +610,6 @@ static void server ()
                 z11page->dmaunlk ();
                 z11page->resetit ();
                 z11page->dmalock ();
-                {
-                    uint16_t pc, ps;
-                    if (z11page->dmareadlocked (0777707, &pc) != 0) pc = 0177777;
-                    if (z11page->dmareadlocked (0777776, &ps) != 0) ps = 0177777;
-                }
                 leds2   &= ~ (L2_AERR | L2_PERR);
                 lastdep  = false;
                 lastexam = false;
@@ -638,14 +633,20 @@ static void server ()
         leds2 &= ~ (L2_AD18 | L2_AD16 | L2_KERN | L2_USER);
 
         uint16_t mmr0;
-        if (z11page->snapregs (0777572, 0, &mmr0) > 0) {
+        int rcmmr0 = z11page->snapregs (0777572, 0, &mmr0);
+        if (rcmmr0 > 0) {
             leds2 |= (mmr0 & 1) ? L2_AD18 : L2_AD16;
+        } else {
+            fprintf (stderr, "z11pidp*: rcmmr0=%d.%d\n", rcmmr0 >> 16, rcmmr0 & 0xFFFF);
         }
 
         uint16_t ps;
-        if (z11page->snapregs (0777776, 0, &ps) > 0) {
+        int rcps = z11page->snapregs (0777776, 0, &ps);
+        if (rcps > 0) {
             if ((ps & 0140000) == 0000000) leds2 |= L2_KERN;
             if ((ps & 0140000) == 0140000) leds2 |= L2_USER;
+        } else {
+            fprintf (stderr, "z11pidp*: rcps=%d.%d\n", rcps >> 16, rcps & 0xFFFF);
         }
 
         z11page->dmaunlk ();

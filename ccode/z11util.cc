@@ -345,6 +345,11 @@ void Z11Page::dmaunlk ()
     dmalocked = false;
 }
 
+void Z11Page::dmacheck (bool locked)
+{
+    ASSERT (dmalocked == locked);
+}
+
 // wait for interrupt(s) given in mask
 // checks for bit(s) set in regarmintreq
 // if not already set,
@@ -389,9 +394,9 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
 
     // see if already requesting halt
     // if so, set up to restore when snapshot completes
-    uint32_t ky2 = ZRD(kyat[2]);
+    uint32_t oldky2 = ZRD(kyat[2]);
 
-    ky2 = (ky2 & (KY2_ENABLE | KY2_SR1716)) | ((ky2 & KY2_HALTREQ) ? KY2_SNAPHLT : 0);
+    uint32_t ky2 = (oldky2 & (KY2_ENABLE | KY2_SR1716)) | ((oldky2 & KY2_HALTREQ) ? KY2_SNAPHLT : 0);
 
     // tell ky11.v to do the snapshot
     // it halts the processor, does dma requests to read registers, resumes processor
@@ -401,7 +406,10 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
     // wait for snapshot to complete, should be 15-20uS
     for (int i = 0; ((ky2 = ZRD(kyat[2])) & KY2_SNAPREQ) != 0; i ++) {
         if (i > 100000) {
-            dmaunlk ();
+            if (! (oldky2 & KY2_HALTREQ)) {
+                ZWR(kyat[2], ky2 & (KY2_ENABLE | KY2_SR1716));
+            }
+            if (! waslocked) dmaunlk ();
             return -2 << 16;
         }
     }

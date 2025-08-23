@@ -35,6 +35,7 @@
 	.word	trap10,0340	; ill instr
 	.word	trap14,0340	; bpt/trace
 	.word	trap20,0340	; iot (prchar)
+	.word	start,0340	; power up
 
 	. = ZZ + 400
 
@@ -43,25 +44,71 @@ start:
 	mov	#stktop,sp
 
 	jsr	r5,prascz
-		.asciz	"starting..."<15><12>
+		.asciz	<15><12>"starting..."<15><12>
 
-	mov	#160000,r5
+	mov	#160000+40,r5
+	clr	r2
+loopln:
+	clr	r4
 loop:
 	clc
-	mov	@r5,r4	; trap 4 sets carry
-error:			; ...when return pc = #error
-	bcs	next
-	mov	r5,r1	; something is there, print its address
-	jsr	pc,proct6
-	mov	#40,r0
+	mov	-(r5),r1	; trap 4 sets carry
+error:				; ...when return pc = #error
+	bcc	hit
+	tst	r4		; miss, see if had a hit earlier on this line
+	bmi	prmiss
+	inc	r4		; just misses, we got one more miss on the line
+	br	next		; check out next location on the line
+hit:
+	dec	r4		; hit, see if any dashes to print before the hit
+	bmi	prhit
+	jsr	pc,dashes
+	br	hit
+prhit:
+	mov	#40,r0		; print space and value for the hit
 	iot
-	mov	r4,r1	; print what was read from the address
+	jsr	pc,proct6
+	inc	r2
+	br	next
+prmiss:
+	jsr	pc,dashes	; miss after an hit, print dashes
+next:
+	bit	#37,r5
+	bne	loop		; check out next word in line
+	tst	r4		; end of line, see if there were any hits
+	bpl	blnkln		; if not, check out next line
+	mov	#40,r0		; had some hits, print spaces
+	iot
+	iot
+	mov	r5,r1		; print address
 	jsr	pc,proct6
 	jsr	pc,prcrlf
-next:
-	add	#2,r5
-	bne	loop
+	br	nextln
+blnkln:
+	tst	r2		; whole line of misses, if previous line had hits, output a blank line
+	beq	nextln
+	jsr	pc,prcrlf
+	clr	r2
+nextln:
+	add	#100,r5		; on to next line
+	ble	loopln
+
+	jsr	r5,prascz
+		.asciz	"all done"<15><12>
+		.even
+	clr	@#177570
 	halt
+	nop
+	nop
+	nop
+	br	.
+
+
+dashes:
+	jsr	r5,prascz
+		.asciz	" ------"
+		.even
+	rts	pc
 
 trap04:
 	cmp	@sp,#error
@@ -75,7 +122,7 @@ trap10:
 	mov	#10,-(sp)
 trapxx:
 	jsr	r5,prascz
-		.asciz	<15><12>"trap"
+		.asciz	<15><12>"trap "
 		.even
 	mov	(sp)+,r1
 	jsr	pc,proct6

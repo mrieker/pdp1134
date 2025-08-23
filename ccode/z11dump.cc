@@ -234,6 +234,8 @@ int main (int argc, char **argv)
                 if ((idch1 == 'K') && (idch2 == 'Y')) {
                     printf ("                    haltreq=%o halted=%o stepreq=%u haltstate=%o haltins=%o%s",
                         FIELD(i+2,KY2_HALTREQ), FIELD(i+2,KY2_HALTED), FIELD(i+2,KY2_STEPREQ), FIELD(i+2,KY2_HALTSTATE), FIELD(i+2,KY2_HALTINS), eol);
+                    printf ("                    dmastate=%o dmatimo=%o dmaperr=%o snapreq=%o snaphlt=%o%s",
+                        FIELD(i+3,KY3_DMASTATE), FIELD(i+3,KY3_DMATIMO), FIELD(i+3,KY3_DMAPERR), FIELD(i+2,KY2_SNAPREQ), FIELD(i+2,KY2_SNAPHLT), eol);
                 }
                 if ((idver & 0xF000U) == 0x3000U) {
                     printf ("%sVERSION=%08X %c%c %08X %08X %08X %08X %08X %08X %08X%s", eol, idver, idch1, idch2,
