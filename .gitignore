@@ -1,5 +1,6 @@
 *~
 *.a
+*.aarch64
 *.armv6l
 *.armv7l
 *-backups

@@ -6,13 +6,13 @@
 proc probedevsandmem {} {
 
     enablerealdma                   ;# make sure we can read & write unibus
-    pin set dz_enable 0             ;# disable zynq DZ-11
+    pin set dz_enable 0             ;# disable zynq DZ-11 (dz11.v)
     if {[rdwordtimo 0760100] < 0} { ;# check for real DZ-11
         pin set dz_addres 0760100   ;# if not, enable zynq DZ-11
         pin set dz_intvec 0300
         pin set dz_enable 1
     }
-    pin set dl_enable 0             ;# disable zynq tty
+    pin set dl_enable 0             ;# disable zynq tty (dl11.v)
     if {[rdwordtimo 0777560] < 0} { ;# see if real tty exists
         pin set dl_enable 1         ;# if not, enable zynq tty
     }
@@ -40,7 +40,7 @@ proc probedevsandmem {} {
     if {[rdwordtimo 0774510] < 0} {
         pin set xe_enable 1
     }
-    pin set bm_enablo 0 bm_enabhi 0 ;# same with main mem
+    pin set bm_enablo 0 bm_enabhi 0 ;# same with main mem (bigmem.v)
     set mem 0                       ;# except probe page-by-page
     for {set i 0} {$i < 62} {incr i} {
         set a [expr {$i << 12}]
@@ -49,6 +49,16 @@ proc probedevsandmem {} {
         }
     }
     pin set bm_enablo [expr {$mem & 0xFFFFFFFF}] bm_enabhi [expr {$mem >> 32}]
+    pin set bm_ctlenab 0                            ;# disable bigmem.v parity controller
+    if {$mem != 0} {                                ;# see if any bigmem.v memory in use
+        for {set i 0} {$i < 16} {incr i} {          ;# search for unused slot
+            set a [expr {0772100 + 2 * $i}]         ;# 772100..772136
+            if {[rdwordtimo $a] < 0} {
+                pin set bm_ctladdr $i bm_ctlenab 1  ;# set address and enable
+                break
+            }
+        }
+    }
     startdaemons
 }
 
