@@ -139,7 +139,7 @@ static void *rliothread (void *dummy)
 
     while (true) {
 
-        // wait for pdp to clear rlcsr[07]
+        // wait for pdp to clear rlcs[07]
         z11p->waitint (ZGINT_RL);
 
         // block disk from being unloaded from under us
@@ -258,6 +258,7 @@ static void *rliothread (void *dummy)
                 }
 
                 // SEEK
+                // fpga (rl11.v) has already cleared drive ready (RLCS<00>)
                 case 3: {
                     if (fd < 0) goto opierr;
 

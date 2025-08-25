@@ -57,7 +57,7 @@ module rl11
 
     assign rlcs = { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 };
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2005 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h524C2006 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rlba,  rlcs  } :
                       (armraddr == 2) ? { rlmp1, rlda  } :
                       (armraddr == 3) ? { rlmp3, rlmp2 } :
@@ -156,12 +156,17 @@ module rl11
 
                                 // clear error bits if starting any command
                                 // this allows rlcs[15] to clear immediately
-                                if (~ d_in_h[07]) rlcs_1301[13:10] <= 0;
+                                rlcs_1301[13:10] <= 0;
 
                                 // clear drive error bit immediately if GET STATUS with RESET bit
                                 // this allows rlcs[15] to clear immediately
                                 if ((d_in_h[03:01] == 3'b010) & rlda[03]) begin
                                     driveerrors[d_in_h[09:08]] <= 0;
+                                end
+
+                                // clear drive ready immediately when starting a seek
+                                if (d_in_h[03:01] == 3'b011) begin
+                                    drivereadys[d_in_h[09:08]] <= 0;
                                 end
                             end
                         end
