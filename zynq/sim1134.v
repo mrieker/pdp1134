@@ -66,7 +66,7 @@ module sim1134 (
     localparam[5:0] S_HALT      = 00;
     localparam[5:0] S_HALT2     = 01;
     localparam[5:0] S_FETCH     = 02;
-    localparam[5:0] S_FETCH2    = 03;
+    localparam[5:0] S_FETCH2    = 03;   // disasila.cc
     localparam[5:0] S_DECODE    = 04;
     localparam[5:0] S_EXHALT    = 05;
     localparam[5:0] S_EXWAIT    = 06;
@@ -81,44 +81,48 @@ module sim1134 (
     localparam[5:0] S_WAITDST2  = 15;
     localparam[5:0] S_EXECDD    = 16;
     localparam[5:0] S_EXECDD2   = 17;
-    localparam[5:0] S_EXECJSR   = 18;
-    localparam[5:0] S_EXECRTS   = 19;
-    localparam[5:0] S_EXECRTS2  = 20;
-    localparam[5:0] S_EXRTIT    = 21;
-    localparam[5:0] S_EXRTIT2   = 22;
-    localparam[5:0] S_EXRTIT3   = 23;
-    localparam[5:0] S_EXMUL     = 24;
-    localparam[5:0] S_EXMUL2    = 25;
-    localparam[5:0] S_EXMUL3    = 26;
-    localparam[5:0] S_EXMUL4    = 27;
-    localparam[5:0] S_EXDIV     = 28;
-    localparam[5:0] S_EXDIV3    = 29;
-    localparam[5:0] S_EXDIV5    = 31;
-    localparam[5:0] S_EXDIV6    = 32;
-    localparam[5:0] S_EXMFPI    = 33;
-    localparam[5:0] S_EXMFPI2   = 34;
-    localparam[5:0] S_EXMTPI    = 36;
-    localparam[5:0] S_EXMTPI2   = 37;
-    localparam[5:0] S_SERVICE   = 39;
-    localparam[5:0] S_NPG       = 40;
-    localparam[5:0] S_INTR      = 41;
-    localparam[5:0] S_TRAP      = 44;
-    localparam[5:0] S_TRAP2     = 45;
-    localparam[5:0] S_TRAP3     = 46;
-    localparam[5:0] S_TRAP4     = 47;
-    localparam[5:0] S_TRAP5     = 48;
-    localparam[5:0] S_EXTRAP    = 49;
-    localparam[5:0] S_EXASH     = 50;
-    localparam[5:0] S_EXASH2    = 51;
-    localparam[5:0] S_EXASH3    = 52;
-    localparam[5:0] S_EXASH4    = 53;
-    localparam[5:0] S_EXASHC    = 54;
-    localparam[5:0] S_EXASHC2   = 55;
-    localparam[5:0] S_EXASHC3   = 56;
-    localparam[5:0] S_EXASHC4   = 57;
-    localparam[5:0] S_EXMARK    = 60;
-    localparam[5:0] S_EXCCS     = 61;
-    localparam[5:0] S_EXMARK2   = 63;
+    localparam[5:0] S_EXECDD3   = 18;
+    localparam[5:0] S_EXECJMP   = 19;
+    localparam[5:0] S_EXECJSR   = 20;
+    localparam[5:0] S_EXECJSR2  = 21;
+    localparam[5:0] S_EXECRTS   = 22;
+    localparam[5:0] S_EXECRTS2  = 23;
+    localparam[5:0] S_EXRTIT    = 24;
+    localparam[5:0] S_EXRTIT2   = 25;
+    localparam[5:0] S_EXRTIT3   = 26;
+    localparam[5:0] S_EXMUL     = 27;
+    localparam[5:0] S_EXMUL2    = 28;
+    localparam[5:0] S_EXMUL3    = 29;
+    localparam[5:0] S_EXMUL4    = 30;
+    localparam[5:0] S_EXDIV     = 31;
+    localparam[5:0] S_EXDIV3    = 32;
+    localparam[5:0] S_EXDIV5    = 33;
+    localparam[5:0] S_EXDIV6    = 34;
+    localparam[5:0] S_EXMFPI    = 35;
+    localparam[5:0] S_EXMFPI2   = 36;
+    localparam[5:0] S_EXMFPI3   = 37;
+    localparam[5:0] S_EXMTPI    = 38;
+    localparam[5:0] S_EXMTPI2   = 39;
+    localparam[5:0] S_SERVICE   = 40;
+    localparam[5:0] S_NPG       = 41;
+    localparam[5:0] S_INTR      = 42;
+    localparam[5:0] S_TRAP      = 43;
+    localparam[5:0] S_TRAP2     = 44;   // disasila.cc
+    localparam[5:0] S_TRAP3     = 45;
+    localparam[5:0] S_TRAP4     = 46;
+    localparam[5:0] S_TRAP5     = 47;
+    localparam[5:0] S_EXTRAP    = 48;
+    localparam[5:0] S_EXASH     = 49;
+    localparam[5:0] S_EXASH2    = 50;
+    localparam[5:0] S_EXASH3    = 51;
+    localparam[5:0] S_EXASH4    = 52;
+    localparam[5:0] S_EXASHC    = 53;
+    localparam[5:0] S_EXASHC2   = 54;
+    localparam[5:0] S_EXASHC3   = 55;
+    localparam[5:0] S_EXASHC4   = 56;
+    localparam[5:0] S_EXMARK    = 57;
+    localparam[5:0] S_EXCCS     = 58;
+    localparam[5:0] S_EXMARK2   = 59;
 
     localparam[15:00] YELSTKLIM = 16'o000400;
 
@@ -224,6 +228,7 @@ module sim1134 (
 
     reg[2:0] getopaddr;
     reg[5:0] getopmode;
+    reg[15:00] deferdinc;
     wire[15:00] getopinc = (byteinstr & ~ getopmode[3] & (getopmode[2:1] != 3)) ? 1 : 2;
     wire[3:0]   getgprx  = gprx (psw[15:14], getopmode[2:0]);
 
@@ -251,7 +256,7 @@ module sim1134 (
     reg[31:00] product;
     reg[3:0] counter;
     reg[2:0] intrdelay;
-    reg aclock, haltck, halted, nopushpspc, traceck, trapping, yellowck;
+    reg aclock, doreloc, haltck, halted, nopushpspc, traceck, trapping, yellowck;
 
     localparam[1:0] MF_RD = 1;  // do a DATI cycle
     localparam[1:0] MF_WR = 2;  // do a DATO[B] cycle
@@ -306,6 +311,14 @@ module sim1134 (
 
     wire resetting = RESET | ~ bus_ac_lo_in_l & ~ bus_dc_lo_in_l;
 
+    wire mmpselected = ((~ bus_a_in_l & 18'o777720) == 18'o772300) | ((~ bus_a_in_l & 18'o777720) == 18'o777600);
+    wire mmrselected = (~ bus_a_in_l[17:03] == 15'o77757) & (~ bus_a_in_l[02:01] != 0);
+
+    // mmu trap conditions
+    wire mmutrapnonres = ~ pdrentry[01] | (memmode == 1) | (memmode == 2);
+    wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
+    wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
+
     // processor main loop
     always @(posedge CLOCK) begin
         if (resetting) begin
@@ -355,6 +368,8 @@ module sim1134 (
 
         // read from or write to unibus
         //  input:
+        //   doreloc   = 0: don't do mmu relocation
+        //               1: do mmu relocation
         //   membyte   = 0: word; 1: byte
         //   memfunc   = MF_RD  do a DATI cycle
         //               MF_WR  do a DATO[B] cycle
@@ -382,7 +397,7 @@ module sim1134 (
                     end
 
                     // if mmu enabled, read page registers then check access
-                    else if (mmr0[00]) begin
+                    else if (doreloc) begin
                         parentry   <= mmupars[mmuprxi];
                         pdrentry   <= mmupdrs[mmuprxi];
                         rwstate    <= 1;
@@ -398,39 +413,21 @@ module sim1134 (
                 // check page access
                 1: begin
 
+                    // update low mmr0 bits regardless of fault on this cycle
+                    if (mmropen) begin
+                        mmr0[06:05] <= memmode;
+                        mmr0[03:01] <= virtaddr[15:13];
+                    end
+
                     // access codes 0,2 mean no access to the page
                     // also, we only do kernel and user modes
-                    if (~ pdrentry[01] | (memmode == 1) | (memmode == 2)) begin
-                        if (mmr0[15:13] == 0) begin
-                            mmr0[15]    <= 1;  // abort-non-resident
-                            mmr0[06:05] <= memmode;
-                            mmr0[03:01] <= virtaddr[15:13];
-                        end
-                        memfunc <= 0;
-                        rwstate <= 0;
-                        state   <= S_SERVICE;
-                        trapvec <= T_MMUTRAP;
-                    end
-
                     // check page length violation
-                    else if (pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08])) begin
-                        if (mmr0[15:13] == 0) begin
-                            mmr0[14]    <= 1;  // abort-page-length
-                            mmr0[06:05] <= memmode;
-                            mmr0[03:01] <= virtaddr[15:13];
-                        end
-                        memfunc <= 0;
-                        rwstate <= 0;
-                        state   <= S_SERVICE;
-                        trapvec <= T_MMUTRAP;
-                    end
-
-                    // access codes 1 means read-only access to the page
-                    else if (~ pdrentry[02] & ((memfunc == MF_RM) | (memfunc == MF_WR))) begin
-                        if (mmr0[15:13] == 0) begin
-                            mmr0[13]    <= 1;  // abort-read-only
-                            mmr0[06:05] <= memmode;
-                            mmr0[03:01] <= virtaddr[15:13];
+                    // access code 1 means read-only access to the page
+                    if (mmutrapnonres | mmutrappageln | mmutraprdonly) begin
+                        if (mmropen) begin
+                            mmr0[15] <= mmutrapnonres;  // abort-non-resident
+                            mmr0[14] <= mmutrappageln;  // abort-page-length
+                            mmr0[13] <= mmutraprdonly;  // abort-read-only
                         end
                         memfunc <= 0;
                         rwstate <= 0;
@@ -441,7 +438,6 @@ module sim1134 (
                     // mmu allows access
                     else begin
                         rwstate <= 2;               // continue on doing memory access
-                        if ((memfunc == MF_RM) | (memfunc == MF_WR)) mmupdrs[mmuprxi][06] <= 1;
                     end
 
                     // compute physical address
@@ -502,6 +498,9 @@ module sim1134 (
                             readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
                             readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
                         end
+                        if (doreloc & (memfunc == MF_WR) & ~ mmpselected & ~ mmrselected) begin
+                            mmupdrs[mmuprxi][06] <= 1;
+                        end
                         if (bus_pa_in_l & ~ bus_pb_in_l) begin
                             state      <= S_SERVICE;
                             trapvec    <= T_PARERR;
@@ -544,10 +543,13 @@ module sim1134 (
 
         // get non-register operand address
         //  input:
+        //   deferdinc = 0
         //   getopaddr = 1 : start computing
         //   getopmode = 6-bit operand address mode & register
         //   getopinc  = amount to increment/decrement register by for modes 2,3,4,5
         //  output:
+        //   deferdinc = 0 : no deferred register increment
+        //            else : increment register by this much after memory access succeeds
         //   getopaddr = 0 : address computed
         //   virtaddr  = operand address
         else if (getopaddr != 0) begin
@@ -565,18 +567,20 @@ module sim1134 (
                 2, 3: begin
                     case (getopaddr)
                         1: begin
-                            gprs[getgprx] <= gprs[getgprx] + getopinc;
                             virtaddr      <= gprs[getgprx];
                             if (getopmode[3]) begin
+                                doreloc   <= mmr0[00];
                                 getopaddr <= 2;
                                 membyte   <= 0;
                                 memfunc   <= MF_RD;
                                 memmode   <= psw[15:14];
                             end else begin
+                                deferdinc <= getopinc;
                                 getopaddr <= 0;
                             end
                         end
                         2: begin
+                            gprs[getgprx] <= gprs[getgprx] + getopinc;
                             getopaddr <= 0;
                             virtaddr  <= readdata;
                         end
@@ -591,6 +595,7 @@ module sim1134 (
                             gprs[getgprx] <= gprs[getgprx] - getopinc;
                             virtaddr      <= gprs[getgprx] - getopinc;
                             if (getopmode[3]) begin
+                                doreloc   <= mmr0[00];
                                 getopaddr <= 2;
                                 membyte   <= 0;
                                 memfunc   <= MF_RD;
@@ -610,16 +615,18 @@ module sim1134 (
                 6, 7: begin
                     case (getopaddr)
                         1: begin
+                            doreloc   <= mmr0[00];
                             getopaddr <= 2;
-                            gprs[7]   <= gprs[7] + 2;
                             membyte   <= 0;
                             memfunc   <= MF_RD;
                             memmode   <= psw[15:14];
                             virtaddr  <= gprs[7];
                         end
                         2: begin
-                            virtaddr <= readdata + gprs[getgprx];
+                            gprs[7]   <= gprs[7] + 2;
+                            virtaddr  <= readdata + gprs[getgprx] + ((getgprx == 7) ? 2 : 0);
                             if (getopmode[3]) begin
+                                doreloc   <= mmr0[00];
                                 getopaddr <= 3;
                                 membyte   <= 0;
                                 memfunc   <= MF_RD;
@@ -670,22 +677,23 @@ module sim1134 (
 
                 // start reading the instruction from memory
                 S_FETCH: begin
+                    doreloc  <= mmr0[00];
                     membyte  <= 0;
                     memfunc  <= MF_RD;
                     memmode  <= psw[15:14];
                     state    <= S_FETCH2;
                     virtaddr <= gprs[7];
                     yellowck <= 0;
-                    if (mmropen) begin
-                        mmr2 <= gprs[7];
-                    end
                 end
 
                 // got instruction from memory, save and decode
                 S_FETCH2: begin
-                    gprs[7] <= gprs[7] + 2;
-                    instreg <= readdata;
-                    state   <= S_DECODE;
+                    if (mmropen) begin      // successfully read opcode,
+                        mmr2 <= gprs[7];    // ...save PC fetched from
+                    end
+                    gprs[7] <= gprs[7] + 2; // increment program counter
+                    instreg <= readdata;    // save opcode in instruction register
+                    state   <= S_DECODE;    // go on to decode
                 end
 
                 S_DECODE: begin
@@ -750,9 +758,9 @@ module sim1134 (
                 S_EXRESET: begin
                     if (resdelay != 1000000) begin
                         bus_init_out_l <= 0;
-                        mmr0           <= 0;
                         resdelay       <= resdelay + 1;
                     end else begin
+                        mmr0           <= 0;
                         resdelay       <= 0;
                         state          <= S_SERVICE;
                     end
@@ -760,6 +768,7 @@ module sim1134 (
 
                 // marked stack return (v 4-57/p 99)
                 S_EXMARK: begin
+                    doreloc       <= mmr0[00];
                     gprs[7]       <= gprs[5];
                     gprs[cspgprx] <= gprs[7] + { 9'b0, instreg[05:00], 1'b0 } + 2;
                     membyte       <= 0;
@@ -798,6 +807,7 @@ module sim1134 (
 
                 // start getting source operand
                 S_GETSRC: begin
+                    deferdinc <= 0;
                     if (instreg[11:09] == 0) begin
                         srcval    <= byteinstr ? { gprs[srcgprx][7:0], 8'b0 } : gprs[srcgprx];
                         state     <= S_GETDST;
@@ -811,6 +821,7 @@ module sim1134 (
                 // wait for source operand address to be calculated
                 // then start reading source operand value
                 S_WAITSRC: begin
+                    doreloc <= mmr0[00];
                     membyte <= byteinstr;
                     memfunc <= MF_RD;
                     memmode <= psw[15:14];
@@ -819,12 +830,14 @@ module sim1134 (
 
                 // wait for source operand value to be read from memory
                 S_WAITSRC2: begin
+                    gprs[srcgprx] <= gprs[srcgprx] + deferdinc;
                     srcval <= byteinstr ? { readdata[7:0], 8'b0 } : readdata;
                     state  <= S_GETDST;
                 end
 
                 // start getting destination operand
                 S_GETDST: begin
+                    deferdinc <= 0;
                     if (instreg[05:03] == 0) begin
                         if (iJMP | iJSR) begin
                             state   <= S_SERVICE;
@@ -846,22 +859,17 @@ module sim1134 (
                 // destination operand address now available
                 S_WAITDST: begin
                     if (iJMP) begin
-                        gprs[7]   <= virtaddr;              // put dst address in PC
-                        state     <= S_SERVICE;             // end of instruction
+                        gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                        state     <= S_EXECJMP;
                     end
                     else if (iJSR) begin
-                        gprs[cspgprx] <= gprs[cspgprx] - 2; // decrement current stack pointer
-                        membyte   <= 0;                     // doing word-sized mem op
-                        memfunc   <= MF_WR;                 // start writing to memory
-                        memmode   <= psw[15:14];            // current mode mem op
-                        readdata  <= virtaddr;              // save dst address where where it will be safe
-                        state     <= S_EXECJSR;             // finish JSR next
-                        virtaddr  <= gprs[cspgprx] - 2;     // address to write to
-                        writedata <= gprs[srcgprx];         // save source register to stack
+                        gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                        state     <= S_EXECJSR;
                     end
                     else if (iMFPID) state <= S_EXMFPI;     // MFPI/MFPD
                     else if (iMTPID) state <= S_EXMTPI;     // MTPI/MTPD
                     else begin
+                        doreloc   <= mmr0[00] | mmr0[08];
                         membyte   <= byteinstr;
                         if (needtoreaddst &   needtowritedst) memfunc <= MF_RM;
                         if (needtoreaddst & ~ needtowritedst) memfunc <= MF_RD;
@@ -877,16 +885,20 @@ module sim1134 (
                 end
 
                 // do arithmetic to compute new destination value
+                // deferdinc = deferred increment if any on dst register
                 //    dstval = old dst value if any (byte value in top 8 bits, bottom 8 bits zero)
                 //    srcval = src value if any (byte value in top 8 bits, bottom 8 bits zero)
                 //  virtaddr = dst virtual address if any
                 S_EXECDD: begin
+                    if (iMUL | iDIV | iASH | iASHC | iMTPS) begin
+                        gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                    end
                          if (iMUL)   state <= S_EXMUL;      // MUL
                     else if (iDIV)   state <= S_EXDIV;      // DIV
                     else if (iASH)   state <= S_EXASH;      // ASH
                     else if (iASHC)  state <= S_EXASHC;     // ASHC
                     else if (iMTPS) begin                   // MTPS
-                        psw[03:00] <= dstval[11:08];
+                        psw[03:00]    <= dstval[11:08];
                         if (psw[15:14] == 0) psw[07:05] <= dstval[15:13];
                         state <= S_SERVICE;
                     end
@@ -956,16 +968,42 @@ module sim1134 (
                                 gprs[dstgprx] <= result;
                             end
                         end else begin
+                            doreloc   <= mmr0[00] | mmr0[08];
                             memfunc   <= MF_WR;
                             writedata <= byteinstr ? { 8'b0, result[15:08] } : result;
                         end
                     end
-                    state <= S_SERVICE;
+                    state <= S_EXECDD3;
+                end
+
+                // dst memory access complete, do deferred post increment and we're done
+                S_EXECDD3: begin
+                    gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                    state   <= S_SERVICE;
+                end
+
+                // jump to destination address
+                S_EXECJMP: begin
+                    gprs[7] <= virtaddr;                    // put dst address in PC
+                    state   <= S_SERVICE;                   // end of instruction
+                end
+
+                // start pushing register on stack
+                S_EXECJSR: begin
+                    doreloc   <= mmr0[00];
+                    gprs[cspgprx] <= gprs[cspgprx] - 2;     // decrement current stack pointer
+                    membyte   <= 0;                         // doing word-sized mem op
+                    memfunc   <= MF_WR;                     // start writing to memory
+                    memmode   <= psw[15:14];                // current mode mem op
+                    readdata  <= virtaddr;                  // save dst address where where it will be safe
+                    state     <= S_EXECJSR2;                // finish JSR next
+                    virtaddr  <= gprs[cspgprx] - 2;         // address to write to
+                    writedata <= gprs[srcgprx];             // save source register to stack
                 end
 
                 // wait for old register contents pushed on stack
                 // then save return address and set PC = jumped-to address
-                S_EXECJSR: begin
+                S_EXECJSR2: begin
                     if (instreg[08:06] != 7) begin
                         gprs[srcgprx] <= gprs[7];
                     end
@@ -975,6 +1013,7 @@ module sim1134 (
 
                 // start popping word from stack
                 S_EXECRTS: begin
+                    doreloc  <= mmr0[00];
                     gprs[cspgprx] <= gprs[cspgprx] + 2;
                     membyte  <= 0;
                     memfunc  <= MF_RD;
@@ -995,6 +1034,7 @@ module sim1134 (
 
                 // start reading new PC from stack
                 S_EXRTIT: begin
+                    doreloc   <= mmr0[00];
                     membyte   <= 0;
                     memfunc   <= MF_RD;
                     memmode   <= psw[15:14];
@@ -1004,6 +1044,7 @@ module sim1134 (
 
                 // start reading new PS from stack
                 S_EXRTIT2: begin
+                    doreloc   <= mmr0[00];
                     membyte   <= 0;
                     memfunc   <= MF_RD;
                     memmode   <= psw[15:14];
@@ -1107,7 +1148,7 @@ module sim1134 (
                 S_EXDIV6: begin
                     psw[3] <= signbit & (product[15:00] != 0);
                     psw[2] <= product[15:00] == 0;
-                    psw[1] <= psw[1] | product[15];
+                    psw[1] <= psw[1] | product[15] & (product[14:00] != 0);
                     gprs[srcgprx]  <= signbit    ? - product[15:00] : product[15:00];
                     gprs[srcgprx1] <= srcval[15] ? - product[31:16] : product[31:16];
                     state  <= S_SERVICE;
@@ -1177,6 +1218,7 @@ module sim1134 (
                     if (instreg[05:03] == 0) begin
                         readdata <= gprs[gprx(psw[13:12],instreg[02:00])];
                     end else begin
+                        doreloc <= mmr0[00] | mmr0[08];
                         membyte <= 0;
                         memfunc <= MF_RD;
                         memmode <= psw[13:12];
@@ -1184,9 +1226,14 @@ module sim1134 (
                     state <= S_EXMFPI2;
                 end
                 S_EXMFPI2: begin
+                    gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                    state <= S_EXMFPI3;
+                end
+                S_EXMFPI3: begin
                     psw[03]       <= readdata[15];
                     psw[02]       <= readdata == 0;
                     psw[01]       <= 0;
+                    doreloc       <= mmr0[00];
                     gprs[cspgprx] <= gprs[cspgprx] - 2;
                     membyte       <= 0;
                     memfunc       <= MF_WR;
@@ -1214,15 +1261,15 @@ module sim1134 (
                     psw[01]       <= 0;
                     if (instreg[05:03] == 0) begin          // write register (maybe prev mode SP)
                         gprs[gprx(psw[13:12],instreg[02:00])] <= readdata;
-                        state     <= S_SERVICE;
                     end else begin
+                        doreloc   <= mmr0[00] | mmr0[08];
                         membyte   <= 0;                     // start writing memory
                         memfunc   <= MF_WR;
                         memmode   <= psw[13:12];            // ...prev mode
-                        state     <= S_SERVICE;
                         virtaddr  <= dstval;
                         writedata <= readdata;
                     end
+                    state     <= S_EXECDD3;
                 end
 
                 // end of instruction, figure out what to do next
@@ -1346,6 +1393,7 @@ module sim1134 (
                         trapvec    <= 0;
                     end else begin
                         // didn't trap from doing a trap, do a trap
+                        doreloc    <= mmr0[00];
                         membyte    <= 0;
                         memfunc    <= MF_RD;
                         memmode    <= 0;
@@ -1356,8 +1404,10 @@ module sim1134 (
                     end
                 end
 
+                // - save new PC in srcval
                 // - start reading new PS into dstval
                 S_TRAP2: begin
+                    doreloc      <= mmr0[00];
                     membyte      <= 0;
                     memfunc      <= MF_RD;
                     memmode      <= 0;
@@ -1366,6 +1416,7 @@ module sim1134 (
                     virtaddr[01] <= 1;
                 end
 
+                // - save new PS in dstval
                 // - start pushing old PS onto new stack
                 //   unless powering up, then just use new PC and PS
                 S_TRAP3: begin
@@ -1374,6 +1425,7 @@ module sim1134 (
                         nopushpspc <= 0;
                         state      <= S_TRAP5;
                     end else begin
+                        doreloc    <= mmr0[00];
                         membyte    <= 0;
                         memfunc    <= MF_WR;
                         memmode    <= readdata[15:14];
@@ -1384,23 +1436,25 @@ module sim1134 (
                     end
                 end
 
+                // - activate new PS (even if the push PC causes a nested fault)
                 // - start pushing old PC onto new stack
                 S_TRAP4: begin
+                    doreloc    <= mmr0[00];
                     membyte    <= 0;
                     memfunc    <= MF_WR;
                     memmode    <= dstval[15:14];
+                    psw[15:14] <= dstval[15:14];
+                    psw[13:12] <= psw[15:14];
+                    psw[07:00] <= dstval[07:00];
                     state      <= S_TRAP5;
                     virtaddr   <= gprs[gprx(dstval[15:14],6)] - 4;
                     writedata  <= gprs[7];
                 end
 
-                // - activate new PC and PS
+                // - activate new PC
                 S_TRAP5: begin
                     gprs[7]    <= srcval;
                     gprs[gprx(dstval[15:14],6)] <= gprs[gprx(dstval[15:14],6)] - 4;
-                    psw[15:14] <= dstval[15:14];
-                    psw[13:12] <= psw[15:14];
-                    psw[07:00] <= dstval[07:00];
                     state      <= S_SERVICE;
                     trapping   <= 0;
                 end
@@ -1426,7 +1480,7 @@ module sim1134 (
             // kernel address registers    772340..56  111 111 010 011 10_ __0
             // user descriptor registers   777600..16  111 111 111 110 00_ __0
             // user address registers      777640..56  111 111 111 110 10_ __0
-            if (((~ bus_a_in_l & 18'o777720) == 18'o772300) | ((~ bus_a_in_l & 18'o777720) == 18'o777600)) begin
+            if (mmpselected) begin
                 if (bus_msyn_in_l) begin
                     mmv_d_out_l    <= 16'o177777;
                     bus_ssyn_out_l <= 1;
@@ -1461,25 +1515,28 @@ module sim1134 (
             end
 
             // mmr0..mmr2 register access via 777572..777576
-            if ((~ bus_a_in_l & 18'o777772) == 18'o777572) begin
+            // mmr1 always reads as zeroes on an 11/34
+            if (mmrselected) begin
                 if (bus_msyn_in_l) begin
                     mmr_d_out_l    <= 16'o177777;
                     bus_ssyn_out_l <= 1;
                 end else if (bus_ssyn_out_l) begin
                     if (bus_c_in_l[1]) begin
-                        case (bus_a_in_l[02])
-                            1: mmr_d_out_l <= ~ mmr0;
-                            0: mmr_d_out_l <= ~ mmr2;
+                        case (bus_a_in_l[02:01])
+                            2: begin                    // 777572
+                                mmr_d_out_l <= ~ mmr0;
+                            end
+                            0: begin                    // 777576
+                                mmr_d_out_l <= ~ mmr2;
+                            end
                         endcase
-                    end else begin
-                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) case (bus_a_in_l[02])
-                            1: mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
-                            0: mmr2[15:08] <= ~ bus_d_in_l[15:08];
-                        endcase
-                        if (bus_c_in_l[0] |   bus_a_in_l[00]) case (bus_a_in_l[02])
-                            1: mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
-                            0: mmr2[07:00] <= ~ bus_d_in_l[07:00];
-                        endcase
+                    end else if (bus_a_in_l[02:01] == 2) begin
+                        if (bus_c_in_l[0] | ~ bus_a_in_l[00]) begin
+                            mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
+                        end
+                        if (bus_c_in_l[0] |   bus_a_in_l[00]) begin
+                            mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
+                        end
                     end
                     bus_ssyn_out_l <= 0;
                 end

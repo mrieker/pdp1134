@@ -122,13 +122,8 @@ int main (int argc, char **argv)
         ZWR(pdpat[ILACTL], index * ILACTL_INDEX0);
         uint64_t thisentry = ((uint64_t) ZRD(pdpat[ILADAT+1]) << 32) | ZRD(pdpat[ILADAT+0]);
 
-        printf ("[%5u]  %o %o %o %o  %02u  %06o %02o %02o %o %06o  %o %o %o %o\n",
+        printf ("[%5u]  %02u  %06o %02o %02o %o %06o  %o %o %o %o\n",
             i,                                      // 10nS per tick
-
-            (unsigned) (thisentry >> 63) & 1,
-            (unsigned) (thisentry >> 62) & 1,
-            (unsigned) (thisentry >> 61) & 1,
-            (unsigned) (thisentry >> 60) & 1,
 
             (unsigned) (thisentry >> 48) & 077,     // sim state
 

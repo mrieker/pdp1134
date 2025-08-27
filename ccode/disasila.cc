@@ -53,6 +53,9 @@
 
 #include "disassem.h"
 
+#define S_FETCH2 03     // from sim1134.v
+#define S_TRAP2  44
+
 struct Line {
     uint32_t addr;
     uint16_t data;
@@ -83,8 +86,8 @@ fetch:;
         for (nlines = 1; nlines < 16; nlines ++) {
             lines[nlines].state = 0;
             if (! readline (&lines[nlines])) break; // eof (state = 0)
-            if (lines[nlines].state ==  3) break;   // fetch
-            if (lines[nlines].state == 45) break;   // trap
+            if (lines[nlines].state == S_FETCH2) break;   // fetch
+            if (lines[nlines].state == S_TRAP2)  break;   // trap
         }
 
         // lines[0] = this fetch/trap to process
@@ -94,7 +97,7 @@ fetch:;
         char const *mne = "";
         std::string strbuf;
 
-        if (lines[0].state == 3) {
+        if (lines[0].state == S_FETCH2) {
 
             // get opcode physical address and opcode itself
             uint32_t phaddr = lines[0].addr;
@@ -113,7 +116,7 @@ fetch:;
             mne = (rc == 0) ? "*ilop*" : strbuf.c_str () + 7;
         }
 
-        if (lines[0].state == 45) mne = "*trap*";
+        if (lines[0].state == S_TRAP2) mne = "*trap*";
 
         // print out result
         for (int j = 0; j < nlines; j ++) {
