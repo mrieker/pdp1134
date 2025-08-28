@@ -102,7 +102,6 @@ module sim1134 (
     localparam[5:0] S_EXMFPI2   = 36;
     localparam[5:0] S_EXMFPI3   = 37;
     localparam[5:0] S_EXMTPI    = 38;
-    localparam[5:0] S_EXMTPI2   = 39;
     localparam[5:0] S_SERVICE   = 40;
     localparam[5:0] S_NPG       = 41;
     localparam[5:0] S_INTR      = 42;
@@ -555,7 +554,7 @@ module sim1134 (
         else if (getopaddr != 0) begin
             if (trapvec != 0) begin
                 getopaddr <= 0;
-            end case (getopmode[5:3])
+            end else case (getopmode[5:3])
 
                 // simple indirect - use registers contents as address
                 1: begin
@@ -699,15 +698,16 @@ module sim1134 (
                 S_DECODE: begin
 
                     // have both SS and DD fields
-                    if (iMOVb | iCMPb | iBITb | iBICb | iBISb | iADD | iSUB) begin
+                    // pretend MTPI/D has an SS field of (SP)+
+                    if (iMOVb | iCMPb | iBITb | iBICb | iBISb | iADD | iSUB | iMTPID) begin
                         state <= S_GETSRC;
                     end
                     else
                     // have DD field, may also have R field
                     if (iCLRb  | iCOMb  | iINCb | iDECb | iNEGb | iADCb |
                         iSBCb  | iTSTb  | iROLb | iRORb | iASRb | iASLb |
-                        iMFPID | iMTPID | iSXT  | iMUL  | iDIV  | iASH  |
-                        iASHC  | iXOR   | iJSR  | iJMP  | iSWAB | iMFPS | iMTPS) begin
+                        iMFPID | iSXT   | iMUL  | iDIV  | iASH  | iASHC |
+                        iXOR   | iJSR   | iJMP  | iSWAB | iMFPS | iMTPS) begin
                         state <= S_GETDST;
                     end
 
@@ -737,7 +737,7 @@ module sim1134 (
                     end else begin
                         cpuerr[07] <= 1;
                         state      <= S_SERVICE;
-                        trapvec    <= T_CPUERR;
+                        trapvec    <= T_ILLINST;
                     end
                 end
 
@@ -756,13 +756,17 @@ module sim1134 (
 
                 // reset bus - 10mS
                 S_EXRESET: begin
-                    if (resdelay != 1000000) begin
-                        bus_init_out_l <= 0;
-                        resdelay       <= resdelay + 1;
+                    if (psw[15:14] == 0) begin
+                        if (turbo ? (resdelay[06:00] != 100) : (resdelay != 1000000)) begin
+                            bus_init_out_l <= 0;
+                            resdelay       <= resdelay + 1;
+                        end else begin
+                            mmr0           <= 0;
+                            resdelay       <= 0;
+                            state          <= S_SERVICE;
+                        end
                     end else begin
-                        mmr0           <= 0;
-                        resdelay       <= 0;
-                        state          <= S_SERVICE;
+                        state <= S_SERVICE;
                     end
                 end
 
@@ -813,7 +817,7 @@ module sim1134 (
                         state     <= S_GETDST;
                     end else begin
                         getopaddr <= 1;
-                        getopmode <= instreg[11:06];
+                        getopmode <= iMTPID ? 6'o26 : instreg[11:06];
                         state     <= S_WAITSRC;
                     end
                 end
@@ -1014,7 +1018,6 @@ module sim1134 (
                 // start popping word from stack
                 S_EXECRTS: begin
                     doreloc  <= mmr0[00];
-                    gprs[cspgprx] <= gprs[cspgprx] + 2;
                     membyte  <= 0;
                     memfunc  <= MF_RD;
                     memmode  <= psw[15:14];
@@ -1025,6 +1028,9 @@ module sim1134 (
                 //   else: rd  => pc
                 //         pop => rd
                 S_EXECRTS2: begin
+                    if (cspgprx != dstgprx) begin
+                        gprs[cspgprx] <= gprs[cspgprx] + 2;
+                    end
                     if (instreg[02:00] != 7) begin
                         gprs[7] <= gprs[dstgprx];
                     end
@@ -1044,6 +1050,7 @@ module sim1134 (
 
                 // start reading new PS from stack
                 S_EXRTIT2: begin
+                    gprs[cspgprx] <= gprs[cspgprx] + 2;
                     doreloc   <= mmr0[00];
                     membyte   <= 0;
                     memfunc   <= MF_RD;
@@ -1055,7 +1062,7 @@ module sim1134 (
 
                 // update old SP, PC, PS
                 S_EXRTIT3: begin
-                    gprs[cspgprx] <= gprs[cspgprx] + 4;
+                    gprs[cspgprx] <= gprs[cspgprx] + 2;
                     gprs[7]    <= srcval;
                     if (psw[15:14] == 0) begin
                         psw[15:12] <= readdata[15:12];
@@ -1245,31 +1252,23 @@ module sim1134 (
                 end
 
                 // move from current stack to previous address space
+                //  srcval = value popped from current stack
                 //  virtaddr = address in previous space
                 S_EXMTPI: begin
-                    dstval        <= virtaddr;              // save addr in prev space
-                    gprs[cspgprx] <= gprs[cspgprx] + 2;     // increment stack pointer
-                    membyte       <= 0;                     // do word-sized mem op
-                    memfunc       <= MF_RD;                 // start reading memory
-                    memmode       <= psw[15:14];            // access current addr space
-                    state         <= S_EXMTPI2;             // do step 2 next
-                    virtaddr      <= gprs[cspgprx];         // access top-of-stack word
-                end
-                S_EXMTPI2: begin
-                    psw[03]       <= readdata[15];          // update condition codes
-                    psw[02]       <= readdata == 0;
+                    psw[03]       <= srcval[15];            // update condition codes
+                    psw[02]       <= srcval == 0;
                     psw[01]       <= 0;
                     if (instreg[05:03] == 0) begin          // write register (maybe prev mode SP)
-                        gprs[gprx(psw[13:12],instreg[02:00])] <= readdata;
+                        gprs[gprx(psw[13:12],instreg[02:00])] <= srcval;
+                        state     <= S_SERVICE;
                     end else begin
                         doreloc   <= mmr0[00] | mmr0[08];
                         membyte   <= 0;                     // start writing memory
                         memfunc   <= MF_WR;
                         memmode   <= psw[13:12];            // ...prev mode
-                        virtaddr  <= dstval;
-                        writedata <= readdata;
+                        state     <= S_EXECDD3;
+                        writedata <= srcval;
                     end
-                    state     <= S_EXECDD3;
                 end
 
                 // end of instruction, figure out what to do next
@@ -1398,7 +1397,8 @@ module sim1134 (
                         memfunc    <= MF_RD;
                         memmode    <= 0;
                         state      <= S_TRAP2;
-                        trapping   <= 1;                    // if we trap whilst doing this trap, halt
+                        trapping   <= (trapvec == T_CPUERR) | (trapvec == T_MMUTRAP);
+                                                            // if we trap whilst doing this trap, halt
                         trapvec    <= 0;
                         virtaddr   <= { 8'b0, trapvec[7:2], 2'b00 };
                     end
@@ -1425,6 +1425,7 @@ module sim1134 (
                         nopushpspc <= 0;
                         state      <= S_TRAP5;
                     end else begin
+                        gprs[gprx(readdata[15:14],6)] <= gprs[gprx(readdata[15:14],6)] - 2;
                         doreloc    <= mmr0[00];
                         membyte    <= 0;
                         memfunc    <= MF_WR;
@@ -1439,6 +1440,7 @@ module sim1134 (
                 // - activate new PS (even if the push PC causes a nested fault)
                 // - start pushing old PC onto new stack
                 S_TRAP4: begin
+                    gprs[gprx(dstval[15:14],6)] <= gprs[gprx(dstval[15:14],6)] - 2;
                     doreloc    <= mmr0[00];
                     membyte    <= 0;
                     memfunc    <= MF_WR;
@@ -1447,14 +1449,13 @@ module sim1134 (
                     psw[13:12] <= psw[15:14];
                     psw[07:00] <= dstval[07:00];
                     state      <= S_TRAP5;
-                    virtaddr   <= gprs[gprx(dstval[15:14],6)] - 4;
+                    virtaddr   <= gprs[gprx(dstval[15:14],6)] - 2;
                     writedata  <= gprs[7];
                 end
 
                 // - activate new PC
                 S_TRAP5: begin
                     gprs[7]    <= srcval;
-                    gprs[gprx(dstval[15:14],6)] <= gprs[gprx(dstval[15:14],6)] - 4;
                     state      <= S_SERVICE;
                     trapping   <= 0;
                 end
@@ -1535,7 +1536,7 @@ module sim1134 (
                             mmr0[15:08] <= ~ bus_d_in_l[15:08] & 8'o341;
                         end
                         if (bus_c_in_l[0] |   bus_a_in_l[00]) begin
-                            mmr0[07:00] <= ~ bus_d_in_l[07:00] & 8'o157;
+                            mmr0[00]    <= ~ bus_d_in_l[00];
                         end
                     end
                     bus_ssyn_out_l <= 0;
@@ -1543,7 +1544,8 @@ module sim1134 (
             end
 
             // register access via 777700..777717
-            if (((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
+            // allow only when halted, not even processor is allowed this access
+            if (halted & ((bus_a_in_l >> 4) == (~ 18'o777700 >> 4)) & (bus_c_in_l != 0)) begin
                 if (bus_msyn_in_l) begin
                     gpr_d_out_l    <= 16'o177777;
                     bus_ssyn_out_l <= 1;

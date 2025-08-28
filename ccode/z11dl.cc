@@ -63,6 +63,7 @@ struct LookFor {
 struct LookForRSTSDate    : LookFor { LookForRSTSDate ();    virtual void FormatReply (); };
 struct LookForRSTSTime    : LookFor { LookForRSTSTime ();    virtual void FormatReply (); };
 struct LookForRSXDateTime : LookFor { LookForRSXDateTime (); virtual void FormatReply (); };
+struct LookForXXDPDate    : LookFor { LookForXXDPDate ();    virtual void FormatReply (); };
 
 static char const monthnames[12][4] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
                                         "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
@@ -82,24 +83,32 @@ int main (int argc, char **argv)
     bool killit = false;
     bool rstsdt = true;
     bool rsxdt = true;
+    bool xxdpdt = true;
     char const *logname = NULL;
     int port = 0777560;
+    uint32_t mask = 0177 * DL2_XBUF0;
     char *p;
     for (int i = 0; ++ i < argc;) {
         if (strcmp (argv[i], "-?") == 0) {
             puts ("");
             puts ("     Access DL-11 TTY controller");
             puts ("");
-            puts ("  ./z11dl [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-norstsdt] [-norsxdt] [-upcase]");
+            puts ("  ./z11dl [-8bit] [-cps <charspersec>] [-killit] [-log <filename>] [-nokb] [-norstsdt] [-norsxdt] [-noxxdpdt] [-upcase]");
+            puts ("     -8bit    : pass all 8 printer bits to output, else strip to 7 bits");
             puts ("     -cps     : set chars per second, default 960");
             puts ("     -killit  : kill other process that is processing this port");
             puts ("     -log     : log output to given file");
             puts ("     -nokb    : do not pass stdin keyboard to pdp");
             puts ("    -norstsdt : do not answer RSTS/E format date/time prompts");
             puts ("     -norsxdt : do not answer RSX-11 format date/time prompt");
+            puts ("    -noxxdpdt : do not answer XXDP format date prompts");
             puts ("     -upcase  : convert all keyboard input to upper case");
             puts ("");
             return 0;
+        }
+        if (strcasecmp (argv[i], "-8bit") == 0) {
+            mask = 0377 * DL2_XBUF0;
+            continue;
         }
         if (strcasecmp (argv[i], "-cps") == 0) {
             if ((++ i >= argc) || (argv[i][0] == '-')) {
@@ -135,6 +144,10 @@ int main (int argc, char **argv)
         }
         if (strcasecmp (argv[i], "-norsxdt") == 0) {
             rsxdt = false;
+            continue;
+        }
+        if (strcasecmp (argv[i], "-noxxdpdt") == 0) {
+            xxdpdt = false;
             continue;
         }
         if (strcasecmp (argv[i], "-upcase") == 0) {
@@ -198,14 +211,19 @@ int main (int argc, char **argv)
     readnextkbat = nokb ? 0xFFFFFFFFFFFFFFFFULL : readnextprat;
 
     // set up looking for rsts/rsx date/time prompts
-    LookFor *lookfors[3];
+    LookFor *lookfors[4];
     int nlookfors = 0;
     if (rstsdt) {
         lookfors[nlookfors++] = new LookForRSTSDate ();
         lookfors[nlookfors++] = new LookForRSTSTime ();
     }
+
     if (rsxdt) {
         lookfors[nlookfors++] = new LookForRSXDateTime ();
+    }
+
+    if (xxdpdt) {
+        lookfors[nlookfors++] = new LookForXXDPDate ();
     }
 
     // keep processing until control-backslash
@@ -226,7 +244,7 @@ int main (int argc, char **argv)
                 ZWR(dlat[2], xreg | DL2_XRDY);
 
                 // print character to stdout
-                uint8_t prchar = (xreg & DL2_XBUF) / DL2_XBUF0;
+                uint8_t prchar = (xreg & mask) / DL2_XBUF0;
                 if ((prchar == 7) && stdoutty) {
                     int rc = write (STDOUT_FILENO, "<BEL>", 5);
                     if (rc < 5) ABORT ();
@@ -242,8 +260,8 @@ int main (int argc, char **argv)
                 // check for date/time prompt
                 for (int lfi = 0; lfi < nlookfors; lfi ++) {
                     if (lookfors[lfi]->GotPRChar (prchar)) {
-                        // one second until sending first reply character
-                        readnextkbat = nowus + 1000000;
+                        // halt second until sending first reply character
+                        readnextkbat = nowus + 500000;
                     }
                 }
             }
@@ -274,7 +292,7 @@ int main (int argc, char **argv)
                     uint8_t kbchar = lookfors[lfi]->GetKBChar ();
                     if (kbchar != 0) {
                         ZWR(dlat[1], (ZRD(dlat[1]) & ~ DL1_RBUF) | DL1_RRDY | DL1_RBUF0 * kbchar);
-                        readnextkbat = nowus + 500000;
+                        readnextkbat = nowus + 250000;
                     }
                 }
             }
@@ -328,6 +346,11 @@ LookForRSTSTime::LookForRSTSTime ()
 LookForRSXDateTime::LookForRSXDateTime ()
 {
     promptstr = "PLEASE ENTER TIME AND DATE (HR:MN DD-MMM-YY) [S]: ";
+}
+
+LookForXXDPDate::LookForXXDPDate ()
+{
+    promptstr = "ENTER DATE (DD-MMM-YY): ";
 }
 
 LookFor::LookFor ()
@@ -390,4 +413,11 @@ void LookForRSXDateTime::FormatReply ()
     sprintf (replystr, "%02d:%02d:%02d %02d-%3s-%2d\r",
         nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec,
         nowtm.tm_mday, monthnames[nowtm.tm_mon], nowtm.tm_year % 100);
+}
+
+void LookForXXDPDate::FormatReply ()
+{
+    time_t nowbin = time (NULL);
+    struct tm nowtm = *localtime (&nowbin);
+    sprintf (replystr, "%02d-%3s-99\r", nowtm.tm_mday, monthnames[nowtm.tm_mon]);
 }

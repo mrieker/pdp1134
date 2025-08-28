@@ -213,7 +213,7 @@ int disassem (std::string *strbuf, uint16_t instreg, uint16_t operand1, uint16_t
                     if (ctx.getgpr (instreg, &data, true)) {
                         strprintf (strbuf, " [%06o]", data);
                     }
-                    goto s_endsingle;
+                    goto s_endinst;
                 }
                 case 067: {
                     if (ctx.byte) { // MFPS

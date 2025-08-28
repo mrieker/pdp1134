@@ -11,6 +11,7 @@
 if {[pin fpgamode] == 0} {  ;# see if fpga turned off
     pin set fpgamode 1      ;# default to sim mode if not turned on
 }
+pin set turbo 1
 hardreset                   ;# make sure processor halted and reset
 source boots.tcl            ;# get some boot functions
 probedevsandmem             ;# make sure we have devices and memory
