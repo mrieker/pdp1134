@@ -85,6 +85,7 @@ static int fileloaded (void *param, int drivesel, int fd);
 static int writebadblocks (ShmMSDrive *dr, int fd);
 static void *timerthread (void *dsptr);
 static void unloadfile (void *param, int drivesel);
+static uint16_t headercrc (uint16_t accum, uint16_t dword);
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func);
 
 int main (int argc, char **argv)
@@ -243,6 +244,7 @@ static void *rliothread (void *dummy)
                 // GET STATUS
                 case 2: {
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   getstatus\n", drivesel);
+                    if ((rlda & 0367) != 0003) goto opierr;
                     if (rlda & 8) {                     // reset
                         vcs[drivesel] = false;
                     }
@@ -250,7 +252,7 @@ static void *rliothread (void *dummy)
                     if (! dr->rl01) rlmp |= 0x0080U;    // is an RL02
                     if (dr->readonly) rlmp |= 0x2000U;  // write locked
                     if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
-                    rlmp |= dr->curposn & 0x0040U;     // head select
+                    rlmp |= dr->curposn & 0x0040U;      // head select
                     if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk
                     if (seekdelay > 0) rlmp |= 0x0004U; // seeking
                     else if (fd >= 0)  rlmp |= 0x0005U; // 'lock on'
@@ -285,11 +287,12 @@ static void *rliothread (void *dummy)
                 // READ HEADER
                 case 4: {
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   readheader\n", drivesel);
-                    if (! fastio) usleep (seekdelay);
-                    nowus += seekdelay;
+                    totldelay = seekdelay + USPERSEC - nowus % USPERSEC;
+                    if (! fastio) usleep (totldelay);   // wait for beginning of next sector
+                    nowus += totldelay;
                     rlmp   = dr->curposn | SECUNDERHEAD;
                     rlmp2  = 0;
-                    rlmp3  = 0;
+                    rlmp3  = headercrc (headercrc (0, rlmp), rlmp2);
                     goto rhddone;
                 }
 
@@ -593,6 +596,20 @@ static void unloadfile (void *param, int drivesel)
     ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));
     close (fds[drivesel]);
     fds[drivesel] = -1;
+}
+
+// accumulate header crc word
+// - adapted from ZRLGC0 SIMBCC
+static uint16_t headercrc (uint16_t accum, uint16_t dword)
+{
+    uint16_t const xpoly = 0120001;
+    for (uint16_t temp2 = 16; temp2 > 0; -- temp2) {
+        uint16_t bccfbk = ((dword ^ accum) & 1) ? xpoly : 0;
+        dword >>= 1;
+        accum >>= 1;
+        accum ^= bccfbk;
+    }
+    return accum;
 }
 
 static void dumpbuf (uint16_t drivesel, uint16_t const *buf, uint32_t off, uint32_t xba, char const *func)
