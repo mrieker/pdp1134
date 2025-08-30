@@ -66,7 +66,6 @@
 
 #define RFLD(n,m) ((ZRD(rlat[n]) & m) / (m & - m))
 
-static bool vcs[4];
 static char fns[4][SHMMS_FNSIZE];
 static int debug;
 static int fds[4];
@@ -240,28 +239,14 @@ static void *rliothread (void *dummy)
                     break;
                 }
 
-                // GET STATUS
-                case 2: {
-                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   getstatus\n", drivesel);
-                    if ((rlda & 0367) != 0003) goto opierr;
-                    if (rlda & 8) {                     // reset
-                        vcs[drivesel] = false;
-                    }
-                    rlmp = 0x000DU;                     // 0 0 wl 0 -- 0 wge vc 0 -- 1 hs dt ho 1 0 0 0
-                    if (! dr->rl01) rlmp |= 0x0080U;    // is an RL02
-                    if (dr->readonly) rlmp |= 0x2000U;  // write locked
-                    if (vcs[drivesel]) rlmp |= 0x0200U; // volume check
-                    rlmp |= dr->curposn & 0x0040U;      // head select
-                    if (fd >= 0)       rlmp |= 0x0010U; // heads out over disk
-                    if (seekdelay > 0) rlmp |= 0x0004U; // seeking
-                    else if (fd >= 0)  rlmp |= 0x0005U; // 'lock on'
-                    break;
-                }
+                // GET STATUS - handled by fpga (rh11.v)
+                case 2: ABORT ();
 
                 // SEEK
                 // fpga (rl11.v) has already cleared drive ready (RLCS<00>)
                 case 3: {
                     if (fd < 0) goto opierr;
+                    if ((rlda & 0153) != 0001) goto opierr;
 
                     if (debug > 0) fprintf (stderr, "z11rl: [%u]   seek da=%06o\n", drivesel, rlda);
 
@@ -270,7 +255,12 @@ static void *rliothread (void *dummy)
                              else newcyl -= rlda >> 7;
                     if (debug > 1) fprintf (stderr, "z11rl: [%u]       newcyl=%d\n", drivesel, newcyl);
                     if (newcyl < 0) newcyl = 0;
-                    if (newcyl > NCYLS - 1) newcyl = NCYLS - 1;
+                    if (newcyl > NCYLS - 1) newcyl = (NCYLS - 1) & 07776;
+
+                    uint32_t rl4 = ZRD(rlat[4]);
+                    if (rlda & 16) rl4 |= RL4_HDSEL0 << drivesel;
+                           else rl4 &= ~ (RL4_HDSEL0 << drivesel);
+                    ZWR(rlat[4], rl4);
 
                     dr->curposn = (newcyl << 7) | ((rlda << 2) & 0x40);
 
@@ -567,12 +557,25 @@ static int fileloaded (void *param, int drivesel, int fd)
         }
     }
     fds[drivesel] = fd;
+
+    uint32_t rl4 = ZRD(rlat[4]);
+    rl4 |=    RL4_DRDY0  << drivesel;                   // ready to accept a command
+    rl4 &= ~ (RL4_DERR0  << drivesel);                  // no error state
+    rl4 |=    RL4_DRONL0 << drivesel;                   // drive online
+    if (dr->rl01) rl4 &= ~ (RL4_DTYPE0 << drivesel);    // drive is RL01
+             else rl4 |=    RL4_DTYPE0 << drivesel;     // drive is RL02
+
     if (strcmp (fns[drivesel], dr->filename) != 0) {
         strcpy (fns[drivesel], dr->filename);
-        vcs[drivesel] = true;
+        rl4 |= RL4_VOLCK0 << drivesel;                  // volume check
         dr->curposn = 0;
     }
-    ZWR(rlat[4], ZRD(rlat[4]) | (RL4_DRDY0 << drivesel));
+
+    rl4 &= ~ (RL4_WRERR0 << drivesel);                  // write error
+    if (dr->readonly) rl4 |= RL4_WRLCK0 << drivesel;    // write locked
+              else rl4 &= ~ (RL4_WRLCK0 << drivesel);   // write enabled
+    ZWR(rlat[4], rl4);
+
     return 0;
 }
 
@@ -615,7 +618,7 @@ static int writebadblocks (ShmMSDrive *dr, int fd)
 static void unloadfile (void *param, int drivesel)
 {
     fns[drivesel][0] = 0;
-    ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));
+    ZWR(rlat[4], ZRD(rlat[4]) & ~ ((RL4_DRDY0 | RL4_DRONL0) << drivesel));
     close (fds[drivesel]);
     fds[drivesel] = -1;
 }

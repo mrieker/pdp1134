@@ -52,24 +52,46 @@ module rl11
     reg[15:00] rlba, rlda, rlmp1, rlmp2, rlmp3;
     reg rlcs_15, rlcs_14, rlcs_00;
     reg[13:01] rlcs_1301;
-    reg[3:0] driveerrors, drivereadys;
+    reg[3:0] writelocks, writerrors, volchecks, drivetypes, headselects, driveonlines, driveerrors, drivereadys;
     wire[1:0] driveselect = rlcs_1301[09:08];
 
     assign rlcs = { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 };
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2008 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h524C2009 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rlba,  rlcs  } :
                       (armraddr == 2) ? { rlmp1, rlda  } :
                       (armraddr == 3) ? { rlmp3, rlmp2 } :
-                      (armraddr == 4) ? { 24'b0, driveerrors, drivereadys } :
+                      (armraddr == 4) ? {
+                            writelocks,         // 28
+                            writerrors,         // 24
+                            volchecks,          // 20
+                            drivetypes,         // 16
+                            headselects,        // 12
+                            driveonlines,       // 08
+                            driveerrors,        // 04
+                            drivereadys } :     // 00
                       (armraddr == 5) ? { enable, fastio, 4'b0, INTVEC, ADDR } :
                       32'hDEADBEEF;
 
     assign trigger = rlcs_1301[07] & (rlda == 16'o002250);
 
-    assign armintrq = ~ rlcs_1301[07];  // wake z11rl.cc when pdp clears ready bit
+    assign armintrq = ~ rlcs_1301[07] & (rlcs_1301[03:01] != 2);  // wake z11rl.cc when pdp clears ready bit
 
     assign irvec = INTVEC;
+
+    wire[15:00] rlmpstatus =  {
+        2'b0,                       // 15:14
+        writelocks[driveselect],    // 13
+        2'b0,                       // 12:11
+        writerrors[driveselect],    // 10
+        volchecks[driveselect],     // 09
+        1'b0,                       // 08
+        drivetypes[driveselect],    // 07
+        headselects[driveselect],   // 06
+        1'b0,                       // 05
+        driveonlines[driveselect],  // 04
+        4'b1101                     // 03:00
+    };
 
     // operate interrupt request
     //  clear either on interrupts disabled or when pdp is reading the vector
@@ -124,8 +146,14 @@ module rl11
                     rlmp2 <= armwdata[15:00];
                 end
                 4: begin
-                    driveerrors <= armwdata[07:04];
-                    drivereadys <= armwdata[03:00];
+                    writelocks   <= armwdata[31:28];
+                    writerrors   <= armwdata[27:24];
+                    volchecks    <= armwdata[23:20];
+                    drivetypes   <= armwdata[19:16];
+                    headselects  <= armwdata[15:12];
+                    driveonlines <= armwdata[11:08];
+                    driveerrors  <= armwdata[07:04];
+                    drivereadys  <= armwdata[03:00];
                 end
                 5: begin
                     enable <= armwdata[31];
@@ -135,10 +163,10 @@ module rl11
         end
 
         // pdp or something else is accessing an i/o register
-        else if (~ msyn_in_h) begin
+        else if (~ msyn_in_h & ssyn_out_h) begin
             d_out_h    <= 0;
             ssyn_out_h <= 0;
-        end else if (enable & (a_in_h[17:03] == ADDR[17:03]) & ~ ssyn_out_h) begin
+        end else if (enable & msyn_in_h & (a_in_h[17:03] == ADDR[17:03]) & ~ ssyn_out_h) begin
             ssyn_out_h <= 1;
             if (c_in_h[1]) begin
                 case (a_in_h[02:01])
@@ -220,6 +248,21 @@ module rl11
                     2: begin d_out_h <= rlda; end
                     3: begin d_out_h <= rlmp1; rlmp1 <= rlmp2; rlmp2 <= rlmp3; rlmp3 <= rlmp1; end
                 endcase
+            end
+        end
+
+        // do GET STATUS command here
+        else if (~ rlcs_1301[07] & (rlcs_1301[03:01] == 2)) begin
+            if ((rlda[07:00] & 8'o367) != 8'o003) begin
+                rlcs_1301[10] <= 1;     // OPI operation incomplete
+                rlcs_1301[07] <= 1;
+            end else if (rlda[03] & volchecks[driveselect]) begin
+                volchecks[driveselect] <= 0;
+            end else begin
+                rlmp1 <= rlmpstatus;
+                rlmp2 <= rlmpstatus;
+                rlmp3 <= rlmpstatus;
+                rlcs_1301[07] <= 1;
             end
         end
     end
