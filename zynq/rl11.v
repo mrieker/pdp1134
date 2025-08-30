@@ -31,7 +31,7 @@ module rl11
     output[31:00] armrdata,
     output armintrq,
 
-    output intreq,
+    output reg intreq,
     output[7:0] irvec,
     input intgnt,
     input[7:0] igvec,
@@ -48,7 +48,7 @@ module rl11
     ,output[15:00] rlcs
     ,output trigger);
 
-    reg enable, fastio;
+    reg enable, fastio, lastready;
     reg[15:00] rlba, rlda, rlmp1, rlmp2, rlmp3;
     reg rlcs_15, rlcs_14, rlcs_00;
     reg[13:01] rlcs_1301;
@@ -57,7 +57,7 @@ module rl11
 
     assign rlcs = { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 };
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2006 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h524C2008 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rlba,  rlcs  } :
                       (armraddr == 2) ? { rlmp1, rlda  } :
                       (armraddr == 3) ? { rlmp3, rlmp2 } :
@@ -67,26 +67,31 @@ module rl11
 
     assign trigger = rlcs_1301[07] & (rlda == 16'o002250);
 
-    assign armintrq = ~ rlcs_1301[07];
+    assign armintrq = ~ rlcs_1301[07];  // wake z11rl.cc when pdp clears ready bit
 
-    intreq rlintreq (
-        .CLOCK    (CLOCK),
-        .RESET    (init_in_h),
-        .INTVEC   (INTVEC),
-        .rirqlevl (rlcs_1301[07] & rlcs_1301[06]),
-        .xirqlevl (0),
-        .intreq   (intreq),
-        .irvec    (irvec),
-        .intgnt   (intgnt),
-        .igvec    (igvec)
-    );
+    assign irvec = INTVEC;
 
+    // operate interrupt request
+    //  clear either on interrupts disabled or when pdp is reading the vector
+    //  set on posedge of ready if interrupts are enabled at the time
+    //  - do not interrupt when setting interrupt enable when ready already set
+    always @(posedge CLOCK) begin
+        if (~ rlcs_1301[07] | ~ rlcs_1301[06] | intgnt & (igvec == irvec)) begin
+            intreq <= 0;
+        end else if (~ lastready) begin
+            intreq <= 1;
+        end
+        lastready <= rlcs_1301[07];
+    end
+
+    // maintain drive ready bit and errors for selected drive
     always @(*) begin
         rlcs_00 = drivereadys[driveselect];
         rlcs_14 = driveerrors[driveselect];
         rlcs_15 = rlcs_14 | rlcs_1301[13] | rlcs_1301[12] | rlcs_1301[11] | rlcs_1301[10];
     end
 
+    // main processing loop
     always @(posedge CLOCK) begin
         if (init_in_h) begin
             if (RESET) begin

@@ -80,6 +80,7 @@ static uint32_t volatile *rlat;
 static Z11Page *z11p;
 
 static void *rliothread (void *dummy);
+static uint64_t getnowus ();
 static int setdrivetype (void *param, int drivesel);
 static int fileloaded (void *param, int drivesel, int fd);
 static int writebadblocks (ShmMSDrive *dr, int fd);
@@ -152,7 +153,7 @@ static void *rliothread (void *dummy)
             uint16_t rlba = RFLD (1, RL1_RLBA) & 0xFFFEU;
             uint16_t rlda = RFLD (2, RL2_RLDA);
             uint16_t rlmp = RFLD (2, RL2_RLMP1);
-            uint16_t rlmp2, rlmp3;
+            uint16_t rlmp2, rlmp3, rdda;
 
             if (debug > 0) fprintf (stderr, "z11rl: start RLCS=%06o RLBA=%06o RLDA=%06o RLMP=%06o\n", rlcs, rlba, rlda, rlmp);
 
@@ -168,9 +169,7 @@ static void *rliothread (void *dummy)
             ZWR(rlat[4], ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel));     // clear drive ready bit for selected drive while I/O in progress
             ShmMSDrive *dr = &shmms->drives[drivesel];
 
-            struct timespec nowts;
-            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
-            uint64_t nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
+            uint64_t nowus = getnowus ();
 
             uint32_t seekdelay = (seekdoneats[drivesel] > nowus) ? seekdoneats[drivesel] - nowus : 0;
             uint32_t rotndelay = ((rlda & 63) + SECPERTRK - SECUNDERHEAD) % SECPERTRK;
@@ -375,11 +374,31 @@ static void *rliothread (void *dummy)
                         if (debug > 0) fprintf (stderr, "z11rl: [%u]       latestposition=%06o rlda=%06o\n", drivesel, dr->curposn, rlda);
                         goto hnferr;
                     }
-                    uint16_t trk = (rlda >> 6) & 1;
-                    uint16_t cyl =  rlda >> 7;
+                    rdda = rlda;
+                    goto readit;
+                }
+
+                // READ DATA WITHOUT HEADER CHECK
+                case 7: {
+                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   readnohc wc=%06o da=%06o xba=%06o\n", drivesel, 65536 - rlmp, rlda, rlxba);
+
+                    totldelay = seekdelay + USPERSEC - nowus % USPERSEC;
+                    if (! fastio) usleep (totldelay);       // wait for beginning of next sector
+                    nowus += totldelay;
+
+                    rdda = dr->curposn | SECUNDERHEAD;      // disk address based on sector now under head
+                    goto readit;
+                }
+
+                // read data with or without header check
+                // - rdda = where we actually read from
+                // - rlda = RLDA register contents
+                readit: {
+                    uint16_t trk = (rdda >> 6) & 1;
+                    uint16_t cyl =  rdda >> 7;
 
                     do {
-                        uint16_t sec = rlda & 63;
+                        uint16_t sec = rdda & 63;
                         if (sec >= SECPERTRK) {
                             if (debug > 0) fprintf (stderr, "z11rl: [%u]       sec=%02o\n", drivesel, sec);
                             goto hnferr;
@@ -399,7 +418,7 @@ static void *rliothread (void *dummy)
                         if (debug > 2) dumpbuf (drivesel, buf, off, rlxba, "read");
 
                         if (logrlfd >= 0) {
-                            uint16_t hdr[] = { (uint16_t) (('R' << 8) + '0' + drivesel), rlda, (uint16_t) off, (uint16_t) (off >> 16) };
+                            uint16_t hdr[] = { (uint16_t) (('R' << 8) + '0' + drivesel), rdda, (uint16_t) off, (uint16_t) (off >> 16) };
                             rc = write (logrlfd, hdr, sizeof hdr);
                             if (rc < (int) sizeof hdr) {
                                 fprintf (stderr, "z11rl: [%u] only wrote %d of %d bytes to logrl\n", drivesel, rc, (int) sizeof hdr);
@@ -412,6 +431,7 @@ static void *rliothread (void *dummy)
                             }
                         }
 
+                        rdda ++;
                         rlda ++;
 
                         z11p->dmalock ();
@@ -427,12 +447,6 @@ static void *rliothread (void *dummy)
                     } while (rlmp != 0);
                     break;
                 }
-
-                // READ DATA WITHOUT HEADER CHECK
-                case 7: {
-                    if (debug > 0) fprintf (stderr, "z11rl: [%u]   read data without header check\n", drivesel);
-                    goto opierr;
-                }
             }
             goto alldone;
         opierr:;
@@ -442,6 +456,7 @@ static void *rliothread (void *dummy)
             rlcs |= 2U << 10;                       // write check error
             goto alldone;
         hnferr:;
+            if (! fastio) usleep (180000);          // ZRLHB0 wants a 160-400mS delay here
             rlcs |= 5U << 10;                       // header not found
             goto alldone;
         nxmerr:;
@@ -457,8 +472,7 @@ static void *rliothread (void *dummy)
             rlcs  = (rlcs & ~ 0x30) | 0x80 | ((rlxba >> 12) & 0x30);
 
             // update drive ready before updating RLCS so rl11.v will fill in RLCS<00> correctly
-            if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
-            nowus = (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
+            nowus = getnowus ();
             uint16_t drdy = ((fd >= 0) && (seekdoneats[drivesel] <= nowus)) ? RL4_DRDY0 : 0;
             ZWR(rlat[4], (ZRD(rlat[4]) & ~ (RL4_DRDY0 << drivesel)) | (drdy << drivesel));
 
@@ -471,6 +485,14 @@ static void *rliothread (void *dummy)
         }
         UNLKIT;
     }
+}
+
+// get current microsecond time
+static uint64_t getnowus ()
+{
+    struct timespec nowts;
+    if (clock_gettime (CLOCK_MONOTONIC, &nowts) < 0) ABORT ();
+    return (nowts.tv_sec * 1000000ULL) + (nowts.tv_nsec / 1000);
 }
 
 // wait for changes in seekdoneats[drivesel]
