@@ -126,8 +126,8 @@ module sim1134 (
     localparam[15:00] YELSTKLIM = 16'o000400;
 
     reg[5:0] fpust;
-    localparam[5:0] F_IDLE      = 00;
-    localparam[5:0] F_START     = 01;
+    localparam[5:0] F_IDLE  = 00;
+    localparam[5:0] F_START = 01;
 
     // [15:14] = current mode
     // [13:12] = previous mode
@@ -1619,6 +1619,11 @@ module sim1134 (
     //  FLOATING POINT UNIT  //
     ///////////////////////////
 
+    //  172427  040200  LDF  #^F1.0,%0   0 10000001 0000000 = 0.100 * 2^1 = 1.0
+    //  172527  040400  LDF  #^F2.0,%1   0 10000010 0000000 = 0.100 * 2^2 = 2.0
+    //  172627  040000  LDF  #^F0.5,%2   0 10000000 0000000 = 0.100 * 2^0 = 0.5
+    //  172427  040640  LDF  #^F5.0,%0   0 10000011 0100000 = 0.101 * 2^3 = 5.0
+
     localparam[5:0] F_GOT16REG  = 02;
     localparam[5:0] F_GOT16ADR  = 03;
     localparam[5:0] F_DID16ADR  = 04;
@@ -1632,22 +1637,31 @@ module sim1134 (
     localparam[5:0] F_GETFLTME3 = 12;
     localparam[5:0] F_GETFLTME4 = 13;
     localparam[5:0] F_GOTFLTVAL = 14;
-    localparam[5:0] F_ASZER     = 15;
-    localparam[5:0] F_ASALN     = 16;
-    localparam[5:0] F_ADDEN     = 17;
-    localparam[5:0] F_SUBEN     = 18;
-    localparam[5:0] F_GOTINTREG = 19;
-    localparam[5:0] F_GOTINTADR = 20;
-    localparam[5:0] F_STOFLTACC = 21;
-    localparam[5:0] F_STOFLTMEM = 22;
-    localparam[5:0] F_STOFLTME2 = 23;
-    localparam[5:0] F_STOFLTME3 = 24;
-    localparam[5:0] F_STOFLTME4 = 25;
+    localparam[5:0] F_GOTINTREG = 15;
+    localparam[5:0] F_GOTINTADR = 16;
+    localparam[5:0] F_MULSTEP   = 17;
+    localparam[5:0] F_MULDONE   = 18;
+    localparam[5:0] F_ASZER     = 19;
+    localparam[5:0] F_ASALN     = 20;
+    localparam[5:0] F_ADDEN     = 21;
+    localparam[5:0] F_SUBEN     = 22;
+    localparam[5:0] F_DIVSTEP   = 23;
+    localparam[5:0] F_DIVDONE   = 24;
+    localparam[5:0] F_STOFLTACC = 25;
+    localparam[5:0] F_STOFLTMEM = 26;
+    localparam[5:0] F_STOFLTME2 = 27;
+    localparam[5:0] F_STOFLTME3 = 28;
+    localparam[5:0] F_STOFLTME4 = 29;
+    localparam[5:0] F_DONE      = 63;
 
     reg        fsgns[5:0], fmemsgn, faccsgn;
-    reg[7:0]   fexps[5:0], fmemexp, faccexp;  // excess 200; zero=value is 0.0
-    reg[56:00] fmans[5:0], fmemman, faccman;  // [56]=hidden 1 bit; [00]=rounding bit
+    reg[7:0]   fexps[5:0], fmemexp;                     // excess 200; zero=value is 0.0
+    reg[56:00] fmans[5:0], fmemman, faccman, ftmpman;   // [56]=hidden 1 bit; [00]=rounding bit
+    reg[9:0]   faccexp;
     reg fovf;
+
+    wire fmemzer = ~ fmemman[56];
+    wire facczer = ~ faccman[56];
 
     reg fer, fid, fiuv, fiu, fiv, fic, fd, fl, ft, fn, fz, fv, fc;
 
@@ -1681,11 +1695,21 @@ module sim1134 (
     wire[2:0] fac = { 1'b0, instreg[07:06] };   // accumulator number
     wire[2:0] frr = instreg[02:00];             // direct mode register
     wire pcimm = instreg[05:00] == 6'o27;       // addressing mode (PC)+
-    wire fmagmemltmagacc = ({ fmemexp, fmemman } < { faccexp, faccman });
+    wire fmagmemltmagacc = ({ fmemexp, fmemman } < { faccexp[7:0], faccman });
 
     wire[57:00] faccrndup = { 1'b0, faccman } + (fd ? 58'o00000000000000000001 : 58'o00000000040000000000);
+    wire[57:00] fdivdiff  = { fovf, faccman } - { 1'b0, fmemman };
 
-    reg[15:00] fea, fec;
+    localparam[3:0] FEC_ILLOP  =  2;
+    localparam[3:0] FEC_DIVBY0 =  4;
+    localparam[3:0] FEC_INTCNV =  6;
+    localparam[3:0] FEC_OVERFL =  8;
+    localparam[3:0] FEC_UNDRFL = 10;
+    localparam[3:0] FEC_UNDVAR = 12;
+
+    reg[5:0] fcount;
+    reg[15:00] fea, fpc;
+    reg[3:0] fec, fgoterr;
 
     task fputask ();
         begin
@@ -1695,7 +1719,9 @@ module sim1134 (
                 // floatingpoint opcode was just fetched and put in instreg
                 // processor is waiting for us to set fpust <= F_IDLE for it to continue
                 F_START: begin
-                    deferdinc <= 0;
+                    fpc <= gprs[7] - 2;
+                    deferdinc  <= 0;
+                    fgoterr    <= 0;
 
                     // copy fpu ccs to cpu ccs
                     if (fCFCC) begin
@@ -1743,7 +1769,7 @@ module sim1134 (
                     // DST32 - 32-bit integer
                     else if (fSTST) begin
                         if (instreg[05:03] == 0) begin
-                            gprs[dstgprx] <= fec;
+                            gprs[dstgprx] <= { 12'b0, fec };
                             fpust         <= F_IDLE;
                         end else begin
                             getopaddr <= 1;
@@ -1756,7 +1782,7 @@ module sim1134 (
                     // DST,SRC - 'fl'-bit integer
                     else if (fSTCxy | fLDCyx) begin
                         faccsgn <= fsgns[fac];
-                        faccexp <= fexps[fac];
+                        faccexp <= { 2'b0, fexps[fac] };
                         faccman <= fmans[fac];
                         if (instreg[05:03] == 0) begin
                             fpust     <= F_GOTINTREG;
@@ -1772,7 +1798,7 @@ module sim1134 (
                     else if (fCLRx | fTSTx | fABSx | fNEGx | fMULx | fMODx  | fADDx |
                              fLDx  | fSUBx | fCMPx | fSTx  | fDIVx | fSTCxx | fLDCxx) begin
                         faccsgn <= fsgns[fac];
-                        faccexp <= fexps[fac];
+                        faccexp <= { 2'b0, fexps[fac] };
                         faccman <= fmans[fac];
                         if (instreg[05:03] != 0) begin
                             fmemsgn   <= 0;
@@ -1788,14 +1814,18 @@ module sim1134 (
                             fmemman   <= fmans[frr];
                             fpust     <= F_GOTFLTVAL;
                         end else begin
-                            trapvec   <= T_ILLINST;
+                            fea       <= fpc;
+                            fec       <= FEC_ILLOP;
+                            trapvec   <= T_FPUERR;
                             fpust     <= F_IDLE;
                         end
                     end
 
                     // illegal floatingpoint opcode
                     else begin
-                        trapvec <= T_ILLINST;
+                        fea     <= fpc;
+                        fec     <= FEC_ILLOP;
+                        trapvec <= T_FPUERR;
                         fpust   <= F_IDLE;
                     end
                 end
@@ -1876,7 +1906,7 @@ module sim1134 (
 
                 // fSTST - 32-bit integer
                 F_GOT32REG: begin
-                    gprs[dstgprx] <= fec;
+                    gprs[dstgprx] <= { 12'b0, fec };
                     fpust <= F_IDLE;
                 end
 
@@ -1886,7 +1916,7 @@ module sim1134 (
                     membyte   <= 0;
                     memfunc   <= MF_WR;
                     memmode   <= psw[15:14];
-                    writedata <= fec;
+                    writedata <= { 12'b0, fec };
                 end
 
                 F_DID32ADR: begin
@@ -1924,12 +1954,14 @@ module sim1134 (
                 end
                 F_GETFLTMEM: begin
                     fmemexp <= readdata[14:07];
+                    fmemsgn <= readdata[15];
                     if (readdata[14:07] == 0) begin
-                        // read zero exponent from memory, leave all the other bits zero
-                        fpust   <= F_GOTFLTVAL;
+                        // read zero exponent from memory, leave all mantissa bits zero
+                        fpust <= F_GOTFLTVAL;
+                        // 'undefined variable' is reading neg zero from memory
+                        if (readdata[15]) fgoterr <= FEC_UNDVAR;
                     end else begin
-                        // read non-zero exponent, save sign bit and the mantissa bits we got
-                        fmemsgn <= readdata[15];
+                        // read non-zero exponent, save mantissa bits we got
                         fmemman[56:49] <= { 1'b1, readdata[06:00] };
                         if (pcimm) begin
                             // read from (PC)+, that's all we get, the rest of mantissa is zeroes
@@ -1982,35 +2014,57 @@ module sim1134 (
 
                     if (fTSTx) begin
                         fn <= fmemsgn;
-                        fz <= fmemexp == 0;
+                        fz <= fmemzer;
                         fv <= 0;
                         fc <= 0;
-                        fpust <= F_IDLE;
+                        fpust <= F_DONE;
                     end
 
                     if (fABSx) begin
                         faccsgn <= 0;
-                        faccexp <= fmemexp;
+                        faccexp <= { 2'b0, fmemexp };
                         faccman <= fmemman;
                         fn <= 0;
-                        fz <= fmemexp == 0;
+                        fz <= fmemzer;
                         fv <= 0;
                         fc <= 0;
                         fpust <= F_STOFLTMEM;
                     end
 
                     if (fNEGx) begin
-                        faccsgn <= (fmemexp != 0) & ~ fmemsgn;
-                        faccexp <= fmemexp;
+                        faccsgn <= ~ fmemzer & ~ fmemsgn;
+                        faccexp <= { 2'b0, fmemexp };
                         faccman <= fmemman;
                         fn <= 0;
-                        fz <= fmemexp == 0;
+                        fz <= fmemzer;
                         fv <= 0;
                         fc <= 0;
                         fpust <= F_STOFLTMEM;
                     end
 
                     if (fMULx) begin
+
+                        // if either operand zero, result is zero
+                        if (fmemzer | facczer) begin
+                            faccsgn <= 0;
+                            faccexp <= 0;
+                            faccman <= 0;
+                            fn <= 0;
+                            fz <= 1;
+                            fv <= 0;
+                            fc <= 0;
+                            fpust <= F_STOFLTACC;
+                        end
+
+                        // both operands non-zero, grind it out
+                        else begin
+                            fcount  <= 0;
+                            ftmpman <= 0;
+                            faccexp <= faccexp + { 2'b0, fmemexp } + 10'o1577;
+                            faccsgn <= faccsgn ^ fmemsgn;
+                            fovf    <= 0;
+                            fpust <= F_MULSTEP;
+                        end
                     end
 
                     if (fMODx) begin
@@ -2018,29 +2072,29 @@ module sim1134 (
 
                     if (fADDx | fSUBx) begin
 
-                        // if adding/subtracting zero, just set condition codes
-                        if (fmemexp == 0) begin
+                        // if adding/subtracting zero, just set condition codes according to what is in facc
+                        if (fmemzer) begin
                             fn <= faccsgn;
-                            fz <= faccexp == 0;
+                            fz <= facczer;
                             fv <= 0;
                             fc <= 0;
-                            fpust <= F_IDLE;
+                            fpust <= F_DONE;
                         end
 
                         // flip fmemsgn if subtracting
                         // also check for zero facc
                         else begin
                             if (fSUBx) fmemsgn <= ~ fmemsgn;
-                            fpust <= (faccexp == 0) ? F_ASZER : F_ASALN;
+                            fpust <= facczer ? F_ASZER : F_ASALN;
                         end
                     end
 
                     if (fLDx) begin
                         faccsgn <= fmemsgn;
-                        faccexp <= fmemexp;
+                        faccexp <= { 2'b0, fmemexp };
                         faccman <= fmemman;
                         fn <= fmemsgn;
-                        fz <= fmemexp == 0;
+                        fz <= fmemzer;
                         fv <= 0;
                         fc <= 0;
                         fpust <= F_STOFLTACC;
@@ -2063,26 +2117,108 @@ module sim1134 (
                             3: fn <= ~ fmagmemltmagacc;
                         endcase
 
-                        fz <= { fmemsgn, fmemexp, fmemman } == { faccsgn, faccexp, faccman };
+                        fz <= { fmemsgn, fmemexp, fmemman } == { faccsgn, faccexp[7:0], faccman };
                         fv <= 0;
                         fc <= 0;
 
-                        fpust <= F_IDLE;
+                        fpust <= F_DONE;
                     end
 
                     if (fSTx) begin
                         fn <= faccsgn;
-                        fz <= faccexp == 0;
+                        fz <= facczer;
                         fv <= 0;
                         fc <= 0;
                         fpust <= F_STOFLTMEM;
                     end
+
+                    if (fDIVx) begin
+                        if (fmemzer) begin
+                            fgoterr <= FEC_DIVBY0;
+                            fpust <= F_DONE;
+                        end else if (facczer) begin
+                            faccsgn <= 0;
+                            faccexp <= 0;
+                            faccman <= 0;
+                            fn <= 0;
+                            fz <= 1;
+                            fv <= 0;
+                            fc <= 0;
+                            fpust <= F_STOFLTACC;
+                        end else begin
+                            fcount  <= 0;
+                            ftmpman <= 0;
+                            faccexp <= faccexp - { 2'b0, fmemexp } + 10'o0201;
+                            faccsgn <= faccsgn ^ fmemsgn;
+                            fovf    <= 0;
+                            fpust <= F_DIVSTEP;
+                        end
+                    end
                 end
 
-                // ADDx/SUBx - facc is zero so just put fmem in AC
+                // do multiplication step
+
+                // if mantissas were 3 bits (including hidden and rounding bits)
+
+                // multiplying 0.100 * 0.100 => 0.010000
+                //              fovf.ftmpman  fmemman  faccman  fcount
+                // start loop1:    0.000      100      100      0
+                //   end loop1:    0.000      010      100      1
+                //   end loop2:    0.000      001      100      2
+                //   end loop3:    0.100      000      100      -
+
+                // multiplying 0.111 * 0.111 => 0.110001
+                //              fovf.ftmpman  fmemman  faccman  fcount
+                // start loop1:    0.000      111      111      0
+                //   end loop1:    0.111      011      111      1
+                //   end loop2:    1.010      001      111      2
+                //   end loop3:    1.100      000      111      -
+                F_MULSTEP: begin
+                    { fovf, ftmpman } <= { 1'b0, fovf, ftmpman[56:01] } + { 1'b0, (fmemman[00] ? faccman : 57'b0) };
+                    fmemman <= { 1'b0, fmemman[56:01] };
+                    if (fcount != 56) begin
+                        fcount <= fcount + 1;
+                    end else begin
+                        fpust <= F_MULDONE;
+                    end
+                end
+
+                // normalize and finish up
+                // normalizing should just be one iteration if fovf is set
+                //  if fovf is clear, lowest possible value in ftmpman is 100... which is already normalized
+                //  if fovf is set, shifting right gives tmpman 1xx... which is normalized
+                F_MULDONE: begin
+                    if (fovf) begin
+                        ftmpman <= { 1'b1, ftmpman[56:01] };
+                        fovf    <= 0;
+                        faccexp <= faccexp + 1;
+                    end else begin
+                        if (faccexp[9]) begin
+                            faccsgn <= 0;               // underflow, set result to 0
+                            faccexp <= 0;
+                            faccman <= 0;
+                            fn      <= 0;
+                            fz      <= 1;
+                            fv      <= 0;               // it's not an overflow
+                            fgoterr <= FEC_UNDRFL;      // set underflow error code
+                        end else begin
+                            faccman <= ftmpman;         // not underflow, return mantissa
+                            fn      <= faccsgn;
+                            fz      <= 0;
+                            fv      <= faccexp[8];
+                            if (faccexp[8]) begin
+                                fgoterr <= FEC_OVERFL;  // overflow error code
+                            end
+                        end
+                        fc <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+                end
+
+                // ADDx/SUBx - facc is zero so just put non-zero fmem in AC
                 F_ASZER: begin
                     faccsgn <= fmemsgn;
-                    faccexp <= fmemexp;
+                    faccexp <= { 2'b0, fmemexp };
                     faccman <= fmemman;
                     fn <= fmemsgn;
                     fz <= 0;
@@ -2094,18 +2230,16 @@ module sim1134 (
                 // align add/subtract exponents then do addition/subtraction
                 // both facc and fmem are known non-zero
                 F_ASALN: begin
-                    if (faccexp < fmemexp) begin
+                    if (faccexp[7:0] < fmemexp) begin
                         faccexp <= faccexp + 1;
                         faccman <= { 1'b0, faccman[56:01] };
-                    end else if (fmemexp != faccexp) begin
+                    end else if (fmemexp != faccexp[7:0]) begin
                         fmemexp <= fmemexp + 1;
                         fmemman <= { 1'b0, fmemman[56:01] };
                     end
 
                     // exponents and signs are equal, perform an addition
                     else if (fmemsgn == faccsgn) begin
-                        $display ("sim1134.v F_ASALN: facc=%o.%03o.%019o fmem=%o.%03o.%019o",
-                            faccsgn, faccexp, faccman, fmemsgn, fmemexp, fmemman);
                         { fovf, faccman } <= { 1'b0, faccman } + { 1'b0, fmemman };
                         fpust <= F_ADDEN;
                     end
@@ -2126,7 +2260,7 @@ module sim1134 (
                     fn <= faccsgn;
                     fz <= 0;
                     if (fovf) begin
-                        if (faccexp == 8'o377) begin
+                        if (faccexp[7:0] == 8'o377) begin
                             fv <= 1;
                         end else begin
                             fv <= 0;
@@ -2175,7 +2309,7 @@ module sim1134 (
                     end
 
                     // if exponent == 1, it's an underflow
-                    else if (faccexp == 1) begin
+                    else if (faccexp[7:0] == 1) begin
                         fn <= faccsgn;
                         fz <= 1;
                         fv <= 1;
@@ -2194,12 +2328,73 @@ module sim1134 (
                     end
                 end
 
+                // do division step
+
+                // assuming 3-bit mantissa (including hidden and rounding bits):
+                //  faccman  fmemman    ftmpman
+                //    100  /   100  =>    100
+                //    100  /   111  =>    010   divide minimum value / maximum value => 010
+                //    111  /   100  =>    111   divide maximum value / minimum value => 111
+                //    111  /   111  =>    100
+
+                //          fovf.faccman  fmemman  fdivdiff  tmpman  fcount  =>  fovf.faccman  tmpman  fcount
+                //  step 1:    0.111       0.100    0.011     0.000     0           0.110       0.001     1
+                //  step 2:    0.110       0.100    0.010     0.001     1           0.100       0.011     2
+                //  step 3:    0.100       0.100    0.000     0.011     2           0.000       0.111     -
+
+                //          fovf.faccman  fmemman  fdivdiff  tmpman  fcount  =>  fovf.faccman  tmpman  fcount
+                //  step 1:    0.100       0.111    1.101     0.000     0           1.000       0.000     1
+                //  step 2:    1.000       0.111    0.001     0.000     1           0.010       0.001     2
+                //  step 3:    0.010       0.111    1.011     0.001     2           0.100       0.010     -
+
+                F_DIVSTEP: begin
+                    { fovf, faccman } <= { (fdivdiff[57] ? faccman : fdivdiff[56:00]), 1'b0 };
+                            ftmpman   <= { ftmpman[55:00], ~ fdivdiff[57] };
+                    if (fcount != 56) begin
+                        fcount <= fcount + 1;
+                    end else begin
+                        fpust <= F_DIVDONE;
+                    end
+                end
+
+                F_DIVDONE: begin
+                    // if hidden bit is clear, shift mantissa left and decrement exponent
+                    // should only have to shift one bit cuz min val / max val = 01...
+                    if (~ ftmpman[56]) begin
+                        ftmpman <= { ftmpman[55:00], ~ fdivdiff[57] };
+                        faccexp <= faccexp - 1;
+                    end
+
+                    // all normalized, set condition codes and store result away
+                    else begin
+                        if (faccexp[9]) begin
+                            faccsgn <= 0;               // underflow, set result to 0
+                            faccexp <= 0;
+                            faccman <= 0;
+                            fn      <= 0;
+                            fz      <= 1;
+                            fv      <= 0;               // it's not an overflow
+                            fgoterr <= FEC_UNDRFL;      // set underflow error code
+                        end else begin
+                            faccman <= ftmpman;         // not underflow, return mantissa
+                            fn      <= faccsgn;
+                            fz      <= 0;
+                            fv      <= faccexp[8];
+                            if (faccexp[8]) begin
+                                fgoterr <= FEC_OVERFL;  // overflow error code
+                            end
+                        end
+                        fc <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+                end
+
                 // store facc in accumulator [07:06]
                 F_STOFLTACC: begin
                     fsgns[fac] <= faccsgn;
-                    fexps[fac] <= faccexp;
+                    fexps[fac] <= faccexp[7:0];
                     fmans[fac] <= faccman;
-                    fpust <= F_IDLE;
+                    fpust <= F_DONE;
                 end
 
                 // store facc in memory or accumulator [02:00]
@@ -2210,16 +2405,16 @@ module sim1134 (
                     // if direct mode, write facc to corresponding accumulator
                     if (instreg[05:03] == 0) begin
                         fsgns[frr] <= faccsgn;
-                        fexps[frr] <= faccexp;
+                        fexps[frr] <= faccexp[7:0];
                         fmans[frr] <= faccman;
-                        fpust <= F_IDLE;
+                        fpust <= F_DONE;
                     end
 
                     // memory, if no rounding to do, start writing first word to memory
-                    else if (ft | ~ faccman[fd?00:32] | ((faccexp == 8'o377) & faccrndup[57])) begin
+                    else if (ft | ~ faccman[fd?00:32] | ((faccexp[7:0] == 8'o377) & faccrndup[57])) begin
                         fpust     <= F_STOFLTME2;
                         memfunc   <= MF_WR;
-                        writedata <= { faccsgn, faccexp, faccman[55:49] };
+                        writedata <= { faccsgn, faccexp[7:0], faccman[55:49] };
                     end
 
                     // rounding with mantissa overflow
@@ -2235,7 +2430,7 @@ module sim1134 (
                 end
 
                 F_STOFLTME2: begin
-                    fpust     <= fd ? F_STOFLTME3 : F_IDLE;
+                    fpust     <= fd ? F_STOFLTME3 : F_DONE;
                     memfunc   <= MF_WR;
                     virtaddr  <= virtaddr + 2;
                     writedata <= faccman[48:33];
@@ -2249,10 +2444,39 @@ module sim1134 (
                 end
 
                 F_STOFLTME4: begin
-                    fpust     <= F_IDLE;
+                    fpust     <= F_DONE;
                     memfunc   <= MF_WR;
                     virtaddr  <= virtaddr + 2;
                     writedata <= faccman[16:01];
+                end
+
+                // done processing instruction including writing memory
+                // maybe request trap
+                F_DONE: begin
+                    case (fgoterr)
+                        FEC_DIVBY0: begin
+                            fea <= fpc;
+                            fec <= fgoterr;
+                            if (~ fid) trapvec <= T_FPUERR;
+                        end
+                        FEC_OVERFL: begin
+                            fea <= fpc;
+                            fec <= fgoterr;
+                            if (~ fid & fiv) trapvec <= T_FPUERR;
+                        end
+                        FEC_UNDRFL: begin
+                            fea <= fpc;
+                            fec <= fgoterr;
+                            if (~ fid & fiu) trapvec <= T_FPUERR;
+                        end
+                        FEC_UNDVAR: begin
+                            fea <= fpc;
+                            fec <= fgoterr;
+                            if (~ fid & fiuv) trapvec <= T_FPUERR;
+                        end
+                        default: begin end
+                    endcase
+                    fpust <= F_IDLE;
                 end
 
                 default: begin end
