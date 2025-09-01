@@ -125,6 +125,10 @@ module sim1134 (
 
     localparam[15:00] YELSTKLIM = 16'o000400;
 
+    reg[5:0] fpust;
+    localparam[5:0] F_IDLE      = 00;
+    localparam[5:0] F_START     = 01;
+
     // [15:14] = current mode
     // [13:12] = previous mode
     // [07:05] = priority
@@ -163,6 +167,7 @@ module sim1134 (
     localparam[7:0] T_EMT     = 8'o030;
     localparam[7:0] T_TRAP    = 8'o034;
     localparam[7:0] T_PARERR  = 8'o114;
+    localparam[7:0] T_FPUERR  = 8'o244;
     localparam[7:0] T_MMUTRAP = 8'o250;
 
     reg[15:00] cpuerr, instreg;
@@ -205,6 +210,7 @@ module sim1134 (
     wire iBISb  = (instreg[14:12] ==  3'o5);
     wire iADD   = (instreg[15:12] == 4'o06);
     wire iSUB   = (instreg[15:12] == 4'o16);
+    wire iFPU   = (instreg[15:12] == 4'o17);
 
     wire iMUL   = (instreg[15:09] ==  7'o070);
     wire iDIV   = (instreg[15:09] ==  7'o071);
@@ -227,9 +233,8 @@ module sim1134 (
 
     reg[2:0] getopaddr;
     reg[5:0] getopmode;
-    reg[15:00] deferdinc;
-    wire[15:00] getopinc = (byteinstr & ~ getopmode[3] & (getopmode[2:1] != 3)) ? 1 : 2;
-    wire[3:0]   getgprx  = gprx (psw[15:14], getopmode[2:0]);
+    reg[15:00] deferdinc, getopinc;
+    wire[3:0]  getgprx = gprx (psw[15:14], getopmode[2:0]);
 
     wire intreq4 = ~ bus_br_in_l[4] & (psw[07:05] < 4);
     wire intreq5 = ~ bus_br_in_l[5] & (psw[07:05] < 5);
@@ -341,6 +346,7 @@ module sim1134 (
 
             aclock      <= 0;           // don't check AC_LO when powering up
             cpuerr      <= 0;           // haven't had any trap 4s yet
+            fpust       <= F_IDLE;      // fpu idle
             getopaddr   <= 0;           // not getting operand address
             haltck      <= 1;           // check for halt when we get going
             halted      <= 0;           // starting out by reading power-up vector
@@ -643,6 +649,10 @@ module sim1134 (
             endcase
         end
 
+        else if (fpust != F_IDLE) begin
+            fputask ();
+        end
+
         ///////////////////////////////////
         //  HIGHEST LEVEL STATE MACHINE  //
         ///////////////////////////////////
@@ -722,6 +732,10 @@ module sim1134 (
                     else if (iHALT) state <= S_EXHALT;
                     else if (iWAIT) state <= S_EXWAIT;
                     else if (iRESET) state <= S_EXRESET;
+                    else if (iFPU) begin
+                        fpust   <= F_START;
+                        state   <= S_SERVICE;
+                    end
 
                     // illegal opcode
                     else begin
@@ -817,6 +831,7 @@ module sim1134 (
                         state     <= S_GETDST;
                     end else begin
                         getopaddr <= 1;
+                        getopinc  <= (byteinstr & ~ instreg[09] & (instreg[08:07] != 3)) ? 1 : 2;
                         getopmode <= iMTPID ? 6'o26 : instreg[11:06];
                         state     <= S_WAITSRC;
                     end
@@ -855,6 +870,7 @@ module sim1134 (
                         end
                     end else begin
                         getopaddr  <= 1;
+                        getopinc   <= (byteinstr & ~ instreg[03] & (instreg[02:01] != 3)) ? 1 : 2;
                         getopmode  <= instreg[05:00];
                         state      <= S_WAITDST;
                     end
@@ -1598,4 +1614,649 @@ module sim1134 (
             end
         end
     end
+
+    ///////////////////////////
+    //  FLOATING POINT UNIT  //
+    ///////////////////////////
+
+    localparam[5:0] F_GOT16REG  = 02;
+    localparam[5:0] F_GOT16ADR  = 03;
+    localparam[5:0] F_DID16ADR  = 04;
+    localparam[5:0] F_GOT32REG  = 05;
+    localparam[5:0] F_GOT32ADR  = 06;
+    localparam[5:0] F_DID32ADR  = 07;
+    localparam[5:0] F_DID32ADR2 = 08;
+    localparam[5:0] F_GOTFLTADR = 09;
+    localparam[5:0] F_GETFLTMEM = 10;
+    localparam[5:0] F_GETFLTME2 = 11;
+    localparam[5:0] F_GETFLTME3 = 12;
+    localparam[5:0] F_GETFLTME4 = 13;
+    localparam[5:0] F_GOTFLTVAL = 14;
+    localparam[5:0] F_ASZER     = 15;
+    localparam[5:0] F_ASALN     = 16;
+    localparam[5:0] F_ADDEN     = 17;
+    localparam[5:0] F_SUBEN     = 18;
+    localparam[5:0] F_GOTINTREG = 19;
+    localparam[5:0] F_GOTINTADR = 20;
+    localparam[5:0] F_STOFLTACC = 21;
+    localparam[5:0] F_STOFLTMEM = 22;
+    localparam[5:0] F_STOFLTME2 = 23;
+    localparam[5:0] F_STOFLTME3 = 24;
+    localparam[5:0] F_STOFLTME4 = 25;
+
+    reg        fsgns[5:0], fmemsgn, faccsgn;
+    reg[7:0]   fexps[5:0], fmemexp, faccexp;  // excess 200; zero=value is 0.0
+    reg[56:00] fmans[5:0], fmemman, faccman;  // [56]=hidden 1 bit; [00]=rounding bit
+    reg fovf;
+
+    reg fer, fid, fiuv, fiu, fiv, fic, fd, fl, ft, fn, fz, fv, fc;
+
+    wire fCFCC   = instreg[11:00] == 12'b000000000000;
+    wire fSETF   = instreg[11:00] == 12'b000000000001;
+    wire fSETI   = instreg[11:00] == 12'b000000000010;
+    wire fSETD   = instreg[11:00] == 12'b000000001001;
+    wire fSETL   = instreg[11:00] == 12'b000000001010;
+    wire fLDFPS  = instreg[11:06] ==  6'b000001;        // SRC16
+    wire fSTFPS  = instreg[11:06] ==  6'b000010;        // DST16
+    wire fSTST   = instreg[11:06] ==  6'b000011;        // DST32
+    wire fCLRx   = instreg[11:06] ==  6'b000100;        // FDST
+    wire fTSTx   = instreg[11:06] ==  6'b000101;        // FDST
+    wire fABSx   = instreg[11:06] ==  6'b000110;        // FDST
+    wire fNEGx   = instreg[11:06] ==  6'b000111;        // FDST
+    wire fMULx   = instreg[11:08] ==  4'b0010;          // AC,FSRC
+    wire fMODx   = instreg[11:08] ==  4'b0011;          // AC,FSRC
+    wire fADDx   = instreg[11:08] ==  4'b0100;          // AC,FSRC
+    wire fLDx    = instreg[11:08] ==  4'b0101;          // AC,FSRC
+    wire fSUBx   = instreg[11:08] ==  4'b0110;          // AC,FSRC
+    wire fCMPx   = instreg[11:08] ==  4'b0111;          // AC,FSRC
+    wire fSTx    = instreg[11:08] ==  4'b1000;          // AC,FDST
+    wire fDIVx   = instreg[11:08] ==  4'b1001;          // AC,FSRC
+    wire fSTEXPx = instreg[11:08] ==  4'b1010;          // AC,DST16
+    wire fSTCxy  = instreg[11:08] ==  4'b1011;          // AC,DST
+    wire fSTCxx  = instreg[11:08] ==  4'b1100;          // AC,FDST
+    wire fLDEXPx = instreg[11:08] ==  4'b1101;          // AC,SRC16
+    wire fLDCyx  = instreg[11:08] ==  4'b1110;          // AC,SRC
+    wire fLDCxx  = instreg[11:08] ==  4'b1111;          // AC,FSRC
+
+    wire[2:0] fac = { 1'b0, instreg[07:06] };   // accumulator number
+    wire[2:0] frr = instreg[02:00];             // direct mode register
+    wire pcimm = instreg[05:00] == 6'o27;       // addressing mode (PC)+
+    wire fmagmemltmagacc = ({ fmemexp, fmemman } < { faccexp, faccman });
+
+    wire[57:00] faccrndup = { 1'b0, faccman } + (fd ? 58'o00000000000000000001 : 58'o00000000040000000000);
+
+    reg[15:00] fea, fec;
+
+    task fputask ();
+        begin
+            $display ("sim1134.v*: fpust=%02d ac1=%o.%03o.%019o", fpust, fsgns[1], fexps[1], fmans[1]);
+            case (fpust)
+
+                // floatingpoint opcode was just fetched and put in instreg
+                // processor is waiting for us to set fpust <= F_IDLE for it to continue
+                F_START: begin
+                    deferdinc <= 0;
+
+                    // copy fpu ccs to cpu ccs
+                    if (fCFCC) begin
+                        psw[03:00] <= { fn, fz, fv, fc };
+                        fpust <= F_IDLE;
+                    end
+
+                    // set single-precision mode
+                    else if (fSETF) begin
+                        fd <= 0;
+                        fpust <= F_IDLE;
+                    end
+
+                    // set short integer mode
+                    else if (fSETI) begin
+                        fl <= 0;
+                        fpust <= F_IDLE;
+                    end
+
+                    // set double-precision mode
+                    else if (fSETD) begin
+                        fd <= 1;
+                        fpust <= F_IDLE;
+                    end
+
+                    // set long integer mode
+                    else if (fSETL) begin
+                        fl <= 1;
+                        fpust <= F_IDLE;
+                    end
+
+                    // SRC16,DST16 - 16-bit integer
+                    else if (fLDFPS | fSTFPS | fSTEXPx | fLDEXPx) begin
+                        if (instreg[05:03] == 0) begin
+                            fpust     <= F_GOT16REG;
+                            readdata  <= gprs[dstgprx];
+                        end else begin
+                            getopaddr <= 1;
+                            getopmode <= instreg[05:00];
+                            getopinc  <= 2;
+                            fpust     <= F_GOT16ADR;
+                        end
+                    end
+
+                    // DST32 - 32-bit integer
+                    else if (fSTST) begin
+                        if (instreg[05:03] == 0) begin
+                            gprs[dstgprx] <= fec;
+                            fpust         <= F_IDLE;
+                        end else begin
+                            getopaddr <= 1;
+                            getopmode <= instreg[05:00];
+                            getopinc  <= pcimm ? 2 : 4;
+                            fpust     <= F_GOT32ADR;
+                        end
+                    end
+
+                    // DST,SRC - 'fl'-bit integer
+                    else if (fSTCxy | fLDCyx) begin
+                        faccsgn <= fsgns[fac];
+                        faccexp <= fexps[fac];
+                        faccman <= fmans[fac];
+                        if (instreg[05:03] == 0) begin
+                            fpust     <= F_GOTINTREG;
+                        end else begin
+                            getopaddr <= 1;
+                            getopmode <= instreg[05:00];
+                            getopinc  <= (fl & ~ pcimm) ? 4 : 2;
+                            fpust     <= F_GOTINTADR;
+                        end
+                    end
+
+                    // FDST,FSRC - 'fd'-bit float
+                    else if (fCLRx | fTSTx | fABSx | fNEGx | fMULx | fMODx  | fADDx |
+                             fLDx  | fSUBx | fCMPx | fSTx  | fDIVx | fSTCxx | fLDCxx) begin
+                        faccsgn <= fsgns[fac];
+                        faccexp <= fexps[fac];
+                        faccman <= fmans[fac];
+                        if (instreg[05:03] != 0) begin
+                            fmemsgn   <= 0;
+                            fmemexp   <= 0;
+                            fmemman   <= 0;
+                            getopaddr <= 1;
+                            getopmode <= instreg[05:00];
+                            getopinc  <= pcimm ? 2 : (fd ^ (fSTCxx | fLDCxx)) ? 8 : 4;
+                            fpust     <= F_GOTFLTADR;
+                        end else if (frr < 6) begin
+                            fmemsgn   <= fsgns[frr];
+                            fmemexp   <= fexps[frr];
+                            fmemman   <= fmans[frr];
+                            fpust     <= F_GOTFLTVAL;
+                        end else begin
+                            trapvec   <= T_ILLINST;
+                            fpust     <= F_IDLE;
+                        end
+                    end
+
+                    // illegal floatingpoint opcode
+                    else begin
+                        trapvec <= T_ILLINST;
+                        fpust   <= F_IDLE;
+                    end
+                end
+
+                // fLDFPS, fSTFPS, fSTEXPx, fLDEXPx - 16-bit cpu register
+                F_GOT16REG: begin
+                    if (fLDFPS) begin
+                        fer  <= readdata[15];
+                        fid  <= readdata[14];
+                        fiuv <= readdata[11];
+                        fiu  <= readdata[10];
+                        fiv  <= readdata[09];
+                        fic  <= readdata[08];
+                        fd   <= readdata[07];
+                        fl   <= readdata[06];
+                        ft   <= readdata[05];
+                        fn   <= readdata[03];
+                        fz   <= readdata[02];
+                        fv   <= readdata[01];
+                        fc   <= readdata[00];
+                    end
+                    if (fSTFPS) begin
+                        gprs[dstgprx] <= { fer, fid, 2'b0, fiuv, fiu, fiv, fic, fd, fl, ft, 1'b0, fn, fz, fv, fc };
+                    end
+                    if (fSTEXPx) begin
+                        gprs[dstgprx] <= { { 9 { ~ fexps[fac][7] } }, fexps[fac][6:0] };
+                    end
+                    if (fLDEXPx) begin
+                        fexps[fac] <= readdata[07:00] ^ 8'o200;
+                    end
+                    fpust <= F_IDLE;
+                end
+
+                // fLDFPS, fSTFPS, fSTEXPx, fLDEXPx - 16-bit memory location
+                F_GOT16ADR: begin
+                    if (fLDFPS) begin
+                        memfunc   <= MF_RD;
+                    end
+                    if (fSTFPS) begin
+                        memfunc   <= MF_WR;
+                        writedata <= { fer, fid, 2'b0, fiuv, fiu, fiv, fic, fd, fl, ft, 1'b0, fn, fz, fv, fc };
+                    end
+                    if (fSTEXPx) begin
+                        memfunc   <= MF_WR;
+                        writedata <= { { 9 { ~ fexps[fac][7] } }, fexps[fac][6:0] };
+                    end
+                    if (fLDEXPx) begin
+                        memfunc   <= MF_RD;
+                    end
+                    doreloc  <= mmr0[00];
+                    fpust    <= F_DID16ADR;
+                    membyte  <= 0;
+                    memmode  <= psw[15:14];
+                end
+
+                F_DID16ADR: begin
+                    gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                    if (fLDFPS) begin
+                        fer  <= readdata[15];
+                        fid  <= readdata[14];
+                        fiuv <= readdata[11];
+                        fiu  <= readdata[10];
+                        fiv  <= readdata[09];
+                        fic  <= readdata[08];
+                        fd   <= readdata[07];
+                        fl   <= readdata[06];
+                        ft   <= readdata[05];
+                        fn   <= readdata[03];
+                        fz   <= readdata[02];
+                        fv   <= readdata[01];
+                        fc   <= readdata[00];
+                    end
+                    if (fLDEXPx) begin
+                        fexps[fac] <= readdata[07:00] ^ 8'o200;
+                    end
+                    fpust <= F_IDLE;
+                end
+
+                // fSTST - 32-bit integer
+                F_GOT32REG: begin
+                    gprs[dstgprx] <= fec;
+                    fpust <= F_IDLE;
+                end
+
+                F_GOT32ADR: begin
+                    fpust     <= F_DID32ADR;
+                    doreloc   <= mmr0[00];
+                    membyte   <= 0;
+                    memfunc   <= MF_WR;
+                    memmode   <= psw[15:14];
+                    writedata <= fec;
+                end
+
+                F_DID32ADR: begin
+                    if (pcimm) begin
+                        fpust <= F_IDLE;
+                        gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                    end else begin
+                        fpust     <= F_DID32ADR2;
+                        memfunc   <= MF_WR;
+                        virtaddr  <= virtaddr + 2;
+                        writedata <= fea;
+                    end
+                end
+
+                F_DID32ADR2: begin
+                    fpust <= F_IDLE;
+                    gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                end
+
+                // got floatingpoint operand memory address
+                // read floatingpoint operand into fmem
+                F_GOTFLTADR: begin
+                    gprs[dstgprx] <= gprs[dstgprx] + deferdinc;
+                    doreloc <= mmr0[00];
+                    membyte <= 0;
+                    memmode <= psw[15:14];
+                    if (fCLRx | fSTx | fSTCxx) begin
+                        // these instructions do not require reading the memory location
+                        fpust   <= F_GOTFLTVAL;
+                    end else begin
+                        // the rest of them do, so start reading the first word
+                        fpust   <= F_GETFLTMEM;
+                        memfunc <= MF_RD;
+                    end
+                end
+                F_GETFLTMEM: begin
+                    fmemexp <= readdata[14:07];
+                    if (readdata[14:07] == 0) begin
+                        // read zero exponent from memory, leave all the other bits zero
+                        fpust   <= F_GOTFLTVAL;
+                    end else begin
+                        // read non-zero exponent, save sign bit and the mantissa bits we got
+                        fmemsgn <= readdata[15];
+                        fmemman[56:49] <= { 1'b1, readdata[06:00] };
+                        if (pcimm) begin
+                            // read from (PC)+, that's all we get, the rest of mantissa is zeroes
+                            fpust    <= F_GOTFLTVAL;
+                        end else begin
+                            // start reading second word
+                            fpust    <= F_GETFLTME2;
+                            memfunc  <= MF_RD;
+                            virtaddr <= virtaddr + 2;
+                        end
+                    end
+                end
+                F_GETFLTME2: begin
+                    fmemman[48:33] <= readdata;
+                    if (fd) begin
+                        fpust    <= F_GETFLTME3;
+                        memfunc  <= MF_RD;
+                        virtaddr <= virtaddr + 2;
+                    end else begin
+                        fpust    <= F_GOTFLTVAL;
+                        virtaddr <= virtaddr - 2;
+                    end
+                end
+                F_GETFLTME3: begin
+                    fmemman[32:17] <= readdata;
+                    fpust    <= F_GETFLTME4;
+                    memfunc  <= MF_RD;
+                    virtaddr <= virtaddr + 2;
+                end
+                F_GETFLTME4: begin
+                    fmemman[16:01] <= readdata;
+                    fpust    <= F_GOTFLTVAL;
+                    virtaddr <= virtaddr - 6;
+                end
+
+                // memory/register operand has been read into fmem if needed
+                // accumulator operand has been loaded into facc
+                // start processing the opcode
+                F_GOTFLTVAL: begin
+                    if (fCLRx) begin
+                        faccsgn <= 0;
+                        faccexp <= 0;
+                        faccman <= 0;
+                        fn <= 0;
+                        fz <= 1;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_STOFLTMEM;
+                    end
+
+                    if (fTSTx) begin
+                        fn <= fmemsgn;
+                        fz <= fmemexp == 0;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_IDLE;
+                    end
+
+                    if (fABSx) begin
+                        faccsgn <= 0;
+                        faccexp <= fmemexp;
+                        faccman <= fmemman;
+                        fn <= 0;
+                        fz <= fmemexp == 0;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_STOFLTMEM;
+                    end
+
+                    if (fNEGx) begin
+                        faccsgn <= (fmemexp != 0) & ~ fmemsgn;
+                        faccexp <= fmemexp;
+                        faccman <= fmemman;
+                        fn <= 0;
+                        fz <= fmemexp == 0;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_STOFLTMEM;
+                    end
+
+                    if (fMULx) begin
+                    end
+
+                    if (fMODx) begin
+                    end
+
+                    if (fADDx | fSUBx) begin
+
+                        // if adding/subtracting zero, just set condition codes
+                        if (fmemexp == 0) begin
+                            fn <= faccsgn;
+                            fz <= faccexp == 0;
+                            fv <= 0;
+                            fc <= 0;
+                            fpust <= F_IDLE;
+                        end
+
+                        // flip fmemsgn if subtracting
+                        // also check for zero facc
+                        else begin
+                            if (fSUBx) fmemsgn <= ~ fmemsgn;
+                            fpust <= (faccexp == 0) ? F_ASZER : F_ASALN;
+                        end
+                    end
+
+                    if (fLDx) begin
+                        faccsgn <= fmemsgn;
+                        faccexp <= fmemexp;
+                        faccman <= fmemman;
+                        fn <= fmemsgn;
+                        fz <= fmemexp == 0;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+
+                    if (fCMPx) begin
+
+                        case ({ fmemsgn, faccsgn })
+
+                            // src >= 0; dst >= 0
+                            0: fn <=   fmagmemltmagacc;
+
+                            // src >= 0; dst < 0
+                            1: fn <=   0;
+
+                            // src < 0; dst >= 0
+                            2: fn <=   1;
+
+                            // src < 0; dst < 0
+                            3: fn <= ~ fmagmemltmagacc;
+                        endcase
+
+                        fz <= { fmemsgn, fmemexp, fmemman } == { faccsgn, faccexp, faccman };
+                        fv <= 0;
+                        fc <= 0;
+
+                        fpust <= F_IDLE;
+                    end
+
+                    if (fSTx) begin
+                        fn <= faccsgn;
+                        fz <= faccexp == 0;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_STOFLTMEM;
+                    end
+                end
+
+                // ADDx/SUBx - facc is zero so just put fmem in AC
+                F_ASZER: begin
+                    faccsgn <= fmemsgn;
+                    faccexp <= fmemexp;
+                    faccman <= fmemman;
+                    fn <= fmemsgn;
+                    fz <= 0;
+                    fv <= 0;
+                    fc <= 0;
+                    fpust <= F_STOFLTACC;
+                end
+
+                // align add/subtract exponents then do addition/subtraction
+                // both facc and fmem are known non-zero
+                F_ASALN: begin
+                    if (faccexp < fmemexp) begin
+                        faccexp <= faccexp + 1;
+                        faccman <= { 1'b0, faccman[56:01] };
+                    end else if (fmemexp != faccexp) begin
+                        fmemexp <= fmemexp + 1;
+                        fmemman <= { 1'b0, fmemman[56:01] };
+                    end
+
+                    // exponents and signs are equal, perform an addition
+                    else if (fmemsgn == faccsgn) begin
+                        $display ("sim1134.v F_ASALN: facc=%o.%03o.%019o fmem=%o.%03o.%019o",
+                            faccsgn, faccexp, faccman, fmemsgn, fmemexp, fmemman);
+                        { fovf, faccman } <= { 1'b0, faccman } + { 1'b0, fmemman };
+                        fpust <= F_ADDEN;
+                    end
+
+                    // exponents equal, signs different, perform a subtraction
+                    else begin
+                        { fovf, faccman } <= { 1'b0, faccman } - { 1'b0, fmemman };
+                        fpust <= F_SUBEN;
+                    end
+                end
+
+                // finish up addition
+                // both sign bits are the same
+                // fovf = carry out of top bit of addition
+                //        if set, need to shift right to put it in hidden '1' bit position
+                //        otherwise, assume hidden bit position already contains a '1'
+                F_ADDEN: begin
+                    fn <= faccsgn;
+                    fz <= 0;
+                    if (fovf) begin
+                        if (faccexp == 8'o377) begin
+                            fv <= 1;
+                        end else begin
+                            fv <= 0;
+                            faccexp <= faccexp + 1;
+                            faccman <= { 1'b1, faccman[56:01] };
+                        end
+                    end else begin
+                        fv <= 0;
+                    end
+                    fc <= 0;
+                    fpust <= F_STOFLTACC;
+                end
+
+                // finish up subtraction
+                // sign bits are different
+                // fovf = borrow out of top bit of subtraction
+                //        if set, negate difference and flip facc sign bit
+                // either case, shift left enough times to get '1' in hidden bit position
+                F_SUBEN: begin
+
+                    // if mantissas exactly cancelled, result is 0
+                    if (faccman == 0) begin
+                        fn <= 0;
+                        fz <= 1;
+                        fv <= 0;
+                        fc <= 0;
+                        faccsgn <= 0;
+                        faccexp <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+
+                    // if borrow set, means fmem was gt facc, so negate facc
+                    else if (fovf) begin
+                        fovf <= 0;
+                        faccsgn <= ~ faccsgn;
+                        faccman <= - faccman;
+                    end
+
+                    // if hidden '1' bit is set, we're done
+                    else if (faccman[56]) begin
+                        fn <= faccsgn;
+                        fz <= 0;
+                        fv <= 0;
+                        fc <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+
+                    // if exponent == 1, it's an underflow
+                    else if (faccexp == 1) begin
+                        fn <= faccsgn;
+                        fz <= 1;
+                        fv <= 1;
+                        fc <= 0;
+                        faccsgn <= 0;
+                        faccexp <= 0;
+                        faccman <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+
+                    // hidden bit is '0' and exponent can be decremented,
+                    //  shift mantissa left and decrement exponent
+                    else begin
+                        faccexp <= faccexp - 1;
+                        faccman <= { faccman[55:00], 1'b0 };
+                    end
+                end
+
+                // store facc in accumulator [07:06]
+                F_STOFLTACC: begin
+                    fsgns[fac] <= faccsgn;
+                    fexps[fac] <= faccexp;
+                    fmans[fac] <= faccman;
+                    fpust <= F_IDLE;
+                end
+
+                // store facc in memory or accumulator [02:00]
+                // it is already normalized
+                // it is not rounded
+                F_STOFLTMEM: begin
+
+                    // if direct mode, write facc to corresponding accumulator
+                    if (instreg[05:03] == 0) begin
+                        fsgns[frr] <= faccsgn;
+                        fexps[frr] <= faccexp;
+                        fmans[frr] <= faccman;
+                        fpust <= F_IDLE;
+                    end
+
+                    // memory, if no rounding to do, start writing first word to memory
+                    else if (ft | ~ faccman[fd?00:32] | ((faccexp == 8'o377) & faccrndup[57])) begin
+                        fpust     <= F_STOFLTME2;
+                        memfunc   <= MF_WR;
+                        writedata <= { faccsgn, faccexp, faccman[55:49] };
+                    end
+
+                    // rounding with mantissa overflow
+                    else if (faccrndup[57]) begin
+                        faccexp <= faccexp + 1;
+                        faccman <= 57'o4000000000000000000;
+                    end
+
+                    // rounding with no overflow
+                    else begin
+                        faccman <= faccrndup[56:00];
+                    end
+                end
+
+                F_STOFLTME2: begin
+                    fpust     <= fd ? F_STOFLTME3 : F_IDLE;
+                    memfunc   <= MF_WR;
+                    virtaddr  <= virtaddr + 2;
+                    writedata <= faccman[48:33];
+                end
+
+                F_STOFLTME3: begin
+                    fpust     <= F_STOFLTME4;
+                    memfunc   <= MF_WR;
+                    virtaddr  <= virtaddr + 2;
+                    writedata <= faccman[32:17];
+                end
+
+                F_STOFLTME4: begin
+                    fpust     <= F_IDLE;
+                    memfunc   <= MF_WR;
+                    virtaddr  <= virtaddr + 2;
+                    writedata <= faccman[16:01];
+                end
+
+                default: begin end
+            endcase
+        end
+    endtask
 endmodule
