@@ -90,6 +90,7 @@
 
 	NBLKS = 4096.	; number of blocks to use for testing (max 40960.)
 
+	.asect
 	ZZ = .
 
 	.word	0,0

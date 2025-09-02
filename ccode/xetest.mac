@@ -41,6 +41,7 @@
 
 	SWR = 177570
 
+	.asect
 	ZZ = .
 
 	.word	0,0

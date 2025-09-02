@@ -368,6 +368,7 @@ proc loadbin {binname} {
 proc loadlst {lstname {wp wr}} {
     set lstfile [open $lstname]
     while {[gets $lstfile lstline] >= 0} {
+        if {[string trim $lstline] == "Symbol table"} break
         set vaddr 0[string trim [string range $lstline 8 15]]
         if {[string length $vaddr] == 7} {
             for {set i 15} {$i < 38} {incr i 8} {

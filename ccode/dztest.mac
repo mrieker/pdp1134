@@ -60,6 +60,7 @@
 	T.STAK = 32
 	T.SIZE = 2000
 
+	.asect
 	ZZ = .
 
 	.word	0,0
@@ -540,6 +541,6 @@ trap20:
 	.blkw	256.
 stktop:
 
-dr0thr:	.blkb	T.SIZE*8
+dr0thr:	.blkb	T.SIZE*10
 
 	.end

@@ -1,148 +1,164 @@
-       1                                	.title	M9312 'DL' BOOT prom for RL11 controller
-       2                                
-       3                                	; This source code is a modified copy of the DEC M9312 23-751A9 boot PROM.
-       4                                	;
-       5                                	; This boot PROM is for the RL11 controller with RL01/RL02 drives.
-       6                                	;
-       7                                	; Multiple units and/or CSR addresses are supported via different entry points.
-       8                                	;
-       9                                
-      10 161000                         romadr	= 161000
-      11                                
-      12 174400                         rlcsr	=174400 			; std RL11 csrbase
-      13                                
-      14 000000                         rlcs	=+0				; control/status
-      15 000002                         rlba	=+2				; bus address
-      16 000004                         rlda	=+4				; disk address
-      17 000006                         rlmp	=+6				; multipurpose
-      18                                
-      19 000004                         cmstat	=2*2				; get status
-      20 000006                         cmseek	=3*2				; seek
-      21 000010                         cmrdhd	=4*2				; read header
-      22 000014                         cmrdda	=6*2				; read data
-      23                                
-      24                                	.asect
-      25                                	; ---- Simple boot drive 0 from 0
-      26 161000                         	. = romadr + 0
-      27 161000 000137  161040          	jmp	@#start0
-      28                                
-      29                                	; ---- Reboot drive 0 on power event
-      30 161024                         	. = romadr + 24			; Power ON/OFF
-      31 161024 161040                  	.word	     start0		; PC
-      32 161026 000340                  	.word	     340		; PSW priority level 7
-      33                                
-      34                                	; ----- Main boot addresses
-      35 161040                         	. = romadr + 40
-      36                                
-      37                                start:
-      38                                	; 4 unit numbers => 4 entry addresses
-      39                                start0:
-      40 161040 012700  000000          	mov	#0,r0
-      41 161044 000413                  	br	dlnr
-      42 161046 000240                  	nop
-      43                                start1:
-      44 161050 012700  000001          	mov	#1,r0
-      45 161054 000407                  	br	dlnr
-      46 161056 000240                  	nop
-      47                                start2:
-      48 161060 012700  000002          	mov	#2,r0
-      49 161064 000403                  	br	dlnr
-      50 161066 000240                  	nop
-      51                                start3:
-      52 161070 012700  000003          	mov	#3,r0
-      53                                
-      54                                dlnr:
-      55 161074 012701  174400          	mov	#rlcsr,r1		; boot std csr, unit <R0>
-      56 161100 012706  004000          	mov	#4000,sp
-      57 161104 012737  161314  000004  	mov	#trap4,@#4
-      58 161112 012737  000340  000006  	mov	#340,@#6
-      59                                
-      60                                	; --------------------------------------------------
-      61                                
-      62 161120 010003                  	mov	r0,r3			; save unit number
-      63 161122 000303                  	swab	r3			; unit number in upper byte
-      64 161124 010311                  	mov	r3,(r1) 		; set unit, NOP cmd
-      65                                
-      66 161126 012761  000013  000004  	mov	#013,rlda(r1)		; subcmd reset+getstatus
-      67 161134 052703  000004          	bis	#cmstat,r3		; get status cmd (r3lo is 0)
-      68 161140 010311                  	mov	r3,(r1) 		; execute
-      69 161142 004737  161250          	jsr	pc,@#wait		; (yes the assembler goes out if its way to bung up mode 67 so use 37)
-      70                                
-      71 161146 105003                  	clrb	r3			; unit number in upper byte
-      72 161150 052703  000010          	bis	#cmrdhd,r3		; read header cmd
-      73 161154 010311                  	mov	r3,(r1) 		; execute
-      74 161156 004737  161250          	jsr	pc,@#wait
-      75                                
-      76 161162 016102  000006          	mov	rlmp(r1),r2		; retrieve cyl/head/sector
-      77 161166 042702  000077          	bic	#77,r2			; set sector to zero
-      78 161172 005202                  	inc	r2			; set head 0, seek to cyl 0
-      79 161174 010261  000004          	mov	r2,rlda(r1)		; into da for seek
-      80 161200 105003                  	clrb	r3			; unit number in upper byte
-      81 161202 052703  000006          	bis	#cmseek,r3		; seek cmd
-      82 161206 010311                  	mov	r3,(r1) 		; execute
-      83 161210 004737  161250          	jsr	pc,@#wait
-      84                                
-      85 161214 005061  000004          	clr	rlda(r1)		; select cyl0/head0/sector0
-      86 161220 012761  177000  000006  	mov	#-512.,rlmp(r1) 	; set word count
-      87 161226 105003                  	clrb	r3			; unit number in upper byte
-      88 161230 052703  000014          	bis	#cmrdda,r3		; read data cmd
-      89 161234 010311                  	mov	r3,(r1) 		; execute
-      90 161236 004737  161250          	jsr	pc,@#wait
-      91                                
-      92 161242 042711  000377          	bic	#377,(r1)		; execute nop cmd
-      93 161246 005007                  	clr	pc			; jump to bootstrap at zero
-      94                                
-      95                                wait:
-      96 161250 005004                  	clr	r4
-      97                                100$:
-      98 161252 011102                  	mov	(r1),r2			; get status
-      99 161254 100404                  	bmi	200$			; test for error
-     100 161256 105702                  	tstb	r2			; test for ready
-     101 161260 100001                  	bpl	180$			; wait some more
-     102 161262 000207                  	rts	pc
-     103                                180$:
-     104 161264 077406                  	sob	r4,100$			; only wait so long
-     105                                200$:
-     106 161266 150037  161361          	bisb	r0,@#msgdrv
-     107 161272 012702  161322          	mov	#msgbuf,r2
-     108                                prtmsg:
-     109                                300$:
-     110 161276 105737  177564          	tstb	@#177564
-     111 161302 100375                  	bpl	300$
-     112 161304 112237  177566          	movb	(r2)+,@#177566
-     113 161310 001372                  	bne	300$
-     114 161312 000000                  	halt
-     115                                
-     116                                trap4:
-     117 161314 012702  161410          	mov	#t4msg,r2
-     118 161320 000766                  	br	prtmsg
-     119                                
-     120 161322    162     154     142  msgbuf:	.ascii	"rlboot: error reading RL drive "
-         161325    157     157     164  
-         161330    072     040     145  
-         161333    162     162     157  
-         161336    162     040     162  
-         161341    145     141     144  
-         161344    151     156     147  
-         161347    040     122     114  
-         161352    040     144     162  
-         161355    151     166     145  
-         161360    040                  
-     121 161361    060     054     040  msgdrv:	.asciz	"0, check then reboot"<15><12>
-         161364    143     150     145  
-         161367    143     153     040  
-         161372    164     150     145  
-         161375    156     040     162  
-         161400    145     142     157  
-         161403    157     164     015  
-         161406    012     000          
-     122                                
-     123 161410    162     154     142  t4msg:	.asciz	"rlboot: trap 4"<15><12>
-         161413    157     157     164  
-         161416    072     040     164  
-         161421    162     141     160  
-         161424    040     064     015  
-         161427    012     000          
-     124                                
-     125                                	.end
-     125                                
+M9312 'DL' BOOT prom for RL11 c  macro11 0.9  Wednesday 03-Sep-2025 08:05
+
+      1                                 	.title	M9312 'DL' BOOT prom for RL11 controller
+      2
+      3                                 	; This source code is a modified copy of the DEC M9312 23-751A9 boot PROM.
+      4                                 	;
+      5                                 	; This boot PROM is for the RL11 controller with RL01/RL02 drives.
+      6                                 	;
+      7                                 	; Multiple units and/or CSR addresses are supported via different entry points.
+      8                                 	;
+      9
+     10         161000                  romadr	= 161000
+     11
+     12         174400                  rlcsr	=174400 			; std RL11 csrbase
+     13
+     14         000000                  rlcs	=+0				; control/status
+     15         000002                  rlba	=+2				; bus address
+     16         000004                  rlda	=+4				; disk address
+     17         000006                  rlmp	=+6				; multipurpose
+     18
+     19         000004                  cmstat	=2*2				; get status
+     20         000006                  cmseek	=3*2				; seek
+     21         000010                  cmrdhd	=4*2				; read header
+     22         000014                  cmrdda	=6*2				; read data
+     23
+     24 000000     000                  	.asect
+     25                                 	; ---- Simple boot drive 0 from 0
+     26         161000                  	. = romadr + 0
+     27 161000  000137  161040          	jmp	@#start0
+     28
+     29                                 	; ---- Reboot drive 0 on power event
+     30         161024                  	. = romadr + 24			; Power ON/OFF
+     31 161024  161040                  	.word	     start0		; PC
+     32 161026  000340                  	.word	     340		; PSW priority level 7
+     33
+     34                                 	; ----- Main boot addresses
+     35         161040                  	. = romadr + 40
+     36
+     37 161040                          start:
+     38                                 	; 4 unit numbers => 4 entry addresses
+     39 161040                          start0:
+     40 161040  012700  000000          	mov	#0,r0
+     41 161044  000413                  	br	dlnr
+     42 161046  000240                  	nop
+     43 161050                          start1:
+     44 161050  012700  000001          	mov	#1,r0
+     45 161054  000407                  	br	dlnr
+     46 161056  000240                  	nop
+     47 161060                          start2:
+     48 161060  012700  000002          	mov	#2,r0
+     49 161064  000403                  	br	dlnr
+     50 161066  000240                  	nop
+     51 161070                          start3:
+     52 161070  012700  000003          	mov	#3,r0
+     53
+     54 161074                          dlnr:
+     55 161074  012701  174400          	mov	#rlcsr,r1		; boot std csr, unit <R0>
+     56 161100  012706  004000          	mov	#4000,sp
+     57 161104  012737  161314  000004  	mov	#trap4,@#4
+     58 161112  012737  000340  000006  	mov	#340,@#6
+     59
+     60                                 	; --------------------------------------------------
+     61
+     62 161120  010003                  	mov	r0,r3			; save unit number
+     63 161122  000303                  	swab	r3			; unit number in upper byte
+     64 161124  010311                  	mov	r3,(r1) 		; set unit, NOP cmd
+     65
+     66 161126  012761  000013  000004  	mov	#013,rlda(r1)		; subcmd reset+getstatus
+     67 161134  052703  000004          	bis	#cmstat,r3		; get status cmd (r3lo is 0)
+     68 161140  010311                  	mov	r3,(r1) 		; execute
+     69 161142  004737  161250          	jsr	pc,@#wait		; (yes the assembler goes out if its way to bung up mode 67 so use 37)
+     70
+     71 161146  105003                  	clrb	r3			; unit number in upper byte
+     72 161150  052703  000010          	bis	#cmrdhd,r3		; read header cmd
+     73 161154  010311                  	mov	r3,(r1) 		; execute
+     74 161156  004737  161250          	jsr	pc,@#wait
+     75
+     76 161162  016102  000006          	mov	rlmp(r1),r2		; retrieve cyl/head/sector
+     77 161166  042702  000077          	bic	#77,r2			; set sector to zero
+     78 161172  005202                  	inc	r2			; set head 0, seek to cyl 0
+     79 161174  010261  000004          	mov	r2,rlda(r1)		; into da for seek
+     80 161200  105003                  	clrb	r3			; unit number in upper byte
+     81 161202  052703  000006          	bis	#cmseek,r3		; seek cmd
+     82 161206  010311                  	mov	r3,(r1) 		; execute
+     83 161210  004737  161250          	jsr	pc,@#wait
+     84
+     85 161214  005061  000004          	clr	rlda(r1)		; select cyl0/head0/sector0
+     86 161220  012761  177000  000006  	mov	#-512.,rlmp(r1) 	; set word count
+     87 161226  105003                  	clrb	r3			; unit number in upper byte
+     88 161230  052703  000014          	bis	#cmrdda,r3		; read data cmd
+     89 161234  010311                  	mov	r3,(r1) 		; execute
+     90 161236  004737  161250          	jsr	pc,@#wait
+     91
+     92 161242  042711  000377          	bic	#377,(r1)		; execute nop cmd
+     93 161246  005007                  	clr	pc			; jump to bootstrap at zero
+     94
+     95 161250                          wait:
+     96 161250  005004                  	clr	r4
+     97 161252                          100$:
+     98 161252  011102                  	mov	(r1),r2			; get status
+     99 161254  100404                  	bmi	200$			; test for error
+    100 161256  105702                  	tstb	r2			; test for ready
+    101 161260  100001                  	bpl	180$			; wait some more
+    102 161262  000207                  	rts	pc
+    103 161264                          180$:
+    104 161264  077406                  	sob	r4,100$			; only wait so long
+    105 161266                          200$:
+    106 161266  150037  161361          	bisb	r0,@#msgdrv
+    107 161272  012702  161322          	mov	#msgbuf,r2
+    108 161276                          prtmsg:
+    109 161276                          300$:
+    110 161276  105737  177564          	tstb	@#177564
+    111 161302  100375                  	bpl	300$
+    112 161304  112237  177566          	movb	(r2)+,@#177566
+    113 161310  001372                  	bne	300$
+    114 161312  000000                  	halt
+    115
+    116 161314                          trap4:
+    117 161314  012702  161410          	mov	#t4msg,r2
+    118 161320  000766                  	br	prtmsg
+    119
+    120 161322     162     154     142  msgbuf:	.ascii	"rlboot: error reading RL drive "
+        161325     157     157     164
+        161330     072     040     145
+        161333     162     162     157
+        161336     162     040     162
+        161341     145     141     144
+        161344     151     156     147
+        161347     040     122     114
+        161352     040     144     162
+        161355     151     166     145
+        161360     040
+    121 161361     060     054     040  msgdrv:	.asciz	"0, check then reboot"<15><12>
+        161364     143     150     145
+        161367     143     153     040
+        161372     164     150     145
+        161375     156     040     162
+        161400     145     142     157
+        161403     157     164     015
+        161406     012     000
+    122
+    123 161410     162     154     142  t4msg:	.asciz	"rlboot: trap 4"<15><12>
+        161413     157     157     164
+        161416     072     040     164
+        161421     162     141     160
+        161424     040     064     015
+        161427     012     000
+    124
+    125         000001                  	.end
+
+
+Symbol table
+
+CMRDDA= 000014           MSGBUF= 161322           RLCSR = 174400           START0= 161040           T4MSG = 161410          
+CMRDHD= 000010           MSGDRV= 161361           RLDA  = 000004           START1= 161050           WAIT  = 161250          
+CMSEEK= 000006           PRTMSG= 161276           RLMP  = 000006           START2= 161060          
+CMSTAT= 000004           RLBA  = 000002           ROMADR= 161000           START3= 161070          
+DLNR  = 161074           RLCS  = 000000           START = 161040           TRAP4 = 161314          
+
+
+Program sections
+
+. ABS.  161431    000   (RW,I,GBL,ABS,OVR,NOSAV)
+        000000    001   (RW,I,LCL,REL,CON,NOSAV)

@@ -26,6 +26,7 @@
 ;   > pin set fpgamode 2  (or 1 for sim)
 ;   > source brtest.tcl
 
+	.asect
 	ZZ = .
 
 	. = ZZ + 161024

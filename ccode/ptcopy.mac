@@ -41,6 +41,7 @@
 
     BUFSIZ = 0400           ; must be power of 2
 
+    .asect
     ZZ = .
     jmp @#start
 

@@ -37,6 +37,7 @@
 	MTBRC = 172524
 	MTCMA = 172526
 
+	.asect
 	ZZ = .
 
 	.word	0,0

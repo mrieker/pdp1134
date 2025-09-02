@@ -35,6 +35,7 @@
 	PECTL = 172100
 	PEVEC = 114
 
+	.asect
 	. = . + 400
 
 	stktop = 100000

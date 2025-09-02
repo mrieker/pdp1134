@@ -33,13 +33,13 @@ lib.$(MACH).a: \
 	rm -f lib.$(MACH).a
 	ar rc $@ $^
 
-../MACRO11/src/macro11.$(MACH): ../MACRO11/src/makefile
-	rm -f ../MACRO11/src/*.o
-	$(MAKE) -C ../MACRO11/src
-	mv ../MACRO11/src/macro11 ../MACRO11/src/macro11.$(MACH)
+../macro11/macro11.$(MACH): ../macro11/Makefile
+	rm -f ../macro11/*.o
+	$(MAKE) -C ../macro11
+	mv ../macro11/macro11 ../macro11/macro11.$(MACH)
 
-../MACRO11/src/makefile:
-	git clone https://github.com/j-hoppe/MACRO11.git ../MACRO11
+../macro11/Makefile:
+	git clone https://gitlab.com/Rhialto/macro11.git ../macro11
 
 ../verisim/verisim.$(MACH).a:
 	$(MAKE) -C ../verisim verisim.$(MACH).a
@@ -50,8 +50,8 @@ lib.$(MACH).a: \
 %.$(MACH).o: %.cc *.h
 	$(GPP) -c -o $@ $<
 
-%.lst:	%.mac ../MACRO11/src/macro11.$(MACH)
-	../MACRO11/src/macro11.$(MACH) -o x.obj -l $@ $<
+%.lst:	%.mac ../macro11/macro11.$(MACH)
+	../macro11/macro11.$(MACH) -o x.obj -l $@ $<
 	rm -f x.obj
 
 Z11GUI.jar: Z11GUI.java GUIZynqPage.class $(GUIEXTRAS)

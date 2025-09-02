@@ -28,6 +28,7 @@
 ;  > exit
 ;  $ ./z11dl -cps 960 -log ioregs.log
 
+	.asect
 	ZZ = .
 
 	.word	0,0

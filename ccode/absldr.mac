@@ -1,6 +1,8 @@
 
 ; ../MACRO11/src/macro11 -o absldr.obj -l absldr.lst absldr.mac
 
+	.asect
+
 	ZZ = .
 	. = ZZ + 161024
 	.word	start, 340
