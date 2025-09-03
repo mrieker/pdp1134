@@ -1,0 +1,360 @@
+;;    Copyright (C) Mike Rieker, Beverly, MA USA
+;;    www.outerworldapps.com
+;;
+;;    This program is free software; you can redistribute it and/or modify
+;;    it under the terms of the GNU General Public License as published by
+;;    the Free Software Foundation; version 2 of the License.
+;;
+;;    This program is distributed in the hope that it will be useful,
+;;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;    GNU General Public License for more details.
+;;
+;;    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+;;
+;;    You should have received a copy of the GNU General Public License
+;;    along with this program; if not, write to the Free Software
+;;    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;;
+;;    http://www.gnu.org/licenses/gpl-2.0.html
+
+;   $ ../MACRO11/src/macro11 -o fptest.obj -l fptest.lst fptest.mac
+;   $ ./z11ctrl
+;   > pin set fpgamode 2
+;   > hardreset
+;   > loadlst fptest.lst
+;   > flickstart 0
+;   $ ./z11dl
+
+	ac0 = %0
+	ac1 = %1
+	ac2 = %2
+	ac3 = %3
+	ac4 = %4
+	ac5 = %5
+
+	.asect
+
+	ZZ = .
+	jmp	@#start
+
+	. = ZZ + 024
+	.word	start
+	.word	0
+
+	. = ZZ + 400
+
+	.blkw	200
+stktop:
+
+start:
+	mtps	#340
+	mov	#stktop,sp
+
+	clr	r0
+	ldfps	r0
+
+	setd
+	seti
+
+	ldcif	#1,%2
+	addf	#^F2.0,%2
+	mulf	#^F5.0,%2
+	divf	#^F7.0,%2
+
+	modf	#^F1.0,%2
+	stcdi	%3,r1
+	jsr	pc,prdcml
+	movb	#'.,r0
+	jsr	pc,prchar
+1000$:
+	modd	#^F10.0,%2
+	stcdi	%3,r0
+	add	#'0,r0
+	jsr	pc,prchar
+	tstd	%2
+	cfcc
+	bne	1000$
+
+	jsr	pc,prcrlf
+	clr	r0
+	jsr	pc,prchar
+	halt
+	br	.-2
+
+	ldf	#^F15.0,%2
+	.flt4	2.142857142857142857
+
+seed:	.word	123456
+
+; convert ascii string to double
+;  input:
+;   r0 = points to string
+;  output:
+;   c-bit = integer overflow
+;   r0 = points just past converted number
+;   ac0 = result
+atod::
+	setd
+	seti
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	std	ac1,-(sp)
+	clrd	ac0		; start with 0.0 result
+	clr	r5		; not negative
+	cmpb	@r0,#'-
+	bne	1000$
+	dec	r5
+	inc	r0
+1000$:
+	jsr	pc,5000$	; convert any digits before '.'
+	clr	r4		; assume no digits after '.'
+	cmpb	r1,#'.		; check for '.'
+	bne	1100$
+	mov	r0,r4		; count digits after '.'
+	jsr	pc,5000$	; convert digits after '.'
+	sub	r0,r4		; num digits after '.'
+	inc	r4		; - as negative number
+1100$:
+	cmpb	r1,#'e		; check for exponent
+	beq	1200$
+	cmpb	r1,#'E
+	bne	1600$
+1200$:
+	clr	r3		; accumulate exponent
+	mov	#1,r2		; assume not negative
+	cmpb	r1,#'+
+	beq	1300$
+	cmpb	r1,#'-
+	bne	1400$
+	neg	r2
+1300$:
+	movb	(r0)+,r1
+1400$:
+	cmpb	r1,#'0		; check for digit
+	blo	1500$
+	cmpb	r1,#'9
+	bhi	1500$
+	sub	#'0,r1
+	mul	#12,r3		; mash into exponent
+	bvs	2000$
+	add	r1,r3
+	bvc	1300$
+	br	2000$
+1500$:
+	mul	r2,r3		; mash exponent sign into exponent
+	add	r3,r4		; mash exponent into num digits after '.'
+	bvs	2000$
+1600$:
+	dec	r0		; back up terminating char pointer
+	tst	r4		; check exponent
+	beq	1900$		; if none, all done
+	bpl	1800$
+	neg	r4		; mash neg exponent into result
+1700$:
+	divd	#^F10.0,ac0
+	sob	r4,1700$
+	br	1900$
+1800$:
+	muld	#^F10.0,ac0	; mash pos exponent into result
+	sob	r4,1800$
+1900$:
+	tst	r5		; check result sign
+	beq	2100$
+	negd	ac0
+	br	2100$
+2000$:
+	sec
+2100$:
+	ldd	(sp)+,ac1
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+5000$:
+	movb	(r0)+,r1	; get input char
+	cmpb	r1,#'0		; check for digit
+	blo	5100$
+	cmpb	r1,#'9
+	bhi	5100$
+	sub	#'0,r1
+	ldcid	r1,ac1		; mash into result
+	muld	#^F10.0,ac0
+	addd	ac1,ac0
+	br	5000$
+5100$:
+	rts	pc
+
+; get a 16-bit random nmber
+random:
+	mov	seed,r0
+	mul	#13671,r0
+	add	r1,r0
+	inc	r0
+	mov	r0,seed
+	rts	pc
+
+; trap handler
+;  entered with:
+;   4(SP) = PS at time of trap
+;   2(SP) = PC at time of trap
+;   0(SP) = trap vector address
+
+traph:
+	mov	#traphdone,-(sp)
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+
+	jsr	r5,prascz
+		.asciz	<15><12>"trap "
+		.even
+	mov	16(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PC="
+		.even
+	mov	20(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" PS="
+		.even
+	mov	22(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	jmp	dmprex
+traphdone:
+	halt
+	br	.-2
+
+; dump registers
+dmpreg:
+	mov	r5,-(sp)
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+dmprex:
+	jsr	r5,prascz
+		.asciz	" R0="
+		.even
+	mov	@sp,r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R1="
+		.even
+	mov	2(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R2="
+		.even
+	mov	4(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R3="
+		.even
+	mov	6(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R4="
+		.even
+	mov	10(sp),r1
+	jsr	pc,proct6
+	jsr	r5,prascz
+		.asciz	" R5="
+		.even
+	mov	12(sp),r1
+	jsr	pc,proct6
+	jsr	pc,prcrlf
+	mov	(sp)+,r0
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	rts	pc
+
+; print asciz string following the jsr r5 call
+prascz:
+	movb	(r5)+,r0
+	beq	100$
+	jsr	pc,prchar
+	br	prascz
+100$:
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+; print 6-digit octal number in r1
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+proct6:
+	mov	#30,r0
+	ashc	#1,r0
+	jsr	pc,prchar
+	mov	r2,-(sp)
+	mov	#5,r2
+100$:
+	mov	#6,r0
+	ashc	#3,r0
+	jsr	pc,prchar
+	sob	r2,100$
+	mov	(sp)+,r2
+	rts	pc
+
+; print decimal number
+;  input:
+;   r1 = number to print
+;  scratch:
+;   r0,r1
+prdcml:
+	clr	-(sp)
+100$:
+	clr	r0
+	div	#12,r0
+	add	#60,r1
+	mov	r1,-(sp)
+	mov	r0,r1
+	bne	100$
+	mov	(sp)+,r0
+200$:
+	jsr	pc,prchar
+	mov	(sp)+,r0
+	bne	200$
+	rts	pc
+
+; print crlf
+;  scratch:
+;   r0
+prcrlf:
+	mov	#15,r0
+	jsr	pc,prchar
+	mov	#12,r0
+	jsr	pc,prchar
+	rts	pc
+
+; print single character in r0
+;  input:
+;   r0 = character to print
+prchar:
+	tstb	@#177564
+	bpl	prchar
+	movb	r0,@#177566
+	rts	pc
+
+; mov #n,-(sp) ; jmp @#traph  for each possible trap vector
+traps:	.blkw	400
+
+	.end
