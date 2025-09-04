@@ -323,7 +323,7 @@ module sim1134 (
     wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
     wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
 
-    wire debug = 0;////(gprs[7] >= 16'o010200) & (gprs[7] < 16'o010400);
+    wire debug = (gprs[7] >= 16'o005160) & (gprs[7] < 16'o005270);
 
     // processor main loop
     always @(posedge CLOCK) begin
@@ -557,7 +557,7 @@ module sim1134 (
         //   deferdinc = 0
         //   getopaddr = 1 : start computing
         //   getopmode = 6-bit operand address mode & register
-        //   getopinc  = amount to increment/decrement register by for modes 2,3,4,5
+        //   getopinc  = amount to increment/decrement register by for modes 2,4
         //  output:
         //   deferdinc = 0 : no deferred register increment
         //            else : increment register by this much after memory access succeeds
@@ -591,7 +591,7 @@ module sim1134 (
                             end
                         end
                         2: begin
-                            gprs[getgprx] <= gprs[getgprx] + getopinc;
+                            gprs[getgprx] <= gprs[getgprx] + 2;
                             getopaddr <= 0;
                             virtaddr  <= readdata;
                         end
@@ -603,15 +603,17 @@ module sim1134 (
                     case (getopaddr)
                         1: begin
                             if (getgprx == 6) yellowck <= 1;  // KSP (not USP)
-                            gprs[getgprx] <= gprs[getgprx] - getopinc;
-                            virtaddr      <= gprs[getgprx] - getopinc;
                             if (getopmode[3]) begin
+                                gprs[getgprx] <= gprs[getgprx] - 2;
+                                virtaddr      <= gprs[getgprx] - 2;
                                 doreloc   <= mmr0[00];
                                 getopaddr <= 2;
                                 membyte   <= 0;
                                 memfunc   <= MF_RD;
                                 memmode   <= psw[15:14];
                             end else begin
+                                gprs[getgprx] <= gprs[getgprx] - getopinc;
+                                virtaddr      <= gprs[getgprx] - getopinc;
                                 getopaddr <= 0;
                             end
                         end
@@ -838,7 +840,7 @@ module sim1134 (
                         state     <= S_GETDST;
                     end else begin
                         getopaddr <= 1;
-                        getopinc  <= (byteinstr & ~ instreg[09] & (instreg[08:07] != 3)) ? 1 : 2;
+                        getopinc  <= (byteinstr & (instreg[08:07] != 3)) ? 1 : 2;
                         getopmode <= iMTPID ? 6'o26 : instreg[11:06];
                         state     <= S_WAITSRC;
                     end
@@ -877,7 +879,7 @@ module sim1134 (
                         end
                     end else begin
                         getopaddr  <= 1;
-                        getopinc   <= (byteinstr & ~ instreg[03] & (instreg[02:01] != 3)) ? 1 : 2;
+                        getopinc   <= (byteinstr & (instreg[02:01] != 3)) ? 1 : 2;
                         getopmode  <= instreg[05:00];
                         state      <= S_WAITDST;
                     end
@@ -1728,16 +1730,25 @@ module sim1134 (
 
     wire[15:00] fpsts = { fer, fid, 2'b0, fiuv, fiu, fiv, fic, fd, fl, ft, 1'b0, fn, fz, fv, fc };
 
+    wire[15:00] absdstgpr = gprs[dstgprx][15] ? - gprs[dstgprx] : gprs[dstgprx];
+
     wire[113:0] faccmansplit = ({ ftmpman, fmemman } >> (185 - faccexp[7:0]));
     wire[56:00] faccmanstint = faccman >> (185 - faccexp[7:0]);
 
-    wire[15:00] absdstgpr = gprs[dstgprx][15] ? - gprs[dstgprx] : gprs[dstgprx];
+    // facc value rounded if enabled
+    //  faccrounded[65] = overflow
+    //          [64:57] = exponent
+    //             [56] = hidden bit
+    //          [55:33] = "F" mantissa
+    //          [55:01] = "D" mantissa
+    wire[65:00] faccrounded = ({ 1'b0, faccexp[7:0], faccman } +
+        (ft ? 66'b0 : fd ? 66'b1 : 66'b1 << 32)) | (facczer ? 66'b0 : 66'b1 << 56);
 
     task fputask ();
         begin
             if (debug) begin
-                $display ("sim1134*: pc=%06o fpust=%02d fpsts=%06o fovf=%o",
-                    gprs[7], fpust, fpsts, fovf);
+                $display ("sim1134*: pc=%06o fpust=%02d fpsts=%06o fec=%02o fea=%06o fovf=%o",
+                    gprs[7], fpust, fpsts, fec, fea, fovf);
                 $display ("          fmem=%o.%03o.%19o facc=%o.%04o.%19o ftmpman=%19o",
                     fmemsgn, fmemexp, fmemman, faccsgn, faccexp, faccman, ftmpman);
                 $display ("          fac0=%o.%03o.%19o fac1=%o.%03o.%19o fac2=%o.%03o.%19o",
@@ -2187,10 +2198,6 @@ module sim1134 (
                     end
 
                     if (fSTx) begin
-                        fn <= faccsgn;
-                        fz <= facczer;
-                        fv <= 0;
-                        fc <= 0;
                         fpust <= F_STOFLTMEM;
                     end
 
@@ -2718,46 +2725,46 @@ module sim1134 (
                     end
                 end
 
-                // store facc in accumulator [07:06]
+                // store (possibly rounded) facc in accumulator [07:06]
+                // it is already normalized
                 F_STOFLTACC: begin
+                    if (faccrounded[65]) begin
+                        fv <= 1;
+                        fgoterr <= FEC_OVERFL;
+                    end
+
                     fsgns[fac] <= faccsgn;
-                    fexps[fac] <= faccexp[7:0];
-                    fmans[fac] <= faccman;
+                    fexps[fac] <= faccrounded[64:57];
+                            fmans[fac][56:33] <= faccrounded[56:33];
+                    if (fd) fmans[fac][32:01] <= faccrounded[32:01];
                     fpust <= F_DONE;
                 end
 
-                // store facc in memory or accumulator [02:00]
+                // store (possibly rounded) facc in memory or accumulator [02:00]
                 // it is already normalized
-                // it is not rounded
                 F_STOFLTMEM: begin
+                    if (faccrounded[65]) begin
+                        fv <= 1;
+                        fgoterr <= FEC_OVERFL;
+                    end
 
                     // if direct mode, write facc to corresponding accumulator
                     if (instreg[05:03] == 0) begin
                         fsgns[frr] <= faccsgn;
-                        fexps[frr] <= faccexp[7:0];
-                        fmans[frr] <= faccman;
+                        fexps[frr] <= faccrounded[64:57];
+                                fmans[frr][56:33] <= faccrounded[56:33];
+                        if (fd) fmans[frr][32:01] <= faccrounded[32:01];
                         fpust <= F_DONE;
                     end
 
-                    // memory, if no rounding to do, start writing first word to memory
-                    else if (ft | ~ faccman[fd?00:32] | ((faccexp[7:0] == 8'o377) & faccrndup[57])) begin
+                    // memory, start writing first word to memory
+                    else begin
                         fpust     <= F_STOFLTME2;
                         doreloc   <= mmr0[00];
                         membyte   <= 0;
                         memfunc   <= MF_WR;
                         memmode   <= psw[15:14];
-                        writedata <= { faccsgn, faccexp[7:0], faccman[55:49] };
-                    end
-
-                    // rounding with mantissa overflow
-                    else if (faccrndup[57]) begin
-                        faccexp <= faccexp + 1;
-                        faccman <= 57'o4000000000000000000;
-                    end
-
-                    // rounding with no overflow
-                    else begin
-                        faccman <= faccrndup[56:00];
+                        writedata <= { faccsgn, faccrounded[64:57], faccrounded[55:49] };
                     end
                 end
 
@@ -2765,21 +2772,21 @@ module sim1134 (
                     fpust     <= fd ? F_STOFLTME3 : F_DONE;
                     memfunc   <= MF_WR;
                     virtaddr  <= virtaddr + 2;
-                    writedata <= faccman[48:33];
+                    writedata <= faccrounded[48:33];
                 end
 
                 F_STOFLTME3: begin
                     fpust     <= F_STOFLTME4;
                     memfunc   <= MF_WR;
                     virtaddr  <= virtaddr + 2;
-                    writedata <= faccman[32:17];
+                    writedata <= faccrounded[32:17];
                 end
 
                 F_STOFLTME4: begin
                     fpust     <= F_DONE;
                     memfunc   <= MF_WR;
                     virtaddr  <= virtaddr + 2;
-                    writedata <= faccman[16:01];
+                    writedata <= faccrounded[16:01];
                 end
 
                 // done processing instruction including writing memory
