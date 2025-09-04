@@ -323,6 +323,8 @@ module sim1134 (
     wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
     wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
 
+    wire debug = 0;////(gprs[7] >= 16'o010200) & (gprs[7] < 16'o010400);
+
     // processor main loop
     always @(posedge CLOCK) begin
         if (resetting) begin
@@ -499,6 +501,10 @@ module sim1134 (
                 // complete write immediately
                 6: begin
                     if ((memfunc == MF_WR) | (rwdelay == 15) | turbo) begin
+                        if (debug) begin
+                            if (memfunc == MF_WR) $display ("sim1134*: wr %06o < %06o", physaddr, writedata);
+                                             else $display ("sim1134*: rd %06o > %06o", physaddr, ~ bus_d_in_l);
+                        end
                         if ((memfunc == MF_RM) | (memfunc == MF_RD)) begin
                             readdata[15:08] <= ~ (physaddr[00] ? bus_d_in_l[07:00] : bus_d_in_l[15:08]);
                             readdata[07:00] <= ~ (physaddr[00] ? bus_d_in_l[15:08] : bus_d_in_l[07:00]);
@@ -686,6 +692,7 @@ module sim1134 (
 
                 // start reading the instruction from memory
                 S_FETCH: begin
+                    if (debug) $display ("sim1134*: FETCH PC=%06o", gprs[7]);
                     doreloc  <= mmr0[00];
                     membyte  <= 0;
                     memfunc  <= MF_RD;
@@ -1719,6 +1726,8 @@ module sim1134 (
     reg[15:00] fea, fpc;
     reg[3:0] fec, fgoterr;
 
+    wire[15:00] fpsts = { fer, fid, 2'b0, fiuv, fiu, fiv, fic, fd, fl, ft, 1'b0, fn, fz, fv, fc };
+
     wire[113:0] faccmansplit = ({ ftmpman, fmemman } >> (185 - faccexp[7:0]));
     wire[56:00] faccmanstint = faccman >> (185 - faccexp[7:0]);
 
@@ -1726,6 +1735,17 @@ module sim1134 (
 
     task fputask ();
         begin
+            if (debug) begin
+                $display ("sim1134*: pc=%06o fpust=%02d fpsts=%06o fovf=%o",
+                    gprs[7], fpust, fpsts, fovf);
+                $display ("          fmem=%o.%03o.%19o facc=%o.%04o.%19o ftmpman=%19o",
+                    fmemsgn, fmemexp, fmemman, faccsgn, faccexp, faccman, ftmpman);
+                $display ("          fac0=%o.%03o.%19o fac1=%o.%03o.%19o fac2=%o.%03o.%19o",
+                    fsgns[0], fexps[0], fmans[0], fsgns[1], fexps[1], fmans[1], fsgns[2], fexps[2], fmans[2]);
+                $display ("          fac3=%o.%03o.%19o fac4=%o.%03o.%19o fac5=%o.%03o.%19o",
+                    fsgns[3], fexps[3], fmans[3], fsgns[4], fexps[4], fmans[4], fsgns[5], fexps[5], fmans[5]);
+            end
+
             case (fpust)
 
                 // floatingpoint opcode was just fetched and put in instreg
@@ -1842,18 +1862,18 @@ module sim1134 (
                             fea       <= fpc;
                             fec       <= FEC_ILLOP;
                             fer       <= 1;
-                            trapvec   <= T_FPUERR;
                             fpust     <= F_IDLE;
+                            if (~ fid) trapvec <= T_FPUERR;
                         end
                     end
 
                     // illegal floatingpoint opcode
                     else begin
-                        fea     <= fpc;
-                        fec     <= FEC_ILLOP;
-                        fer     <= 1;
-                        trapvec <= T_FPUERR;
-                        fpust   <= F_IDLE;
+                        fea   <= fpc;
+                        fec   <= FEC_ILLOP;
+                        fer   <= 1;
+                        fpust <= F_IDLE;
+                        if (~ fid) trapvec <= T_FPUERR;
                     end
                 end
 
@@ -1875,7 +1895,7 @@ module sim1134 (
                         fc   <= readdata[00];
                     end
                     if (fSTFPS) begin
-                        gprs[dstgprx] <= { fer, fid, 2'b0, fiuv, fiu, fiv, fic, fd, fl, ft, 1'b0, fn, fz, fv, fc };
+                        gprs[dstgprx] <= fpsts;
                     end
                     if (fSTEXPx) begin
                         gprs[dstgprx] <= { { 9 { ~ fexps[fac][7] } }, fexps[fac][6:0] };
@@ -1893,7 +1913,7 @@ module sim1134 (
                     end
                     if (fSTFPS) begin
                         memfunc   <= MF_WR;
-                        writedata <= { fer, fid, 2'b0, fiuv, fiu, fiv, fic, fd, fl, ft, 1'b0, fn, fz, fv, fc };
+                        writedata <= fpsts;
                     end
                     if (fSTEXPx) begin
                         memfunc   <= MF_WR;
@@ -1980,23 +2000,19 @@ module sim1134 (
                     end
                 end
                 F_GETFLTMEM: begin
-                    fmemexp <= readdata[14:07];
-                    if (readdata[14:07] == 0) begin
-                        // 'undefined variable' is reading neg zero from memory
-                        if (readdata[15] & fiuv) begin
-                            fea     <= fpc;
-                            fec     <= FEC_UNDVAR;
-                            fer     <= 1;
-                            trapvec <= T_FPUERR;
-                            fpust   <= F_IDLE;
-                        end else begin
-                            // positive zero or ignore neg zero, leave all mantissa bits zero
-                            fpust <= F_GOTFLTVAL;
-                        end
+                    if (readdata[15] & fiuv & (readdata[14:07] == 0)) begin
+                        // 'undefined variable' is reading neg zero from memory with FIUV
+                        fea     <= fpc;
+                        fec     <= FEC_UNDVAR;
+                        fer     <= 1;
+                        fpust   <= F_IDLE;
+                        if (~ fid) trapvec <= T_FPUERR;
                     end else begin
-                        // read non-zero exponent, save sign and mantissa bits we got
+                        // save sign, exponent, hidden and mantissa bits we got
                         fmemsgn <= readdata[15];
-                        fmemman[56:49] <= { 1'b1, readdata[06:00] };
+                        fmemexp <= readdata[14:07];
+                        fmemman[56] <= readdata[14:07] != 0;
+                        fmemman[55:49] <= readdata[06:00];
                         if (pcimm) begin
                             // read from (PC)+, that's all we get, the rest of mantissa is zeroes
                             fpust    <= F_GOTFLTVAL;
@@ -2057,7 +2073,7 @@ module sim1134 (
                     if (fABSx) begin
                         faccsgn <= 0;
                         faccexp <= { 2'b0, fmemexp };
-                        faccman <= fmemman;
+                        faccman <= fmemzer ? 0 : fmemman;
                         fn <= 0;
                         fz <= fmemzer;
                         fv <= 0;
@@ -2068,7 +2084,7 @@ module sim1134 (
                     if (fNEGx) begin
                         faccsgn <= ~ fmemzer & ~ fmemsgn;
                         faccexp <= { 2'b0, fmemexp };
-                        faccman <= fmemman;
+                        faccman <= fmemzer ? 0 : fmemman;
                         fn <= 0;
                         fz <= fmemzer;
                         fv <= 0;
@@ -2114,6 +2130,7 @@ module sim1134 (
                             fz <= facczer;
                             fv <= 0;
                             fc <= 0;
+                            if (facczer) fmans[fac] <= 0;
                             fpust <= F_DONE;
                         end
 
@@ -2126,6 +2143,7 @@ module sim1134 (
                     end
 
                     if (fLDx) begin
+                        // preserve non-zero mantissa even when exponent is zero
                         faccsgn <= fmemsgn;
                         faccexp <= { 2'b0, fmemexp };
                         faccman <= fmemman;
@@ -2138,22 +2156,30 @@ module sim1134 (
 
                     if (fCMPx) begin
 
-                        case ({ fmemsgn, faccsgn })
+                        if (fmemzer & facczer) begin
+                            // if both zero, consider them equal, even if signs are different
+                            //  and/or there are dangling bits in mantissas
+                            fn <= 0;
+                            fz <= 1;
+                        end else begin
+                            // at least one has non-zero exponent, sign or dangling bits in the other won't matter
+                            case ({ fmemsgn, faccsgn })
 
-                            // src >= 0; dst >= 0
-                            0: fn <=   fmagmemltmagacc;
+                                // src >= 0; dst >= 0
+                                0: fn <=   fmagmemltmagacc;
 
-                            // src >= 0; dst < 0
-                            1: fn <=   0;
+                                // src >= 0; dst < 0
+                                1: fn <=   0;
 
-                            // src < 0; dst >= 0
-                            2: fn <=   1;
+                                // src < 0; dst >= 0
+                                2: fn <=   1;
 
-                            // src < 0; dst < 0
-                            3: fn <= ~ fmagmemltmagacc;
-                        endcase
+                                // src < 0; dst < 0
+                                3: fn <= ~ fmagmemltmagacc;
+                            endcase
 
-                        fz <= { fmemsgn, fmemexp, fmemman } == { faccsgn, faccexp[7:0], faccman };
+                            fz <= { fmemsgn, fmemexp, fmemman } == { faccsgn, faccexp[7:0], faccman };
+                        end
                         fv <= 0;
                         fc <= 0;
 
