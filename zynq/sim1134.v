@@ -323,7 +323,7 @@ module sim1134 (
     wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
     wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
 
-    wire debug = (gprs[7] >= 16'o005160) & (gprs[7] < 16'o005270);
+    wire debug = 0;////(gprs[7] >= 16'o006760) & (gprs[7] < 16'o011550);
 
     // processor main loop
     always @(posedge CLOCK) begin
@@ -1682,6 +1682,10 @@ module sim1134 (
 
     reg fer, fid, fiuv, fiu, fiv, fic, fd, fl, ft, fn, fz, fv, fc;
 
+    wire fiuven = fiuv & ~ fid;
+    wire fiuen  = fiu  & ~ fid;
+    wire fiven  = fiv  & ~ fid;
+
     wire fCFCC   = instreg[11:00] == 12'b000000000000;
     wire fSETF   = instreg[11:00] == 12'b000000000001;
     wire fSETI   = instreg[11:00] == 12'b000000000010;
@@ -1855,7 +1859,7 @@ module sim1134 (
                              fLDx  | fSUBx | fCMPx | fSTx  | fDIVx | fSTCxy | fLDCyx) begin
                         faccsgn <= fsgns[fac];
                         faccexp <= { 2'b0, fexps[fac] };
-                        faccman <= fmans[fac];
+                        faccman <= fmans[fac] & (fd ? 57'o7777777777777777776 : 57'o7777777700000000000);
                         if (instreg[05:03] != 0) begin
                             fmemsgn   <= 0;
                             fmemexp   <= 0;
@@ -1867,7 +1871,7 @@ module sim1134 (
                         end else if (frr < 6) begin
                             fmemsgn   <= fsgns[frr];
                             fmemexp   <= fexps[frr];
-                            fmemman   <= fmans[frr];
+                            fmemman   <= fmans[frr] & (fd ? 57'o7777777777777777776 : 57'o7777777700000000000);
                             fpust     <= F_GOTFLTVAL;
                         end else begin
                             fea       <= fpc;
@@ -2011,7 +2015,7 @@ module sim1134 (
                     end
                 end
                 F_GETFLTMEM: begin
-                    if (readdata[15] & fiuv & (readdata[14:07] == 0)) begin
+                    if (readdata[15] & fiuven & (readdata[14:07] == 0)) begin
                         // 'undefined variable' is reading neg zero from memory with FIUV
                         fea     <= fpc;
                         fec     <= FEC_UNDVAR;
@@ -2395,10 +2399,9 @@ module sim1134 (
                         fpust   <= F_MODSTEP;
                     end else begin
                         if (faccexp[9]) begin
-                            faccsgn <= 0;               // underflow, set result to 0
-                            faccexp <= 0;
+                            faccexp <= 0;               // underflow, set result to (possibly negative) zero
                             faccman <= 0;
-                            fn      <= 0;
+                            fn      <= faccsgn;
                             fz      <= 1;
                             fv      <= 0;               // it's not an overflow
                             fgoterr <= FEC_UNDRFL;      // set underflow error code
@@ -2407,7 +2410,7 @@ module sim1134 (
                             fn      <= faccsgn;
                             fz      <= 0;
                             fv      <= faccexp[8];
-                            if (faccexp[8]) begin
+                            if (faccexp[8] & fiven) begin
                                 fgoterr <= FEC_OVERFL;  // overflow error code
                             end
                         end
@@ -2425,14 +2428,13 @@ module sim1134 (
 
                     // check for multiply underflow
                     if (faccexp[9]) begin
-                        fsgns[fac|1] <= 0;
+                        fsgns[fac|1] <= faccsgn;
                         fexps[fac|1] <= 0;
                         fmans[fac|1] <= 0;
 
-                        faccsgn <= 0;               // underflow, set result to 0
-                        faccexp <= 0;
+                        faccexp <= 0;               // underflow, set result to (possibly negative) zero
                         faccman <= 0;
-                        fn      <= 0;
+                        fn      <= faccsgn;
                         fz      <= 1;
                         fv      <= 0;
                         fc      <= 0;
@@ -2512,7 +2514,7 @@ module sim1134 (
                         fz <= 0;
                         fv <= faccexp[8];
                         fc <= 0;
-                        if (faccexp[8]) begin
+                        if (faccexp[8] & fiven) begin
                             fgoterr <= FEC_OVERFL;
                         end
                         fpust <= F_STOFLTACC;
@@ -2533,10 +2535,9 @@ module sim1134 (
                     // need to shift more to normalize,
                     // check to see if exponent will underflow
                     else if (faccexp <= 1) begin
-                        faccsgn <= 0;
                         faccexp <= 0;
                         faccman <= 0;
-                        fn <= 0;
+                        fn <= faccsgn;
                         fz <= 1;
                         fv <= 0;
                         fc <= 0;
@@ -2566,6 +2567,10 @@ module sim1134 (
                 // align add/subtract exponents then do addition/subtraction
                 // both facc and fmem are known non-zero
                 F_ASALN: begin
+
+                    // shift the lower exponent's mantissa right
+                    // compensate by incrementing the exponent
+                    // until exponents are equal
                     if (faccexp[7:0] < fmemexp) begin
                         faccexp <= faccexp + 1;
                         faccman <= { 1'b0, faccman[56:01] };
@@ -2594,16 +2599,19 @@ module sim1134 (
                 //        otherwise, assume hidden bit position already contains a '1'
                 F_ADDEN: begin
                     fn <= faccsgn;
-                    fz <= 0;
                     if (fovf) begin
+                        faccexp <= faccexp + 1;
+                        faccman <= { 1'b1, faccman[56:01] };
                         if (faccexp[7:0] == 8'o377) begin
+                            fz <= 1;
                             fv <= 1;
+                            if (fiven) fgoterr <= FEC_OVERFL;
                         end else begin
+                            fz <= 0;
                             fv <= 0;
-                            faccexp <= faccexp + 1;
-                            faccman <= { 1'b1, faccman[56:01] };
                         end
                     end else begin
+                        fz <= 0;
                         fv <= 0;
                     end
                     fc <= 0;
@@ -2635,7 +2643,18 @@ module sim1134 (
                         faccman <= - faccman;
                     end
 
-                    // if hidden '1' bit is set, we're done
+                    // if normalizing underflowed and underflow interrupts disabled, return (possibly negative) zero
+                    else if ((faccexp[7:0] == 0) & ~ fiuen) begin
+                        fn <= faccsgn;
+                        fz <= 1;
+                        fv <= 0;
+                        fc <= 0;
+                        faccexp <= 0;
+                        faccman <= 0;
+                        fpust <= F_STOFLTACC;
+                    end
+
+                    // if hidden bit is set, number is normalized, we're done
                     else if (faccman[56]) begin
                         fn <= faccsgn;
                         fz <= 0;
@@ -2644,21 +2663,14 @@ module sim1134 (
                         fpust <= F_STOFLTACC;
                     end
 
-                    // if exponent == 1, it's an underflow
-                    else if (faccexp[7:0] == 1) begin
-                        fn <= faccsgn;
-                        fz <= 1;
-                        fv <= 1;
-                        fc <= 0;
-                        faccsgn <= 0;
-                        faccexp <= 0;
-                        faccman <= 0;
-                        fpust <= F_STOFLTACC;
-                    end
-
-                    // hidden bit is '0' and exponent can be decremented,
-                    //  shift mantissa left and decrement exponent
                     else begin
+
+                        // if exponent == 1, it's an underflow
+                        if (faccexp[7:0] == 1) begin
+                            fgoterr <= FEC_UNDRFL;
+                        end
+
+                        // shift mantissa left and decrement exponent
                         faccexp <= faccexp - 1;
                         faccman <= { faccman[55:00], 1'b0 };
                     end
@@ -2694,6 +2706,7 @@ module sim1134 (
                 end
 
                 F_DIVDONE: begin
+
                     // if hidden bit is clear, shift mantissa left and decrement exponent
                     // should only have to shift one bit cuz min val / max val = 01...
                     if (~ ftmpman[56]) begin
@@ -2704,10 +2717,9 @@ module sim1134 (
                     // all normalized, set condition codes and store result away
                     else begin
                         if (faccexp[9]) begin
-                            faccsgn <= 0;               // underflow, set result to 0
-                            faccexp <= 0;
+                            faccexp <= 0;               // underflow, set result to (possibly negative) zero
                             faccman <= 0;
-                            fn      <= 0;
+                            fn      <= faccsgn;
                             fz      <= 1;
                             fv      <= 0;               // it's not an overflow
                             fgoterr <= FEC_UNDRFL;      // set underflow error code
@@ -2716,7 +2728,7 @@ module sim1134 (
                             fn      <= faccsgn;
                             fz      <= 0;
                             fv      <= faccexp[8];
-                            if (faccexp[8]) begin
+                            if (faccexp[8] & fiven) begin
                                 fgoterr <= FEC_OVERFL;  // overflow error code
                             end
                         end
@@ -2730,7 +2742,7 @@ module sim1134 (
                 F_STOFLTACC: begin
                     if (faccrounded[65]) begin
                         fv <= 1;
-                        fgoterr <= FEC_OVERFL;
+                        if ((fgoterr != 0) & fiven) fgoterr <= FEC_OVERFL;
                     end
 
                     fsgns[fac] <= faccsgn;
@@ -2745,7 +2757,7 @@ module sim1134 (
                 F_STOFLTMEM: begin
                     if (faccrounded[65]) begin
                         fv <= 1;
-                        fgoterr <= FEC_OVERFL;
+                        if (fiven) fgoterr <= FEC_OVERFL;
                     end
 
                     // if direct mode, write facc to corresponding accumulator
@@ -2796,24 +2808,24 @@ module sim1134 (
                         FEC_INTCNV: begin
                             fea <= fpc;
                             fec <= fgoterr;
+                            fer <= 1;
                             if (~ fid & fic) begin
-                                fer     <= 1;
                                 trapvec <= T_FPUERR;
                             end
                         end
                         FEC_OVERFL: begin
                             fea <= fpc;
                             fec <= fgoterr;
-                            if (~ fid & fiv) begin
-                                fer     <= 1;
+                            fer <= 1;
+                            if (fiven) begin
                                 trapvec <= T_FPUERR;
                             end
                         end
                         FEC_UNDRFL: begin
                             fea <= fpc;
                             fec <= fgoterr;
-                            if (~ fid & fiv) begin
-                                fer     <= 1;
+                            fer <= 1;
+                            if (fiuen) begin
                                 trapvec <= T_FPUERR;
                             end
                         end
