@@ -323,7 +323,7 @@ module sim1134 (
     wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
     wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
 
-    wire debug = (gprs[7] >= 16'o011200) & (gprs[7] < 16'o011420);
+    wire debug = 0;////(gprs[7] >= 16'o021060) & (gprs[7] < 16'o021470);
 
     // processor main loop
     always @(posedge CLOCK) begin
@@ -790,6 +790,7 @@ module sim1134 (
                             bus_init_out_l <= 0;
                             resdelay       <= resdelay + 1;
                         end else begin
+                            ldfps (0);
                             mmr0           <= 0;
                             resdelay       <= 0;
                             state          <= S_SERVICE;
@@ -1744,6 +1745,9 @@ module sim1134 (
     wire[113:0] faccmansplit = ({ ftmpman, fmemman } >> (185 - faccexp[7:0]));
     wire[56:00] faccmanstint = faccman >> (185 - faccexp[7:0]);
 
+    // size of the memory operand for LDCyx and STCxy instructions
+    wire fdmem = fd ^ (fSTCxy | fLDCyx);
+
     // facc value rounded if enabled
     //  faccrounded[65] = overflow
     //          [64:57] = exponent
@@ -1751,7 +1755,7 @@ module sim1134 (
     //          [55:33] = "F" mantissa
     //          [55:01] = "D" mantissa
     wire[65:00] faccrounded = ({ 1'b0, faccexp[7:0], faccman } +
-        (ft ? 66'b0 : fd ? 66'b1 : 66'b1 << 32)) | (facczer ? 66'b0 : 66'b1 << 56);
+        (ft ? 66'b0 : (fd ^ fSTCxy) ? 66'b1 : 66'b1 << 32)) | (facczer ? 66'b0 : 66'b1 << 56);
 
     task fputask ();
         begin
@@ -1870,12 +1874,12 @@ module sim1134 (
                             fmemman   <= 0;
                             getopaddr <= 1;
                             getopmode <= instreg[05:00];
-                            getopinc  <= pcimm ? 2 : (fd ^ (fSTCxy | fLDCyx)) ? 8 : 4;
+                            getopinc  <= pcimm ? 2 : fdmem ? 8 : 4;
                             fpust     <= F_GOTFLTADR;
                         end else if (frr < 6) begin
                             fmemsgn   <= fsgns[frr];
                             fmemexp   <= fexps[frr];
-                            fmemman   <= fmans[frr] & (fd ? 57'o7777777777777777776 : 57'o7777777700000000000);
+                            fmemman   <= fmans[frr] & (fdmem ? 57'o7777777777777777776 : 57'o7777777700000000000);
                             fpust     <= F_GOTFLTVAL;
                         end else begin
                             fea       <= fpc;
@@ -2021,7 +2025,7 @@ module sim1134 (
                 end
                 F_GETFLTME2: begin
                     fmemman[48:33] <= readdata;
-                    if (fd) begin
+                    if (fdmem) begin
                         fpust    <= F_GETFLTME3;
                         memfunc  <= MF_RD;
                         virtaddr <= virtaddr + 2;
@@ -2122,7 +2126,11 @@ module sim1134 (
                         end
                     end
 
-                    if (fLDx) begin
+                    // LDD   - fmemman = xxxxxxx - all 56 bits will be written to FAC
+                    // LDF   - fmemman = xxx0000 - all 24 bits will be written to FAC
+                    // LDCDF - fmemman = xxxxxxx - 56 bits get rounded to 24 bits then written to FAC
+                    // LDCFD - fmemman = xxx0000 - 24 bits and zeroes get written as 56 bits to FAC
+                    if (fLDx | fLDCyx) begin
                         // preserve non-zero mantissa even when exponent is zero
                         faccsgn <= fmemsgn;
                         faccexp <= { 2'b0, fmemexp };
@@ -2163,7 +2171,11 @@ module sim1134 (
                         fpust <= F_IDLE;
                     end
 
-                    if (fSTx) begin
+                    // STD   - faccman = xxxxxxx - all 56 bits will be written to memory
+                    // STF   - faccman = xxx0000 - all 24 bits will be written to memory
+                    // STCDF - faccman = xxxxxxx - 56 bits get rounded to 24 bits then written to FAC
+                    // STCFD - faccman = xxx0000 - 24 bits and zeroes get written as 56 bits to FAC
+                    if (fSTx | fSTCxy) begin
                         fpust <= F_STOFLTMEM;
                     end
 
@@ -2363,7 +2375,7 @@ module sim1134 (
                     end else if (instreg[08]) begin
                         fpust   <= F_MODSTEP;
                     end else begin
-                        if (faccexp[9]) begin
+                        if (faccexp[9] | (faccexp[7:0] == 0)) begin
                             funderflow ();              // underflow, set result to (possibly negative) zero
                         end else begin
                             faccman <= ftmpman;         // not underflow, return mantissa
@@ -2382,7 +2394,7 @@ module sim1134 (
                 F_MODSTEP: begin
 
                     // check for multiply underflow
-                    if (faccexp[9]) begin
+                    if (faccexp[9] | (faccexp[7:0] == 0)) begin
                         fsgns[fac|1] <= faccsgn;
                         fexps[fac|1] <= 0;
                         fmans[fac|1] <= 0;
@@ -2664,22 +2676,27 @@ module sim1134 (
                 // store (possibly rounded) facc in memory or accumulator [02:00]
                 // it is already normalized
                 F_STOFLTMEM: begin
-                    fn <= faccsgn;
-                    fz <= faccrounded[64:57] == 0;
-                    fv <= 0;
-                    fc <= 0;
 
-                    // if rounding and rounding overflows, return overflow status
-                    if (faccrounded[65]) begin
-                        foverflow ();
+                    if (~ fSTx) begin
+
+                        // update condition codes
+                        fn <= faccsgn;
+                        fz <= faccrounded[64:57] == 0;
+                        fv <= 0;
+                        fc <= 0;
+
+                        // if rounding and rounding overflows, return overflow status
+                        if (faccrounded[65]) begin
+                            foverflow ();
+                        end
                     end
 
                     // if direct mode, write facc to corresponding accumulator
                     if (instreg[05:03] == 0) begin
                         fsgns[frr] <= faccsgn;
                         fexps[frr] <= faccrounded[64:57];
-                                fmans[frr][56:33] <= faccrounded[56:33];
-                        if (fd) fmans[frr][32:01] <= faccrounded[32:01];
+                                   fmans[frr][56:33] <= faccrounded[56:33];
+                        if (fdmem) fmans[frr][32:01] <= faccrounded[32:01];
                         fpust <= F_IDLE;
                     end
 
@@ -2695,7 +2712,7 @@ module sim1134 (
                 end
 
                 F_STOFLTME2: begin
-                    fpust     <= fd ? F_STOFLTME3 : F_IDLE;
+                    fpust     <= fdmem ? F_STOFLTME3 : F_IDLE;
                     memfunc   <= MF_WR;
                     virtaddr  <= virtaddr + 2;
                     writedata <= faccrounded[48:33];
