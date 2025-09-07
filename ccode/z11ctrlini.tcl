@@ -17,6 +17,7 @@ proc helpini {} {
     puts "          flickstart pc \[ps\] - reset processor and start at given address"
     puts "                   flickstep - step processor one instruction then print PC"
     puts "              getenv var def - get envar 'var', default to 'def'"
+    puts "                    ishalted - see if processor is halted"
     puts "                     loadbin - load binary tape file, return start address"
     puts "                     loadlst - load from MACRO11 listing"
     puts "                     octal x - convert integer x to 6-digit octal string"
@@ -250,7 +251,7 @@ proc flickcont {} {
 # halt processor
 proc flickhalt {} {
     pin set ky_haltreq 1
-    for {set i 0} {! [pin ky_halted]} {incr i} {
+    for {set i 0} {! [ishalted]} {incr i} {
         if {$i > 1000} {
             error "flickhalt: processor did not halt"
         }
@@ -270,7 +271,7 @@ proc flickstart {pc {ps 0340}} {
 # - can also be used as an halt
 proc flickstep {} {
     pin set ky_stepreq 1
-    for {set i 0} {[pin ky_stepreq] || ! [pin ky_halted]} {incr i} {
+    for {set i 0} {[pin ky_stepreq] || ! [ishalted]} {incr i} {
         if {$i > 1000} {
             error "flickstep: processor did not step"
         }
@@ -281,6 +282,15 @@ proc flickstep {} {
 # get environment variable, return default value if not defined
 proc getenv {varname {defvalu ""}} {
     return [expr {[info exists ::env($varname)] ? $::env($varname) : $defvalu}]
+}
+
+# determine if processor is halted
+# block snapregs so we don't get fooled by it halting the processor temporarily
+proc ishalted {} {
+    lockdma
+    set h [pin ky_halted]
+    unlkdma
+    return $h
 }
 
 # load binary tape file
@@ -576,7 +586,7 @@ proc sendttychar {ch} {
 
 # step, printing disassembly
 proc steptrace {} {
-    if {! [pin ky_halted]} {
+    if {! [ishalted]} {
         error "steptrace: processor must be halted"
     }
     set pc  [rdword 0777707]
