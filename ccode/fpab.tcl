@@ -4,6 +4,7 @@ dllock -killit              ;# lock access to simulated DL-11
 pin set bm_enablo 0xFFFF dl_enable 1 ky_enable 1
 pin set ky_switches 0$argv  ;#  100000 = halt on error
 loadbin ../maindec/fpdiag/FFPBA0.BIN
+wrword 027352 1     ;# 40300,0,0,0 modd 20200,0,0,1 => 0,0,0,0 rem 20300,0,0,2<=1
 puts "switches = [octal [pin ky_switches]]"
 flickstart 0200
 set line ""

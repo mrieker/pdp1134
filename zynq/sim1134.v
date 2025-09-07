@@ -323,7 +323,7 @@ module sim1134 (
     wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
     wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
 
-    wire debug = (gprs[7] >= 16'o020630) & (gprs[7] < 16'o021470);
+    wire debug = 0;////(gprs[7] >= 16'o027400) & (gprs[7] < 16'o030000);
 
     // processor main loop
     always @(posedge CLOCK) begin
@@ -1748,6 +1748,8 @@ module sim1134 (
     // size of the memory operand for LDCyx and STCxy instructions
     wire fdmem = fd ^ (fSTCxy | fLDCyx);
 
+    wire nicemod = 0;
+
     // facc value rounded if enabled
     //  faccrounded[65] = overflow
     //          [64:57] = exponent
@@ -2084,9 +2086,7 @@ module sim1134 (
                         // if either operand zero, result is zero
                         if (fmemzer | facczer) begin
                             if (instreg[08]) begin
-                                fsgns[fac|1] <= 0;
-                                fexps[fac|1] <= 0;
-                                fmans[fac|1] <= 0;
+                                stomodint (0, 0, 0);
                             end
                             faccsgn <= 0;
                             faccexp <= 0;
@@ -2377,10 +2377,20 @@ module sim1134 (
                     end else begin
                         if (faccexp[9] | (faccexp[8:0] == 0)) begin
                             funderflow ();              // underflow, set result to (possibly negative) zero
+                            if (fiu) begin
+                                faccman <= ftmpman;
+                            end
+                        end else if (faccexp[8]) begin  // check for overflow
+                            foverflow ();
+                            if (fiv) begin
+                                faccman <= ftmpman;
+                            end else begin
+                                faccexp <= 0;           // FFPBA0 seems to like getting 0 here
+                                faccman <= 0;
+                            end
                         end else begin
-                            faccman <= ftmpman;         // not underflow, return mantissa
-                            if (faccexp[8]) foverflow ();
-                            else fv <= 0;
+                            faccman <= ftmpman;         // normal completion
+                            fv <= 0;
                         end
                         fpust <= F_STOFLTACC;
                     end
@@ -2394,12 +2404,12 @@ module sim1134 (
                 F_MODSTEP: begin
 
                     // check for multiply underflow
-                    if (faccexp[9] | (faccexp[7:0] == 0)) begin
-                        fsgns[fac|1] <= faccsgn;
-                        fexps[fac|1] <= 0;
-                        fmans[fac|1] <= 0;
-
-                        funderflow ();              // underflow, set result to (possibly negative) zero
+                    if (faccexp[9] | (faccexp[8:0] == 0)) begin
+                        stomodint (faccsgn, 0, 0);  // underflow, integer part is zero
+                        funderflow ();              // set fraction to (possibly negative) zero
+                        if (fiu) begin
+                            faccman <= ftmpman;
+                        end
                         fpust <= F_STOFLTACC;
                     end
 
@@ -2411,9 +2421,7 @@ module sim1134 (
                         //                            |      |            |
                         //                    hiddenbit      56bits       56bits
                         if (faccexp <= 128) begin
-                            fsgns[fac|1] <= 0;
-                            fexps[fac|1] <= 0;
-                            fmans[fac|1] <= 0;
+                            stomodint (0, 0, 0);
                             faccman <= ftmpman;
                         end
 
@@ -2423,9 +2431,7 @@ module sim1134 (
                         //                          |       |            |
                         //                  hiddenbit       56bits       56bits
                         if (faccexp == 129) begin
-                            fsgns[fac|1] <= faccsgn;
-                            fexps[fac|1] <= faccexp[7:0];
-                            fmans[fac|1] <= { ftmpman[56], 56'b0 };
+                            stomodint (faccsgn, faccexp[7:0], { ftmpman[56], 56'b0 });
                             faccexp <= 128;
                             faccman <= { ftmpman[55:00], fmemman[56] };
                         end
@@ -2435,10 +2441,9 @@ module sim1134 (
                         //                          ^       ^            ^
                         //                          |       |            |
                         //                  hiddenbit       56bits       56bits
-                        if ((faccexp >= 130) && (faccexp <= 184)) begin
-                            fsgns[fac|1] <= faccsgn;
-                            fexps[fac|1] <= faccexp[7:0];
-                            fmans[fac|1] <= (ftmpman >> (185 - faccexp[7:0])) << (185 - faccexp[7:0]);
+                        if ((faccexp >= 130) && (faccexp <= (fd ? 184 : 152))) begin
+                            stomodint (faccsgn, faccexp[7:0],
+                                    (ftmpman >> (185 - faccexp[7:0])) << (185 - faccexp[7:0]));
                             faccexp <= 128;
                             faccman <= faccmansplit[56:00];
                         end
@@ -2448,15 +2453,34 @@ module sim1134 (
                         //                          ^       ^             ^
                         //                          |       |             |
                         //                  hiddenbit       56bits        56bits
-                        if (faccexp >= 185) begin
-                            fsgns[fac|1] <= faccsgn;
-                            fexps[fac|1] <= faccexp[7:0];
-                            fmans[fac|1] <= { ftmpman[56:01], 1'b0 };
-                            faccexp <= faccexp - 56;
-                            faccman <= { ftmpman[00], fmemman[56:01] };
+                        if (  fd & (faccexp >= 185)) begin
+                            stomodint (faccsgn, faccexp[7:0], { ftmpman[56:01], 1'b0 });
+                            if (nicemod) begin
+                                // return as much as we can for fraction bits
+                                faccexp <= faccexp - 56;
+                                faccman <= { ftmpman[00], fmemman[56:01] };
+                            end else begin
+                                // return zeroes for the fraction like real FP11
+                                faccsgn <= 0;
+                                faccexp <= 0;
+                                faccman <= 0;
+                            end
+                        end
+                        if (~ fd & (faccexp >= 153)) begin
+                            stomodint (faccsgn, faccexp[7:0], { ftmpman[56:33], 33'b0 });
+                            if (nicemod) begin
+                                // return as much as we can for fraction bits
+                                faccexp <= faccexp - 24;
+                                faccman <= { ftmpman[32:00], fmemman[56:33] };
+                            end else begin
+                                // return zeroes for the fraction like real FP11
+                                faccsgn <= 0;
+                                faccexp <= 0;
+                                faccman <= 0;
+                            end
                         end
 
-                        // normalize fraction part
+                        // normalize fraction part in facc
                         fpust <= F_MODNORM;
                     end
                 end
@@ -2791,6 +2815,16 @@ module sim1134 (
                 faccman <= 0;
             end
             fv <= 0;
+        end
+    endtask
+
+    // store integer part of MODx in fac|1
+    task stomodint (input isgn, input[7:0] iexp, input[56:00] iman);
+        begin
+            fsgns[fac|1] <= isgn;
+            fexps[fac|1] <= iexp;
+                    fmans[fac|1][56:33] <= iman[56:33];
+            if (fd) fmans[fac|1][32:01] <= iman[32:01];
         end
     endtask
 endmodule

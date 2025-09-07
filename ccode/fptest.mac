@@ -62,6 +62,8 @@ start:
 	mulf	#^F5.0,%2
 	divf	#^F7.0,%2
 
+	std	%2,-(sp)
+
 	modf	#^F1.0,%2
 	stcdi	%3,r1
 	jsr	pc,prdcml
@@ -76,14 +78,54 @@ start:
 	cfcc
 	bne	1000$
 
+	movb	#'=,r0
+	jsr	pc,prchar
+	jsr	pc,prflt2
+
 	jsr	pc,prcrlf
-	clr	r0
+
+	setf
+	ldf	bignum,%0	; AC0 = 0.230.40000001 = 8388609
+	jsr	r5,prascz
+		.asciz	"2 ** 23 + 1 = "
+		.even
+	stf	%0,-(sp)
+	jsr	pc,prflt2
+	jsr	pc,prcrlf
+
+				; 8388609 * 3.75 = 31457283.75
+
+				; 1111000000000000000000011.110...
+				; <----------------------><----...
+				; |  24 bits for integer     24 bits for fraction
+				; +- includes hidden bit
+
+	modf	#^F3.75,%0	; AC0 = 0.201.70000000 = 1.75  set nicemod in sim1134.v
+				;   or  0.000.00000000 = zero  as returned by real FP11A
+				; AC1 = 0.231.74000001 = 31457282
+
+	jsr	r5,prascz
+		.asciz	"    integer = "
+		.even
+	stf	%1,-(sp)
+	jsr	pc,prflt2
+	jsr	pc,prcrlf
+	jsr	r5,prascz
+		.asciz	"   fraction = "
+		.even
+	stf	%0,-(sp)
+	jsr	pc,prflt2
+	jsr	pc,prcrlf
+
+	mov	#15,r0
 	jsr	pc,prchar
 	halt
 	br	.-2
 
 	ldf	#^F15.0,%2
 	.flt4	2.142857142857142857
+
+bignum:	.flt4	8388609.0	; 2 ** 23 + 1 = 0.230.40000001
 
 seed:	.word	123456
 
@@ -282,6 +324,105 @@ dmprex:
 	mov	(sp)+,r3
 	mov	(sp)+,r4
 	mov	(sp)+,r5
+	rts	pc
+
+; print 32-bit floating point value
+;	stf	acn,-(sp)
+; 	jsr	pc,prflt2
+prflt2:
+	mov	2(sp),r0	; get sign bit as digit 0 or 1
+	asl	r0
+	movb	#'0,r0		; print as single digit
+	adc	r0
+	jsr	pc,prchar
+	movb	#'.,r0
+	jsr	pc,prchar
+	mov	2(sp),r2	; get exponent bits from 2(sp)<14:07>
+	bic	#100000,r2
+	mov	#3,r1		; print as 3 octal digits
+	jsr	pc,proctl
+	movb	#'.,r0
+	jsr	pc,prchar
+	mov	2(sp),r2	; get mantissa bits
+	mov	4(sp),r3
+	bit	#077600,r2	; check for zero exponent
+	beq	100$
+	bis	#000200,r2	; set hidden bit
+100$:
+	mov	#10,r1		; print as 8 octal digits
+	ashc	r1,r2
+	jsr	pc,proctl
+
+	mov	#' ,r0
+	jsr	pc,prchar
+
+	stfps	-(sp)		; set up single-precision, short ints, rounding
+	ldfps	#0
+	stf	ac3,-(sp)
+	stf	ac2,-(sp)
+	stf	ac1,-(sp)
+	stf	ac0,-(sp)
+	ldf	24(sp),ac0	; get value to convert
+	absf	ac0
+	modf	#^F1.0,ac0	; fraction => ac0; integer => ac1
+	clr	-(sp)		; get integer digits
+	ldf	ac1,ac2
+200$:
+	modf	tenth,ac2	; split low-order digit
+	mulf	#^F10.0,ac2
+	stcfi	ac2,r0
+	cmp	r0,#12
+	bne	250$
+	addf	#^F1.0,ac2
+	clr	r0
+250$:
+	add	#'0,r0		; push on stack
+	mov	r0,-(sp)
+	ldf	ac3,ac2		; repeat if more to do
+	cfcc
+	bne	200$
+	mov	(sp)+,r0	; pop high-order digit
+300$:
+	jsr	pc,prchar	; print it
+	mov	(sp)+,r0	; pop next digit
+	bne	300$		; repeat until no more
+	mov	#'.,r0		; print decimal point
+	jsr	pc,prchar
+400$:
+	modf	#^F10.0,ac0	; get fraction digit
+	stcfi	ac1,r0		; print it
+	add	#'0,r0
+	jsr	pc,prchar
+	tstf	ac0		; repeat if more fraction
+	cfcc
+	bne	400$
+
+	ldf	(sp)+,ac0
+	ldf	(sp)+,ac1
+	ldf	(sp)+,ac2
+	ldf	(sp)+,ac3
+	ldfps	(sp)+
+
+	mov	(sp)+,r0
+	add	#4,sp
+	jmp	@r0
+
+tenth:	.flt2	0.1
+
+; print octal number of specified number of digits
+;  input:
+;   r1 = number of digits
+;   r2:r3 = value to print, first digit comes from r2<15:13>
+;  scratch:
+;   r0,r1,r2,r3
+proctl:
+	mov	r2,r0
+	ash	#-15,r0
+	bic	#177770,r0
+	bis	#'0,r0
+	jsr	pc,prchar
+	ashc	#3,r2
+	sob	r1,proctl
 	rts	pc
 
 ; print asciz string following the jsr r5 call
