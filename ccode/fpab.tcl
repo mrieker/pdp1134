@@ -6,8 +6,17 @@ pin set ky_switches 0$argv  ;#  100000 = halt on error
 loadbin ../maindec/fpdiag/FFPBA0.BIN
 puts "switches = [octal [pin ky_switches]]"
 flickstart 0200
-while {! [ctrlcflag] && ! [pin ky_halted]} {
+set line ""
+while {! [ctrlcflag] && ! [ishalted]} {
     set ch [readttychar 500]
-    puts -nonewline $ch     ;# echo tty output till it halts
-    flush stdout
+    if {$ch == "\n"} {
+        puts $line
+        set line ""
+    } elseif {$ch != ""} {
+        append line $ch
+    } elseif {$line != ""} {
+        puts -nonewline $line
+        flush stdout
+        set line ""
+    }
 }
