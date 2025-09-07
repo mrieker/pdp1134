@@ -323,7 +323,7 @@ module sim1134 (
     wire mmutrappageln =   pdrentry[03] ? (virtaddr[12:06] < pdrentry[14:08]) : (virtaddr[12:06] > pdrentry[14:08]);
     wire mmutraprdonly = ~ pdrentry[02] & pdrentry[01] & ((memfunc == MF_RM) | (memfunc == MF_WR));
 
-    wire debug = 0;////(gprs[7] >= 16'o021060) & (gprs[7] < 16'o021470);
+    wire debug = (gprs[7] >= 16'o020630) & (gprs[7] < 16'o021470);
 
     // processor main loop
     always @(posedge CLOCK) begin
@@ -2375,7 +2375,7 @@ module sim1134 (
                     end else if (instreg[08]) begin
                         fpust   <= F_MODSTEP;
                     end else begin
-                        if (faccexp[9] | (faccexp[7:0] == 0)) begin
+                        if (faccexp[9] | (faccexp[8:0] == 0)) begin
                             funderflow ();              // underflow, set result to (possibly negative) zero
                         end else begin
                             faccman <= ftmpman;         // not underflow, return mantissa
