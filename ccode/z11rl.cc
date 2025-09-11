@@ -180,11 +180,8 @@ static void *rliothread (void *dummy)
 
             switch ((rlcs >> 1) & 7) {
 
-                // NOP
-                case 0: {
-                    if (debug > 0) fprintf (stderr, "z11rl:   nop\n");
-                    break;
-                }
+                // NOP - handled by fpga (rh11.v)
+                case 0: ABORT ();
 
                 // WRITE CHECK
                 case 1: {

@@ -57,7 +57,7 @@ module rl11
 
     assign rlcs = { rlcs_15, rlcs_14, rlcs_1301, rlcs_00 };
 
-    assign armrdata = (armraddr == 0) ? 32'h524C2009 : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h524C200A : // [31:16] = 'RL'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { rlba,  rlcs  } :
                       (armraddr == 2) ? { rlmp1, rlda  } :
                       (armraddr == 3) ? { rlmp3, rlmp2 } :
@@ -75,7 +75,9 @@ module rl11
 
     assign trigger = rlcs_1301[07] & (rlda == 16'o002250);
 
-    assign armintrq = ~ rlcs_1301[07] & (rlcs_1301[03:01] != 2);  // wake z11rl.cc when pdp clears ready bit
+    assign armintrq = ~ rlcs_1301[07]               // wake z11rl.cc when pdp clears ready bit
+                        & (rlcs_1301[03:01] != 0)   //  and neither NOP
+                        & (rlcs_1301[03:01] != 2);  //  nor GET STATUS
 
     assign irvec = INTVEC;
 
@@ -249,6 +251,11 @@ module rl11
                     3: begin d_out_h <= rlmp1; rlmp1 <= rlmp2; rlmp2 <= rlmp3; rlmp3 <= rlmp1; end
                 endcase
             end
+        end
+
+        // do NOP command here
+        else if (~ rlcs_1301[07] & (rlcs_1301[03:01] == 0)) begin
+            rlcs_1301[07] <= 1;
         end
 
         // do GET STATUS command here
