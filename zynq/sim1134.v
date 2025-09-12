@@ -2286,7 +2286,7 @@ module sim1134 (
                         memfunc   <= MF_WR;
                         memmode   <= psw[15:14];
                         writedata <= faccman[31:16];
-                        fpust <= F_STOINT32B;
+                        fpust     <= pcimm ? F_IDLE : F_STOINT32B;
                     end
                 end
 
@@ -2726,7 +2726,7 @@ module sim1134 (
 
                     // memory, start writing first word to memory
                     else begin
-                        fpust     <= F_STOFLTME2;
+                        fpust     <= pcimm ? F_IDLE : F_STOFLTME2;
                         doreloc   <= mmr0[00];
                         membyte   <= 0;
                         memfunc   <= MF_WR;

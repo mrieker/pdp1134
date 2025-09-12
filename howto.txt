@@ -33,76 +33,99 @@ Quickstart guide:
         * clone repo to non-priv user (sudo should not require password)
         * cd 1134/ccode ; make
 
-    To boot the 11/34 via GUI:
+    These instructions apply only if the M7859 console board is installed and working:
 
-        $ ./z11gui &
-            select REAL or SIM mode by clicking the OFF checkbox
-
-            check other checkboxes for devices you want the FPGA to provide
-            for REAL mode,
-                the Mem checkbox will fill in whatever memory is missing up to 124KW
-                other than Mem, do not check anything that you have a real board for
-                    (or they will stomp on each other)
-            for SIM mode,
-                the Mem checkbox will provide the whole 124KW memory
-                check any other devices wanted (all are fine)
-
-            load boot media (RP04/6, RL01/2, TU10) with appropriate LOAD button
-            the boot menu will only boot from drive 0
-
-            click the BOOT button
-                (runs script guiboot.sh)
-
-        $ ./z11dl       to access Zynq-provided tty port
-            only if the DL-11 checkbox is checked
-
-        should see a boot menu on TTY when BOOT button was clicked
-
-    To boot the 11/34 via command line:
+        Use z11ctrl command to load media files in FPGA provided drives:
 
         $ ./z11ctrl
-        z11ctrl> pin set fpgamode 1         ;# select SIM mode
-            or
-        z11ctrl> pin set fpgamode 2         ;# select REAL mode
+        z11ctrl> source $Z11HOME/boots.tcl  ;# get some boot related functions
+        z11ctrl> pin set fpgamode 2         ;# connect FPGA to real Unibus
+        z11ctrl> probedevsandmem            ;# turn on fpga devices and memory to fill in missing real devices and memory
+        z11ctrl> rlload 0 somefile.rl02     ;# load a file in RL02 drive 0 (will also accept .rl01 files)
+                                            ;# there is also rhload (RP04/RP06) and tmload (TU10)
 
-        z11ctrl> source $Z11HOME/boots.tcl  ;# get some boot scripts
-        z11ctrl> probedevsandmem            ;# fill in any missing devices and memory
+        Then use the 11/34 keypad to boot the disk.
+        If the boot rom does not contain RL boot code:
 
-        if you do not have a real RL-11 controller or are using SIM mode,
-            rlload 0 [-readonly] somefile.rl02      ;# bootable disk image
-            rlload 1 [-readonly] otherfile.rl02     ;# as needed
+        z11ctrl> rlboot                     ;# or rhboot, tmboot
 
-        or use rhload to load RP04/RP06 file, or tmload to load .tap-format tape file
+        Either way, if the Z11 is providing the console tty:
 
-        z11ctrl> rlboot                     ;# boot rl drive 0
-            or rhboot for rh drive 0, tmboot for tm drive 0
         z11ctrl> exit
+        $ ./z11dl
 
-        $ ./z11dl       to access Zynq tty port
-            only if the DL-11 checkbox is checked
+    These instructions apply only if there is no M7859 console board installed:
+
+        To boot the 11/34 via GUI:
+
+            $ ./z11gui &
+                select REAL or SIM mode by clicking the OFF checkbox
+
+                check other checkboxes for devices you want the FPGA to provide
+                for REAL mode,
+                    the Mem checkbox will fill in whatever memory is missing up to 124KW
+                    other than Mem, do not check anything that you have a real board for
+                        (or they will stomp on each other)
+                for SIM mode,
+                    the Mem checkbox will provide the whole 124KW memory
+                    check any other devices wanted (all are fine)
+
+                load boot media (RP04/6, RL01/2, TU10) with appropriate LOAD button
+                the boot menu will only boot from drive 0
+
+                click the BOOT button
+                    (runs script guiboot.sh)
+
+            $ ./z11dl       to access Zynq-provided tty port
+                only if the DL-11 checkbox is checked
+
+            should see a boot menu on TTY when BOOT button was clicked
+
+        To boot the 11/34 via command line:
+
+            $ ./z11ctrl
+            z11ctrl> pin set fpgamode 1         ;# select SIM mode
+                or
+            z11ctrl> pin set fpgamode 2         ;# select REAL mode
+
+            z11ctrl> source $Z11HOME/boots.tcl  ;# get some boot scripts
+            z11ctrl> probedevsandmem            ;# fill in any missing devices and memory
+
+            if you do not have a real RL-11 controller or are using SIM mode,
+                rlload 0 [-readonly] somefile.rl02      ;# bootable disk image
+                rlload 1 [-readonly] otherfile.rl02     ;# as needed
+
+            or use rhload to load RP04/RP06 file, or tmload to load .tap-format tape file
+
+            z11ctrl> rlboot                     ;# boot rl drive 0
+                or rhboot for rh drive 0, tmboot for tm drive 0
+            z11ctrl> exit                       ;# close command-line program, PDP and/or FPGA still running
+
+            $ ./z11dl       to access Zynq tty port
+                only if the DL-11 checkbox is checked
+
+            Note:
+
+                You can put the z11ctrl commands in a file, eg myboot.tcl,
+                with your customized rlload commands.  Do not include the
+                'exit' command.
+
+                The z11dl program (if needed) can be run from TCL with:
+
+                    exec -ignorestderr ./z11dl < /dev/tty > /dev/tty
+
+                ...so it can be at the end of myboot.tcl.
+
+                Then run the script with './z11ctrl myboot.tcl'.  
 
         Note:
+            You can run the GUI (z11gui) and TCL (z11ctrl) programs
+            at the same time.  The GUI will pick up any state changes
+            made by a TCL script and the TCL script can sense any changes
+            made by the GUI.
 
-            You can put the z11ctrl commands in a file, eg myboot.tcl,
-            with your customized rlload commands.  Do not include the
-            'exit' command.
-
-            The z11dl program (if needed) can be run from TCL with:
-
-                exec -ignorestderr ./z11dl < /dev/tty > /dev/tty
-
-            ...so it can be at the end of myboot.tcl.
-
-            Then run the script with './z11ctrl myboot.tcl'.  
-
-    Note:
-        You can run the GUI (z11gui) and TCL (z11ctrl) programs
-        at the same time.  The GUI will pick up any state changes
-        made by a TCL script and the TCL script can sense any changes
-        made by the GUI.
-
-        This is possible because all state is kept in shared memory
-        and FPGA registers which are also common to all processes.
+            This is possible because all state is kept in shared memory
+            and FPGA registers which are also common to all processes.
 
 --------
 
@@ -132,9 +155,13 @@ section is for.  The descriptors all have this format:
                 "11" - main registers for controlling the FPGA and simulator
                 "BM" - block memory, up to 124KW main memory, plus boot memory
                 "DL" - DL-11 serial line registers
+                "DZ" - DZ-11 serial line multiplexer registers
                 "KW" - KW-11 line clock registers
                 "KY" - KY-11 console registers
+                "RH" - RH-11 controller registers
                 "RL" - RL-11 controller registers
+                "TM" - TM-11 controller registers
+                "XE" - DELUA controller registers
 
     <15:12> = log2 of number of 32-bit registers in the section
                 (including descriptor register):
@@ -160,7 +187,8 @@ source file, like pick dl11.v for a simple one.
 
 You can see what sections are present with:
 
-    ./z11dump -once
+    ./z11dump -once     # dump contents of 4KB FPGA register page
+                        # can be run at any time to show state of FPGA
 
 The ARM part of the Zynq chip runs Raspberry PI OS (or probably any Linux you
 could get to run on it).  It has a kernel specific to the Zynq chip but the
@@ -254,8 +282,6 @@ To toggle in a simple program:
 
     z11ctrl> pin set fpgamode 1 or 2    ;# 1 for simulator; 2 for real pdp
     z11ctrl> hardreset                  ;# make sure sim or pdp is reset and halted
-                                        ;#   (hardreset is a bunch of pin commands)
-                                        ;#   (see z11ctrlini.tcl - proc hardreset)
     z11ctrl> enabmem                    ;# make sure we have some memory
                                         ;# - if sim, turns on all FGPA memory (124KW)
                                         ;# - if real, pads real mem to 124KW
@@ -337,6 +363,50 @@ the Zynq from accessing the Unibus, and rdword, wrword will fail.
 
 --------
 
+If you have a PiDP-11 handy, you can connect it up to the 11/34 and use it for
+a blinkenlights console.
+
+ 1) Remove M7859 console board from 11/34 if present.  Make sure the CA1-CB1
+    NPG grant jumper wire is in place and the BG grant jumper card is in place
+    if the slot is left empty.
+
+On the Zynq:
+
+ 2) Start the PiDP server with './z11pidp server &'.
+
+    It listens on UDP port 5826.
+
+On the Raspberry PI plugged into the PiDP-11:
+
+ 1) Stop all PiDP software on the Raspberry PI.
+ 2) Clone the 1134.git repo then do a make from the ccode directory.
+ 3) Run it with './z11pidp client <zynqhostname> &'
+
+    It transmits switches to the server on UDP port 5826 and listens
+    for updates to the lights in a continuous loop.
+
+To test that the UDP packets get through, lift the white lamp test
+switch.  It should do a 'race track' pattern with the lights.
+
+You will still need to use z11ctrl or z11gui to load files in the
+disk and tape drives.
+
+Read the comments at the top of z11pidp.cc for details about the lights
+and switches.  They pretty much behave as expected.  The only significant
+deviations are:
+
+    1) have to turn on SW<21> for the switches to work as 777570 switch
+       register, otherwise have to use z11ctrl 'pin set ky_switches 0<value>'
+       or the z11gui switches to set the 777570 switch register
+
+    2) ADDRESS<20> light indicates Zynq is in sim mode
+       ADDRESS<21> light indicates Zynq is in real mode
+
+       If both lights are off, means the Zynq is in OFF mode and needs to
+       be turned on with z11ctrl or z11gui.
+
+--------
+
 FYI, there is a stand-alone memory test program that will pound the daylights out of
 whatever memory is accessible, real or FPGA:
 
@@ -349,5 +419,42 @@ whatever memory is accessible, real or FPGA:
 It writes random numbers then reads them back using DMA cycles, writing random
 numbers from time to time.  Since it uses DMA cycles with the processor halted,
 it won't work if the real KY-11 console board is plugged in the Unibus.
+
+--------
+
+There is a Verilator module used to develop FPGA code.  This allows running the
+software on an X86-64 bit Linux computer using the Verilator Verilog-to-C++
+translator.  It will process $display() calls in the Verilog code that you put
+in for debugging.
+
+ 1) Install Verilator.  On Ubuntu, 'apt install verilator' will do.
+ 2) Compile the Verilator module:
+
+    $ cd verisim
+    $ make
+
+    This will access the Verilog modules in the ../zynq directory.
+    If you change the Verilog code, you need to rerun this make command.
+
+ 3) Run it
+
+    $ ./verimain.x86_64
+
+    Normally it does not output anythinng except printing its pid when it starts.
+    It will display output from any $display() calls in the Verilog code.
+
+From another screen:
+
+ 4) Build z11 software to access it.
+    The make command will see that it is on an x86_64 and build everything to
+    communicate with verimain.x86_64 instead of trying to access the FPGA.
+
+    $ cd ../ccode
+    $ make
+
+ 5) All the z11 programs (z11ctrl, z11dl, zz11dump, z11gui, etc) should now be
+    available on the x86_64.  They run approx 50-100x slower than on the Arm/FPGA
+    but otherwise behave the same.  For example you can run RSX or XXDP, you
+    have to be a little patient.
 
 --------
