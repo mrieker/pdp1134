@@ -378,6 +378,7 @@ void Z11Page::waitint (uint32_t mask)
 //   count = number of registers to read - 1
 //  output:
 //   returns [31:16] = 0 : success
+//                    -1 : blocked with snapblk
 //                    -2 : stuck doing snapshot
 //                    -3 : timed out reading register
 //                    -4 : parity error reading register
@@ -392,10 +393,15 @@ int Z11Page::snapregs (uint32_t addr, int count, uint16_t *regs)
     bool waslocked = dmalocked;
     if (! waslocked) dmalock ();
 
+    // see if blocked with snapblk
+    uint32_t oldky2 = ZRD(kyat[2]);
+    if (oldky2 & KY2_SNAPBLK) {
+        if (! waslocked) dmaunlk ();
+        return -1 << 16;
+    }
+
     // see if already requesting halt
     // if so, set up to restore when snapshot completes
-    uint32_t oldky2 = ZRD(kyat[2]);
-
     uint32_t ky2 = (oldky2 & (KY2_ENABLE | KY2_SR1716)) | ((oldky2 & KY2_HALTREQ) ? KY2_SNAPHLT : 0);
 
     // tell ky11.v to do the snapshot

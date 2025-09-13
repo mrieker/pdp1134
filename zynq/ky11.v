@@ -69,7 +69,7 @@ module ky11 (
     output reg sack_out_h,
     output reg ssyn_out_h);
 
-    reg dmaperr, dmatimo, enable, halted, haltins, haltreq, stepreq, snaphlt, snapreq, snapwrt;
+    reg dmaperr, dmatimo, enable, halted, haltins, haltreq, stepreq, snapblk, snaphlt, snapreq, snapwrt;
     reg[1:0] dmactrl;
     reg[2:0] dmastate, haltstate;
     reg[3:0] snapctr;
@@ -99,7 +99,8 @@ module ky11 (
                             haltins,        //17 ro processor has executed an HALT instr, ACLO/DCLO reset required to get it going
                             irqlev,         //14 rw arm can request interrupt at this level 4,5,6,7 (NOT self-clearing)
                             irqvec,         //08 rw vector to be sent when interrupt granted
-                            6'b0,           //02
+                            5'b0,           //03
+                            snapblk,        //02 rw block snap usage
                             snaphlt,        //01 rw halt on completion of snapshot (0=continue; 1=halt)
                             snapreq } :     //00 rw request snapshot of registers while processor running
                       (armraddr == 3) ? {
@@ -124,6 +125,7 @@ module ky11 (
             if (fpgaoff) begin
                 if (powerup) begin
                     dmalock <= 0;
+                    snapblk <= 0;
                 end
                 enable      <= 0;
                 halted      <= 0;
@@ -161,6 +163,7 @@ module ky11 (
                     sr1716   <= armwdata[23:22];
                     irqlev   <= armwdata[16:14];
                     irqvec   <= armwdata[13:08];
+                    snapblk  <= armwdata[02];
                     snaphlt  <= armwdata[01];
                     snapreq  <= armwdata[00];
                     snapreg  <= snapregs[armwdata[27:24]];

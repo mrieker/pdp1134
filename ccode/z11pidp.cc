@@ -636,8 +636,6 @@ static void server ()
         int rcmmr0 = z11page->snapregs (0777572, 0, &mmr0);
         if (rcmmr0 > 0) {
             leds2 |= (mmr0 & 1) ? L2_AD18 : L2_AD16;
-        } else {
-            fprintf (stderr, "z11pidp*: rcmmr0=%d.%d\n", rcmmr0 >> 16, rcmmr0 & 0xFFFF);
         }
 
         uint16_t ps;
@@ -645,8 +643,6 @@ static void server ()
         if (rcps > 0) {
             if ((ps & 0140000) == 0000000) leds2 |= L2_KERN;
             if ((ps & 0140000) == 0140000) leds2 |= L2_USER;
-        } else {
-            fprintf (stderr, "z11pidp*: rcps=%d.%d\n", rcps >> 16, rcps & 0xFFFF);
         }
 
         z11page->dmaunlk ();

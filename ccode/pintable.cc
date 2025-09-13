@@ -146,6 +146,7 @@ PinDef const pindefs[] = {
     { "ky_haltreq",      DEV_KY, 2,    0x40000000,        0, true  },
     { "ky_halted",       DEV_KY, 2,    0x20000000,        0, false },
     { "ky_stepreq",      DEV_KY, 2,    0x10000000,        0, true  },
+    { "ky_snapblk",      DEV_KY, 2,    KY2_SNAPBLK,       0, true  },
     { "ky_snapctr",      DEV_KY, 2,    KY2_SNAPCTR,       0, true  },
     { "ky_sr1716",       DEV_KY, 2,    KY2_SR1716,        0, true  },
     { "ky_haltstate",    DEV_KY, 2,    0x00380000,        0, false },

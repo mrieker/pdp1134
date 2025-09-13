@@ -230,12 +230,10 @@ public class Z11GUI extends JPanel {
                 // if processor currently running, update lights from what fpga last captured from unibus
                 if (sample_running > 0) {
                     int sample_addr = GUIZynqPage.addr ();
-                    int sample_data;
+                    int sample_data = GUIZynqPage.data ();
                     if (fpgamode == FM_REAL) {
                         int rc = GUIZynqPage.snapregs (0777700, realr0);
-                        sample_data = (rc < 0) ? rc : realr0[0];
-                    } else {
-                        sample_data = GUIZynqPage.data ();
+                        if (rc > 0) sample_data = realr0[0];
                     }
                     writeaddrleds (sample_addr);
                     writedataleds (sample_data);
