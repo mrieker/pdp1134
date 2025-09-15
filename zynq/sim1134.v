@@ -1748,7 +1748,7 @@ module sim1134 (
     // size of the memory operand for LDCyx and STCxy instructions
     wire fdmem = fd ^ (fSTCxy | fLDCyx);
 
-    wire nicemod = 0;
+    wire nicemod = 0;   // 0=bug-for-bug compatible; 1=sane
 
     // facc value rounded if enabled
     //  faccrounded[65] = overflow
@@ -1851,6 +1851,7 @@ module sim1134 (
 
                     // SRC - 'fl'-bit integer
                     else if (fLDCjx) begin
+                        fv <= 0;
                         faccexp <= fl ? 128+32 : 128+16;
                         if (instreg[05:03] == 0) begin
                             faccsgn <= gprs[dstgprx][15];
@@ -2082,6 +2083,7 @@ module sim1134 (
                     end
 
                     if (fMULx | fMODx) begin
+                        fv <= 0;
 
                         // if either operand zero, result is zero
                         if (fmemzer | facczer) begin
@@ -2091,7 +2093,6 @@ module sim1134 (
                             faccsgn <= 0;
                             faccexp <= 0;
                             faccman <= 0;
-                            fv <= 0;
                             fpust <= F_STOFLTACC;
                         end
 
@@ -2431,7 +2432,7 @@ module sim1134 (
                         //                          |       |            |
                         //                  hiddenbit       56bits       56bits
                         if (faccexp == 129) begin
-                            stomodint (faccsgn, faccexp[7:0], { ftmpman[56], 56'b0 });
+                            stomodint (faccsgn, faccexp, { ftmpman[56], 56'b0 });
                             faccexp <= 128;
                             faccman <= { ftmpman[55:00], fmemman[56] };
                         end
@@ -2442,7 +2443,7 @@ module sim1134 (
                         //                          |       |            |
                         //                  hiddenbit       56bits       56bits
                         if ((faccexp >= 130) && (faccexp <= (fd ? 184 : 152))) begin
-                            stomodint (faccsgn, faccexp[7:0],
+                            stomodint (faccsgn, faccexp,
                                     (ftmpman >> (185 - faccexp[7:0])) << (185 - faccexp[7:0]));
                             faccexp <= 128;
                             faccman <= faccmansplit[56:00];
@@ -2454,7 +2455,7 @@ module sim1134 (
                         //                          |       |             |
                         //                  hiddenbit       56bits        56bits
                         if (  fd & (faccexp >= 185)) begin
-                            stomodint (faccsgn, faccexp[7:0], { ftmpman[56:01], 1'b0 });
+                            stomodint (faccsgn, faccexp, { ftmpman[56:01], 1'b0 });
                             if (nicemod) begin
                                 // return as much as we can for fraction bits
                                 faccexp <= faccexp - 56;
@@ -2467,7 +2468,7 @@ module sim1134 (
                             end
                         end
                         if (~ fd & (faccexp >= 153)) begin
-                            stomodint (faccsgn, faccexp[7:0], { ftmpman[56:33], 33'b0 });
+                            stomodint (faccsgn, faccexp, { ftmpman[56:33], 33'b0 });
                             if (nicemod) begin
                                 // return as much as we can for fraction bits
                                 faccexp <= faccexp - 24;
@@ -2494,9 +2495,8 @@ module sim1134 (
                     // we're done if hidden bit set
                     // clear rounding bit so fraction can't round up to integer
                     if (faccman[56]) begin
-                        faccman[00] <= 0;
+                        if (nicemod) faccman[fd?00:32] <= 0;    // FFPB seems to want it rounded
                         if (faccexp[8]) foverflow ();
-                        else fv <= 0;
                         fpust <= F_STOFLTACC;
                     end
 
@@ -2505,8 +2505,7 @@ module sim1134 (
                     else if (faccman == 0) begin
                         faccsgn <= 0;
                         faccexp <= 0;
-                        fv <= 0;
-                        fpust <= F_STOFLTACC;
+                        fpust   <= F_STOFLTACC;
                     end
 
                     // need to shift more to normalize,
@@ -2528,8 +2527,8 @@ module sim1134 (
                     faccsgn <= fmemsgn;
                     faccexp <= { 2'b0, fmemexp };
                     faccman <= fmemman;
-                    fv <= 0;
-                    fpust <= F_STOFLTACC;
+                    fv      <= 0;
+                    fpust   <= F_STOFLTACC;
                 end
 
                 // align add/subtract exponents then do addition/subtraction
@@ -2819,12 +2818,19 @@ module sim1134 (
     endtask
 
     // store integer part of MODx in fac|1
-    task stomodint (input isgn, input[7:0] iexp, input[56:00] iman);
+    task stomodint (input isgn, input[9:0] iexp, input[56:00] iman);
         begin
             fsgns[fac|1] <= isgn;
-            fexps[fac|1] <= iexp;
-                    fmans[fac|1][56:33] <= iman[56:33];
-            if (fd) fmans[fac|1][32:01] <= iman[32:01];
+            if (iexp[8]) foverflow ();
+            if (~ nicemod & (iexp > 256)) begin     // FFPB wants 0 if big overflow
+                fexps[fac|1] <= 0;
+                        fmans[fac|1][56:33] <= 0;
+                if (fd) fmans[fac|1][32:01] <= 0;
+            end else begin
+                fexps[fac|1] <= iexp[7:0];
+                        fmans[fac|1][56:33] <= iman[56:33];
+                if (fd) fmans[fac|1][32:01] <= iman[32:01];
+            end
         end
     endtask
 endmodule
