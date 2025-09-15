@@ -1688,10 +1688,6 @@ module sim1134 (
 
     reg fer, fid, fiuv, fiu, fiv, fic, fd, fl, ft, fn, fz, fv, fc;
 
-    wire fiuven = fiuv & ~ fid;
-    wire fiuen  = fiu  & ~ fid;
-    wire fiven  = fiv  & ~ fid;
-
     wire fCFCC   = instreg[11:00] == 12'b000000000000;
     wire fSETF   = instreg[11:00] == 12'b000000000001;
     wire fSETI   = instreg[11:00] == 12'b000000000010;
@@ -1747,6 +1743,9 @@ module sim1134 (
 
     // size of the memory operand for LDCyx and STCxy instructions
     wire fdmem = fd ^ (fSTCxy | fLDCyx);
+
+    // read negative zero from memory with undefined variable detection enabled
+    wire readnegzer = fiuv & readdata[15] & (readdata[14:07] == 0);
 
     wire nicemod = 0;   // 0=bug-for-bug compatible; 1=sane
 
@@ -1915,7 +1914,7 @@ module sim1134 (
                         gprs[dstgprx] <= { { 9 { ~ fexps[fac][7] } }, fexps[fac][6:0] };
                     end
                     if (fLDEXPx) begin
-                        fexps[fac] <= readdata[07:00] ^ 8'o200;
+                        ldexp (readdata);
                     end
                     fpust <= F_IDLE;
                 end
@@ -1948,7 +1947,7 @@ module sim1134 (
                         ldfps (readdata);
                     end
                     if (fLDEXPx) begin
-                        fexps[fac] <= readdata[07:00] ^ 8'o200;
+                        ldexp (readdata);
                     end
                     fpust <= F_IDLE;
                 end
@@ -2002,13 +2001,15 @@ module sim1134 (
                     end
                 end
                 F_GETFLTMEM: begin
-                    if (readdata[15] & fiuven & (readdata[14:07] == 0)) begin
-                        // 'undefined variable' is reading neg zero from memory with FIUV
-                        fea     <= fpc;
-                        fec     <= FEC_UNDVAR;
-                        fer     <= 1;
+                    // 'undefined variable' is reading neg zero from memory with FIUV
+                    if (readnegzer) begin
+                        fea <= fpc;
+                        fec <= FEC_UNDVAR;
+                        fer <= 1;
+                    end
+                    if (readnegzer & ~ fid) begin
                         fpust   <= F_IDLE;
-                        if (~ fid) trapvec <= T_FPUERR;
+                        trapvec <= T_FPUERR;
                     end else begin
                         // save sign, exponent, hidden and mantissa bits we got
                         fmemsgn <= readdata[15];
@@ -2776,6 +2777,29 @@ module sim1134 (
             fz   <= value[02];
             fv   <= value[01];
             fc   <= value[00];
+        end
+    endtask
+
+    // load exponent
+    task ldexp (input[15:00] value);
+        begin
+            fexps[fac] <= value[07:00] ^ 8'o200;
+            fn <= fsgns[fac];
+            fz <= value[07:00] == 8'o200;
+            fv <= ~ value[15] & (value[14:07] != 0);
+            fc <= 0;
+            if (~ value[15] & (value[14:00] >= 15'o00200) & fiv) begin
+                fea <= fpc;
+                fec <= FEC_OVERFL;
+                fer <= 1;
+                if (~ fid) trapvec <= T_FPUERR;
+            end
+            if (  value[15] & (value[14:00] <= 15'o77600)) begin
+                fea <= fpc;
+                fec <= FEC_UNDRFL;
+                fer <= 1;
+                if (fiu & ~ fid) trapvec <= T_FPUERR;
+            end
         end
     endtask
 
