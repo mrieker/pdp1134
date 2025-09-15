@@ -73,6 +73,11 @@ Quickstart guide:
                 load boot media (RP04/6, RL01/2, TU10) with appropriate LOAD button
                 the boot menu will only boot from drive 0
 
+                load any other media files wanted.  note the gui only provides access
+                to drives 0 and 1.  to access the other drives, use the command line
+                utility, z11ctrl, rlload/rhload/tmload commands as shown under the
+                boot via command line section below.
+
                 click the BOOT button
                     (runs script guiboot.sh)
 
@@ -92,8 +97,9 @@ Quickstart guide:
             z11ctrl> probedevsandmem            ;# fill in any missing devices and memory
 
             if you do not have a real RL-11 controller or are using SIM mode,
-                rlload 0 [-readonly] somefile.rl02      ;# bootable disk image
-                rlload 1 [-readonly] otherfile.rl02     ;# as needed
+                rlload 0 [-readonly] somefile.rl02      ;# bootable disk image (can use .rl01 file)
+                rlload 1 [-readonly] otherfile.rl02     ;# as needed (can use .rl01 file)
+                    can also do drives 2 and 3
 
             or use rhload to load RP04/RP06 file, or tmload to load .tap-format tape file
 
