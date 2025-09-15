@@ -431,7 +431,7 @@ set readttychar_last 0
 proc readttychar {timoms} {
     global readttychar_last
 
-    for {set i 0} {! [ctrlcflag] && ($i < $timoms)} {incr i} {
+    for {set i 0} {! [ctrlcflag] && ! [ishalted] && ($i < $timoms)} {incr i} {
         after 1
         if {! ([pin dl_xcsr] & 0200)} {
             set by [expr {[pin dl_xbuf set dl_xcsr 0200] & 127}]
@@ -549,7 +549,7 @@ proc replytoprompt {prompt reply} {
     waitforstring $prompt
     after 300
     set rpllen [string length $reply]
-    for {set rplout 0} {! [ctrlcflag] && ($rplout < $rpllen)} {incr rplout} {
+    for {set rplout 0} {! [ctrlcflag] && ! [ishalted] && ($rplout < $rpllen)} {incr rplout} {
         flush stdout
         after 100
         set ch [string index $reply $rplout]
@@ -577,7 +577,7 @@ proc rsxdatetime {} {
 # send keyboard character to PDP
 proc sendttychar {ch} {
     for {set i 0} {[pin dl_rcsr] & 0200} {incr i} {
-        if {[ctrlcflag]} return
+        if {[ctrlcflag] || [ishalted]} return
         if {$i > 500} {error "sendttychar: keyboard stuck"}
         after 1
     }
@@ -641,7 +641,7 @@ proc vatopa {vaddr {mode cur}} {
 proc waitforcrlf {} {
     set gotcr 0
     set gotlf 0
-    while {! [ctrlcflag] && (! $gotcr || ! $gotlf)} {
+    while {! [ctrlcflag] && ! [ishalted] && (! $gotcr || ! $gotlf)} {
         set ch [readttychar 1000]
         puts -nonewline "$ch"
         if {$ch == ""} {flush stdout}
@@ -654,7 +654,7 @@ proc waitforcrlf {} {
 proc waitforstring {prompt} {
     set pmtlen [string length $prompt]
     set pmtmat 0
-    while {! [ctrlcflag] && ($pmtmat < $pmtlen)} {
+    while {! [ctrlcflag] && ! [ishalted] && ($pmtmat < $pmtlen)} {
         set ch [readttychar 1000]
         puts -nonewline "$ch"
         if {$ch == ""} {
