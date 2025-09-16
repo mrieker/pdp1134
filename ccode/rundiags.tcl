@@ -128,13 +128,11 @@ while {! [ctrlcflag]} {
     waitforstring "END PASS #     5"
     waitforcrlf
 
-    if {$fpgamode == 2} {
-        startxx FFPB??
-        waitforstring "END PASS #     5"
-        waitforcrlf
+    startxx FFPB??
+    waitforstring "END PASS #     5"
+    waitforcrlf
 
-        startxx FFPC??
-        waitforstring "END PASS #     5"
-        waitforcrlf
-    }
+    startxx FFPC??
+    waitforstring "END PASS #     5"
+    waitforcrlf
 }

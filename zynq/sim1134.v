@@ -1776,7 +1776,7 @@ module sim1134 (
                 // floatingpoint opcode was just fetched and put in instreg
                 // processor is waiting for us to set fpust <= F_IDLE for it to continue
                 F_START: begin
-                    fpc <= gprs[7] - 2;
+                    fpc <= gprs[7];
                     deferdinc  <= 0;
 
                     // copy fpu ccs to cpu ccs
@@ -1839,7 +1839,7 @@ module sim1134 (
                     else if (fSTCxj) begin
                         faccsgn <= fsgns[fac];
                         faccexp <= { 2'b0, fexps[fac] };
-                        faccman <= fmans[fac];
+                        faccman <= fmans[fac] & (fd ? 57'o7777777777777777776 : 57'o7777777700000000000);
                         if (instreg[05:03] != 0) begin
                             getopaddr <= 1;
                             getopmode <= instreg[05:00];
@@ -2252,11 +2252,11 @@ module sim1134 (
                         fc <= 1;
                         psw[03:00] <= 4'b0101;
 
-                        fea <= fpc;
-                        fec <= FEC_INTCNV;
-                        fer <= 1;
-                        if (~ fid & fic) begin
-                            trapvec <= T_FPUERR;
+                        if (fic) begin
+                            fea <= fpc;
+                            fec <= FEC_INTCNV;
+                            fer <= 1;
+                            if (~ fid) trapvec <= T_FPUERR;
                         end
                     end
 
@@ -2783,22 +2783,52 @@ module sim1134 (
     // load exponent
     task ldexp (input[15:00] value);
         begin
-            fexps[fac] <= value[07:00] ^ 8'o200;
-            fn <= fsgns[fac];
-            fz <= value[07:00] == 8'o200;
-            fv <= ~ value[15] & (value[14:07] != 0);
-            fc <= 0;
+
+            // if underflow and underflow not enabled, return an exact zero
+            if (value[15] & (value[14:00] <= 15'o77600) & ~ fiu) begin
+                fsgns[fac] <= 0;
+                fexps[fac] <= 0;
+                fmans[fac] <= 0;
+                fn <= 0;
+                fz <= 1;
+                fv <= 0;
+                fc <= 0;
+            end
+
+            // if overflow and overflow not enabled, return an exact zero
+            else if (~ value[15] & (value[14:00] >= 15'o00200) & ~ fiv) begin
+                fsgns[fac] <= 0;
+                fexps[fac] <= 0;
+                fmans[fac] <= 0;
+                fn <= 0;
+                fz <= 1;
+                fv <= 1;
+                fc <= 0;
+            end
+
+            // otherwise, update exponent and set condition codes
+            else begin
+                fexps[fac] <= value[07:00] ^ 8'o200;
+                fn <= fsgns[fac];
+                fz <= value[07:00] == 8'o200;
+                fv <= ~ value[15] & (value[14:00] >= 15'o00200);
+                fc <= 0;
+            end
+
+            // if underflow with underflow enabled, post the error
+            if (  value[15] & (value[14:00] <= 15'o77600) & fiu) begin
+                fea <= fpc;
+                fec <= FEC_UNDRFL;
+                fer <= 1;
+                if (~ fid) trapvec <= T_FPUERR;
+            end
+
+            // if overflow with overflow enabled, post the error
             if (~ value[15] & (value[14:00] >= 15'o00200) & fiv) begin
                 fea <= fpc;
                 fec <= FEC_OVERFL;
                 fer <= 1;
                 if (~ fid) trapvec <= T_FPUERR;
-            end
-            if (  value[15] & (value[14:00] <= 15'o77600)) begin
-                fea <= fpc;
-                fec <= FEC_UNDRFL;
-                fer <= 1;
-                if (fiu & ~ fid) trapvec <= T_FPUERR;
             end
         end
     endtask
