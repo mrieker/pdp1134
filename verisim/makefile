@@ -5,6 +5,7 @@ GPP    := g++ $(CFLAGS) -std=c++11 -g -Wall
 
 VFILES := \
 	myboard.v \
+	memarray.v \
 	../zynq/bigmem.v \
 	../zynq/dl11.v \
 	../zynq/dz11.v \

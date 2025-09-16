@@ -40,13 +40,7 @@ module bigmem (
     output[17:00] a_out_h,
     output reg[15:00] d_out_h,
     output reg pb_out_h,
-    output reg ssyn_out_h,
-
-    output reg[16:00] extmemaddr,
-    output reg[17:00] extmemdout,
-    input[17:00]      extmemdin,
-    output reg        extmemenab,
-    output reg[1:0]   extmemwena
+    output reg ssyn_out_h
 );
 
     reg[63:00] enable;
@@ -56,7 +50,7 @@ module bigmem (
     reg[15:00] armdata, ctlreg, brenab;
     reg armpehi, armpelo, brjamepc, brjameps, ctlenab;
 
-    assign armrdata = (armraddr == 0) ? 32'h424D2008 :          // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
+    assign armrdata = (armraddr == 0) ? 32'h424D2009 :          // [31:16] = 'BM'; [15:12] = (log2 nreg) - 1; [11:00] = version
                       (armraddr == 1) ? { enable[31:00] } :     //00 rw enable unibus access for addresses 000000..377777
                       (armraddr == 2) ? { 2'b0,                 //30
                                           enable[61:32] } :     //00 rw enable unibus access for addresses 400000..757777
@@ -83,6 +77,12 @@ module bigmem (
                                           brjama,               //16 boot rom jam addr bits
                                           brenab } :            //00 boot rom addr enables
                       32'hDEADBEEF;
+
+    reg[16:00]  extmemaddr;
+    reg[17:00]  extmemdout;
+    wire[17:00] extmemdin;
+    reg         extmemenab;
+    reg[1:0]    extmemwena;
 
     // detect error on read data coming from block ram
     wire perdinhi = ~ extmemdin[17] ^ extmemdin[16] ^ extmemdin[15] ^ extmemdin[14] ^ extmemdin[13] ^ extmemdin[12] ^ extmemdin[11] ^ extmemdin[10] ^ extmemdin[09];
@@ -271,4 +271,28 @@ module bigmem (
             default: delayline <= delayline + 1;
         endcase
     end
+
+    memarray meminst (
+        .clka (CLOCK),
+        .ena (extmemenab),
+        .wea (extmemwena),
+        .addra (extmemaddr),
+        .dina (extmemdout),
+        .douta (extmemdin)
+    );
+
+    /*
+
+ENTITY memarray IS
+  PORT (
+    clka : IN STD_LOGIC;
+    ena : IN STD_LOGIC;
+    wea : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
+    addra : IN STD_LOGIC_VECTOR(16 DOWNTO 0);
+    dina : IN STD_LOGIC_VECTOR(17 DOWNTO 0);
+    douta : OUT STD_LOGIC_VECTOR(17 DOWNTO 0)
+  );
+END memarray;
+
+    */
 endmodule

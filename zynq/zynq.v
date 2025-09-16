@@ -90,12 +90,6 @@ module Zynq (
     output reg[1:0]   c_out_h,  // control bus outputs
     output reg[15:00] d_out_h,  // data bus outputs
 
-    output[16:00] extmemaddr,
-    output[17:00] extmemdout,
-    input[17:00]  extmemdin,
-    output        extmemenab,
-    output[1:0]   extmemwena,
-
     // arm processor memory bus interface (AXI)
     // we are a slave for accessing the control registers (read and write)
     input[11:00]  saxi_ARADDR,
@@ -705,13 +699,7 @@ module Zynq (
         .a_out_h    (bm_a_out_h),
         .d_out_h    (bm_d_out_h),
         .pb_out_h   (bm_pb_out_h),
-        .ssyn_out_h (bm_ssyn_out_h),
-
-        .extmemaddr (extmemaddr),
-        .extmemdout (extmemdout),
-        .extmemdin  (extmemdin),
-        .extmemenab (extmemenab),
-        .extmemwena (extmemwena)
+        .ssyn_out_h (bm_ssyn_out_h)
     );
 
     // paper tape reader/punch

@@ -160,12 +160,7 @@ module MyBoard (
         .bus_hltgr_out_h  (fake_hltgr_h)        //>> cpu is granting an halt request
     );
 
-    // zynq board with block memory
-    wire[16:00] extmemaddr;
-    wire[17:00] extmemdout;
-    reg[17:00]  extmemdin;
-    wire        extmemenab;
-    wire[1:0]   extmemwena;
+    // zynq board
     wire        armintreq;
 
     Zynq zynq (
@@ -228,12 +223,6 @@ module MyBoard (
         .bg_out_l     (zynq_bg_l),
         .npg_out_l    (zynq_npg_l),
 
-        .extmemaddr   (extmemaddr),
-        .extmemdout   (extmemdout),
-        .extmemdin    (extmemdin),
-        .extmemenab   (extmemenab),
-        .extmemwena   (extmemwena),
-
         .saxi_ARADDR  (saxi_ARADDR),
         .saxi_ARREADY (saxi_ARREADY),
         .saxi_ARVALID (saxi_ARVALID),
@@ -254,19 +243,6 @@ module MyBoard (
         .armintreq (armintreq),
         .zgintflags (regarmintreq)
     );
-
-    // fpga block memory
-    reg[8:0] extmemhi[131071:0];
-    reg[8:0] extmemlo[131071:0];
-    always @(posedge CLOCK) begin
-        if (extmemenab) begin
-            extmemdin <= { extmemhi[extmemaddr], extmemlo[extmemaddr] };
-            if (extmemwena[1]) extmemhi[extmemaddr] <= extmemdout[17:09];
-            if (extmemwena[0]) extmemlo[extmemaddr] <= extmemdout[08:00];
-        end else begin
-            extmemdin <= 18'o615243;
-        end
-    end
 
     // plug the zynq and real pdp boards into the unibus by wire-anding the active-low outputs
     assign bus_a_l     = fake_a_l     & ~ zynq_a_h;

@@ -335,29 +335,6 @@
           "dc_lo_out_h": {
             "direction": "O"
           },
-          "extmemaddr": {
-            "direction": "O",
-            "left": "16",
-            "right": "0"
-          },
-          "extmemdin": {
-            "direction": "I",
-            "left": "17",
-            "right": "0"
-          },
-          "extmemdout": {
-            "direction": "O",
-            "left": "17",
-            "right": "0"
-          },
-          "extmemenab": {
-            "direction": "O"
-          },
-          "extmemwena": {
-            "direction": "O",
-            "left": "1",
-            "right": "0"
-          },
           "hltgr_in_l": {
             "direction": "I"
           },
@@ -672,39 +649,6 @@
         },
         "vlnv": "xilinx.com:ip:axi_interconnect:2.1",
         "xci_name": "myboard_axi_interconnect_1_0"
-      },
-      "blk_mem_gen_1": {
-        "parameters": {
-          "Byte_Size": {
-            "value": "9"
-          },
-          "Enable_32bit_Address": {
-            "value": "false"
-          },
-          "Read_Width_A": {
-            "value": "18"
-          },
-          "Register_PortA_Output_of_Memory_Primitives": {
-            "value": "true"
-          },
-          "Use_Byte_Write_Enable": {
-            "value": "true"
-          },
-          "Use_RSTA_Pin": {
-            "value": "false"
-          },
-          "Write_Depth_A": {
-            "value": "131072"
-          },
-          "Write_Width_A": {
-            "value": "18"
-          },
-          "use_bram_block": {
-            "value": "Stand_Alone"
-          }
-        },
-        "vlnv": "xilinx.com:ip:blk_mem_gen:8.4",
-        "xci_name": "myboard_blk_mem_gen_1_0"
       },
       "processing_system7_0": {
         "parameters": {
@@ -1761,7 +1705,6 @@
           "auto_pc": ""
         }
       },
-      "blk_mem_gen_1": "",
       "processing_system7_0": ""
     },
     "interface_nets": {
@@ -1929,30 +1872,6 @@
           "dc_lo_out_h_0"
         ]
       },
-      "Zynq_0_extmemaddr": {
-        "ports": [
-          "Zynq_0/extmemaddr",
-          "blk_mem_gen_1/addra"
-        ]
-      },
-      "Zynq_0_extmemdout": {
-        "ports": [
-          "Zynq_0/extmemdout",
-          "blk_mem_gen_1/dina"
-        ]
-      },
-      "Zynq_0_extmemenab": {
-        "ports": [
-          "Zynq_0/extmemenab",
-          "blk_mem_gen_1/ena"
-        ]
-      },
-      "Zynq_0_extmemwena": {
-        "ports": [
-          "Zynq_0/extmemwena",
-          "blk_mem_gen_1/wea"
-        ]
-      },
       "Zynq_0_hltrq_out_h": {
         "ports": [
           "Zynq_0/hltrq_out_h",
@@ -2047,12 +1966,6 @@
         "ports": [
           "bg_in_l_0",
           "Zynq_0/bg_in_l"
-        ]
-      },
-      "blk_mem_gen_1_douta": {
-        "ports": [
-          "blk_mem_gen_1/douta",
-          "Zynq_0/extmemdin"
         ]
       },
       "dc_lo_in_h_0_1": {
@@ -2187,7 +2100,6 @@
           "axi_interconnect_1/S00_ACLK",
           "axi_interconnect_1/M00_ACLK",
           "axi_interconnect_1/ACLK",
-          "blk_mem_gen_1/clka",
           "processing_system7_0/M_AXI_GP0_ACLK",
           "SyncReset_0/CLOCK",
           "Zynq_0/CLOCK"
