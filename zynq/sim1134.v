@@ -1722,6 +1722,7 @@ module sim1134 (
 
     wire[57:00] faccrndup = { 1'b0, faccman } + (fd ? 58'o00000000000000000001 : 58'o00000000040000000000);
     wire[57:00] fdivdiff  = { fovf, faccman } - { 1'b0, fmemman };
+    wire[56:00] fdivstep  = fd ? { ftmpman[55:00], ~ fdivdiff[57] } : { ftmpman[55:32], ~ fdivdiff[57], 32'b0 };
 
     localparam[3:0] FEC_ILLOP  =  2;
     localparam[3:0] FEC_DIVBY0 =  4;
@@ -2355,9 +2356,9 @@ module sim1134 (
                 //   end loop2:    1.010      001      111      2
                 //   end loop3:    1.100      000      111      -
                 F_MULSTEP: begin
-                    { fovf, ftmpman } <= { 1'b0, fovf, ftmpman[56:01] } + { 1'b0, (fmemman[00] ? faccman : 57'b0) };
+                    { fovf, ftmpman } <= { 1'b0, fovf, ftmpman[56:01] } + { 1'b0, (fmemman[fd?00:32] ? faccman : 57'b0) };
                     fmemman <= { ftmpman[00], fmemman[56:01] };
-                    if (fcount != 56) begin
+                    if (fcount != (fd ? 56 : 24)) begin
                         fcount <= fcount + 1;
                     end else begin
                         fpust <= F_MULDONE;
@@ -2648,20 +2649,23 @@ module sim1134 (
 
                 F_DIVSTEP: begin
                     { fovf, faccman } <= { (fdivdiff[57] ? faccman : fdivdiff[56:00]), 1'b0 };
-                            ftmpman   <= { ftmpman[55:00], ~ fdivdiff[57] };
-                    if (fcount != 56) begin
+                    ftmpman <= fdivstep;                // shift quotient bit in bottom of ftmpman
+                    if (fcount != (fd ? 56 : 24)) begin
                         fcount <= fcount + 1;
                     end else begin
                         fpust <= F_DIVDONE;
                     end
                 end
 
+                // faccsgn = sign
+                // faccexp = exponent
+                // ftmpman = mantissa
                 F_DIVDONE: begin
 
                     // if hidden bit is clear, shift mantissa left and decrement exponent
                     // should only have to shift one bit cuz min val / max val = 01...
                     if (~ ftmpman[56]) begin
-                        ftmpman <= { ftmpman[55:00], ~ fdivdiff[57] };
+                        ftmpman <= fdivstep;            // shift quotient bit in bottom of ftmpman
                         faccexp <= faccexp - 1;
                     end
 
