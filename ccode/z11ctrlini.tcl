@@ -245,12 +245,16 @@ proc enabmem {{size 0760000}} {
 
 # continue processing
 proc flickcont {} {
-    pin set ky_haltreq 0
+    lockdma                 ;# make sure nothing (like snapregs) messing with halt lines
+    pin set ky_haltreq 0    ;# release halt request going to processor
+    unlkdma                 ;# all done with halt lines
 }
 
 # halt processor
 proc flickhalt {} {
-    pin set ky_haltreq 1
+    lockdma                 ;# make sure nothing (like snapregs) messing with halt lines
+    pin set ky_haltreq 1    ;# send halt request to processor
+    unlkdma                 ;# all done with halt lines
     for {set i 0} {! [ishalted]} {incr i} {
         if {$i > 1000} {
             error "flickhalt: processor did not halt"
@@ -270,7 +274,9 @@ proc flickstart {pc {ps 0340}} {
 # single step one instruction then return PC
 # - can also be used as an halt
 proc flickstep {} {
-    pin set ky_stepreq 1
+    lockdma                 ;# make sure nothing (like snapregs) messing with halt lines
+    pin set ky_stepreq 1    ;# release halt request going to processor just until it starts up
+    unlkdma                 ;# all done with halt lines
     for {set i 0} {[pin ky_stepreq] || ! [ishalted]} {incr i} {
         if {$i > 1000} {
             error "flickstep: processor did not step"
@@ -447,7 +453,7 @@ proc readttychar {timoms} {
 
 # read a byte from unibus via dma (ky11.v)
 proc rdbyte {addr} {
-    if {($addr < 0) || ($addr > 0777777)} {
+    if {($addr < 0) || ($addr > 0777777) || (($addr & 0777760) == 0777700)} {
         error "rdbyte: bad address $addr"
         error [format "rdbyte: bad address %o" $addr]
     }
@@ -519,26 +525,13 @@ proc rdwordtimo {addr} {
 # reads starting at 000000 up to 0760000 in 4KB increments
 # ...until a bus timeout occurs
 proc realmem {} {
-    # make sure nothing else futzing with ky_dma... pins
-    lockdma
     # turn off all bigmem.v memory pages
     pin set bm_enablo 0 bm_enabhi 0
     # loop through addresses, 4KB at a time
     for {set addr 0} {$addr < 0760000} {incr addr 01000} {
-        # tell ky11.v to try to read word from $addr
-        pin set ky_dmaaddr $addr ky_dmactrl 0 ky_dmastate 1
-        # it should always complete the cycle, one way or the other
-        for {set i 0} {[set dmastate [pin ky_dmastate]] != 0} {incr i} {
-            if {$i > 1000} {
-                unlkdma
-                error "realmem: dmastate stuck at $dmastate"
-            }
-        }
-        # if timeout, reached end of memory
-        if {[pin ky_dmatimo]} break
+        set rc [rdwordtimo $addr]
+        if {$rc == -1} break
     }
-    # tell others we're done with ky_dma... pins
-    unlkdma
     # return size found
     return $addr
 }
@@ -669,7 +662,7 @@ proc waitforstring {prompt} {
 
 # write a byte to unibus via dma (ky11.v)
 proc wrbyte {addr data} {
-    if {($addr < 0) || ($addr > 0777777)} {
+    if {($addr < 0) || ($addr > 0777777) || (($addr & 0777760) == 0777700)} {
         error [format "wrbyte: bad address %o" $addr]
     }
     if {($data < 0) || ($data > 0377)} {
