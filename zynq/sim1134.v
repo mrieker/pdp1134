@@ -1452,13 +1452,14 @@ module sim1134 (
                 // - start pushing old PS onto new stack
                 //   unless powering up, then just use new PC and PS
                 S_TRAP3: begin
-                    dstval <= readdata;
                     if (nopushpspc) begin
                         nopushpspc <= 0;
+                        psw        <= readdata;
                         state      <= S_TRAP5;
                     end else begin
                         gprs[gprx(readdata[15:14],6)] <= gprs[gprx(readdata[15:14],6)] - 2;
                         doreloc    <= mmr0[00];
+                        dstval     <= readdata;
                         membyte    <= 0;
                         memfunc    <= MF_WR;
                         memmode    <= readdata[15:14];
