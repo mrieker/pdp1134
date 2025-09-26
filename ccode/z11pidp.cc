@@ -411,11 +411,11 @@ static void server ()
     int      bootpid    = -1;       // boot process id
     int      ignorerot  = 0;        // ignore rotary switches for this many cycles
     int      oldrown    = 0;        // debounce switch index
-    int      testled    = 0;        // which led is being tested with lamp test switch
     uint16_t leds2      = 0;        // status leds
     uint16_t memorydata = 0;        // data display leds
     uint32_t ldphysaddr = 0;        // equivalent physical address
     uint32_t loadedaddr = 0;        // address display leds
+    uint32_t testled    = 0;        // which led is being tested with lamp test switch
     uint64_t recvseq    = 0;        // filter out duplicate udp receives
 
 #define NOLDROWS 4                  // number of old readings to save for debouncing
@@ -649,14 +649,20 @@ static void server ()
 
         // fill in leds from fpga state
         if (! (pidpmsg.rows[2] & R2_TEST_)) {
-            pidpmsg.leds[0] = ((testled >=  0) && (testled < 12)) ? (1U <<  testled)       : 0;
-            pidpmsg.leds[1] = ((testled >= 12) && (testled < 22)) ? (1U << (testled - 12)) : 0;
-            pidpmsg.leds[2] = ((testled >= 22) && (testled < 34)) ? (1U << (testled - 22)) : 0;
-            pidpmsg.leds[3] = ((testled >= 34) && (testled < 46)) ? (1U << (testled - 34)) : 0;
-            pidpmsg.leds[4] = ((testled >= 46) && (testled < 58)) ? (1U << (testled - 46)) : 0;
-            pidpmsg.leds[5] = ((testled >= 58) && (testled < 64)) ? (1U << (testled - 52)) : 0;
-            if (++testled == 64) testled = 0;
+            memset (pidpmsg.leds, 0, sizeof pidpmsg.leds);
+            for (uint32_t i = 0; i <= testled / 64; i ++) {
+                uint32_t tled = (testled + i) % 64;
+                pidpmsg.leds[0] |= ((tled >=  0) && (tled < 12)) ? (1U <<  tled)       : 0;
+                pidpmsg.leds[1] |= ((tled >= 12) && (tled < 22)) ? (1U << (tled - 12)) : 0;
+                pidpmsg.leds[2] |= ((tled >= 22) && (tled < 34)) ? (1U << (tled - 22)) : 0;
+                pidpmsg.leds[3] |= ((tled >= 34) && (tled < 46)) ? (1U << (tled - 34)) : 0;
+                pidpmsg.leds[4] |= ((tled >= 46) && (tled < 58)) ? (1U << (tled - 46)) : 0;
+                pidpmsg.leds[5] |= ((tled >= 58) && (tled < 64)) ? (1U << (tled - 52)) : 0;
+            }
+            if (++ testled == 63*64) testled = 0;
         } else {
+            if (testled > 0) -- testled;
+
             uint16_t data  = 0;
             uint16_t leds4 = 0;
             uint16_t leds5 = 0;
